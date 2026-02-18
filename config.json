@@ -1,0 +1,9 @@
+{
+    "db_path": "J:/PIONEER/Master/master.db",
+    "interval_s": 10,
+    "hotkey_move_up": "ctrl+shift+up",
+    "hotkey_move_down": "ctrl+shift+down",
+    "bring_to_front_on_hotkey": true,
+    "youtube_api_key": "AIzaSyDtJBZXg7ZW7j1Jpk4F2_bHaPb6uVKZMWE",
+    "youtube_search_template": "%tracktitle% %comment%"
+}

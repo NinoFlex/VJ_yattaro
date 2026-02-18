@@ -55,47 +55,13 @@ class RightTableView(QTableView):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # 外観を標準のライトテーマにリセット
+        # 基本設定
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.verticalHeader().setVisible(False)
         self.setSelectionBehavior(QTableView.SelectRows)
         self.setSelectionMode(QTableView.SingleSelection)
         self.setAlternatingRowColors(True)
         self.setShowGrid(True)
-        self.setGridStyle(Qt.SolidLine)
-        
-        # スタイルシート（ライトテーマ用）
-        self.setStyleSheet("""
-            QTableView {
-                background-color: #ffffff;
-                alternate-background-color: #f9f9f9;
-                color: #000000;
-                gridline-color: #eeeeee;
-                selection-background-color: #0078d7;
-                selection-color: #ffffff;
-                border: none;
-                outline: none;
-                font-family: 'Meiryo UI', 'MS Gothic', sans-serif;
-            }
-            QTableView::item {
-                color: #000000; /* 文字色を黒に固定 */
-                padding: 4px;
-                border-bottom: 1px solid #eeeeee;
-            }
-            QTableView::item:selected {
-                background-color: #0078d7;
-                color: #ffffff;
-            }
-            QHeaderView::section {
-                background-color: #f0f0f0;
-                color: #333333;
-                padding: 6px;
-                border: none;
-                border-bottom: 1px solid #cccccc;
-                font-weight: bold;
-                text-align: left;
-            }
-        """)
         
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -105,5 +71,21 @@ class RightTableView(QTableView):
         # データがある場合、デフォルトで最初の行を選択
         if model.rowCount() > 0:
             self.selectRow(0)
-        
-        # データ変更時に選択状態を維持・調整するロジックは必要に応じて追加
+    
+    def keyPressEvent(self, event):
+        """キーイベント処理"""
+        if (event.key() == Qt.Key_Up or event.key() == Qt.Key_Down):
+            # 上下矢印キーで選択移動（修飾キーなしの場合のみ）
+            if not (event.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier | Qt.AltModifier)):
+                current_row = self.currentIndex().row()
+                if event.key() == Qt.Key_Up and current_row > 0:
+                    self.selectRow(current_row - 1)
+                    print(f"RightTableView: Moved selection from {current_row} to {current_row-1} (arrow key)")
+                elif event.key() == Qt.Key_Down and current_row < self.model().rowCount() - 1:
+                    self.selectRow(current_row + 1)
+                    print(f"RightTableView: Moved selection from {current_row} to {current_row+1} (arrow key)")
+                return
+        else:
+            # その他のキーは無視してグローバルホットキーに委譲
+            event.ignore()
+            super().keyPressEvent(event)
