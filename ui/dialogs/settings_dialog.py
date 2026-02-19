@@ -146,6 +146,7 @@ class SettingsDialog(QDialog):
         self.player_port_spin.setValue(int(self.config_service.get("player_port", 8080)))
         self.always_on_top_checkbox.setChecked(bool(self.config_service.get("always_on_top", False)))
         self.bring_to_front_on_hotkey_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_hotkey", True)))
+        self.bring_to_front_on_search_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_search", False)))
         self.bring_to_back_delay_spin.setValue(int(self.config_service.get("bring_to_back_delay_s", 3)))
         self._sync_window_placement_mode_ui()
         self.hotkey_up_edit.setText(self.config_service.get("hotkey_move_up", "ctrl+shift+up"))
@@ -202,6 +203,7 @@ class SettingsDialog(QDialog):
 
         self.always_on_top_checkbox = QCheckBox("常に最前面表示する")
         self.bring_to_front_on_hotkey_checkbox = QCheckBox("ホットキー入力されたときに最前面表示し、しばらくしたら最背面に移動")
+        self.bring_to_front_on_search_checkbox = QCheckBox("検索が完了したら最前面にする")
 
         delay_row = QHBoxLayout()
         delay_row.addWidget(QLabel("最前面にある時間"))
@@ -213,11 +215,13 @@ class SettingsDialog(QDialog):
 
         window_layout.addWidget(self.always_on_top_checkbox)
         window_layout.addWidget(self.bring_to_front_on_hotkey_checkbox)
+        window_layout.addWidget(self.bring_to_front_on_search_checkbox)
         window_layout.addLayout(delay_row)
 
         # 排他制御
         self.always_on_top_checkbox.stateChanged.connect(self._sync_window_placement_mode_ui)
         self.bring_to_front_on_hotkey_checkbox.stateChanged.connect(self._sync_window_placement_mode_ui)
+        self.bring_to_front_on_search_checkbox.stateChanged.connect(self._sync_window_placement_mode_ui)
 
         layout.addRow(window_group)
         
@@ -227,19 +231,30 @@ class SettingsDialog(QDialog):
         """ウィンドウ配置モード（排他）のUI状態を同期"""
         always_on_top = self.always_on_top_checkbox.isChecked()
         hotkey_front = self.bring_to_front_on_hotkey_checkbox.isChecked()
+        search_front = self.bring_to_front_on_search_checkbox.isChecked()
 
-        # 排他処理（両方ONは禁止）
-        if always_on_top and hotkey_front:
+        # 排他処理（常に最前面と他のオプションは同時にON不可）
+        if always_on_top and (hotkey_front or search_front):
             # シグナルを一時的に無効化して相互に排他
             sender = self.sender()
             if sender == self.always_on_top_checkbox:
-                # always_on_topが変更された場合、hotkey_frontをOFF
+                # always_on_topが変更された場合、他をOFF
                 self.bring_to_front_on_hotkey_checkbox.blockSignals(True)
                 self.bring_to_front_on_hotkey_checkbox.setChecked(False)
                 self.bring_to_front_on_hotkey_checkbox.blockSignals(False)
+                self.bring_to_front_on_search_checkbox.blockSignals(True)
+                self.bring_to_front_on_search_checkbox.setChecked(False)
+                self.bring_to_front_on_search_checkbox.blockSignals(False)
                 hotkey_front = False
+                search_front = False
             elif sender == self.bring_to_front_on_hotkey_checkbox:
                 # hotkey_frontが変更された場合、always_on_topをOFF
+                self.always_on_top_checkbox.blockSignals(True)
+                self.always_on_top_checkbox.setChecked(False)
+                self.always_on_top_checkbox.blockSignals(False)
+                always_on_top = False
+            elif sender == self.bring_to_front_on_search_checkbox:
+                # search_frontが変更された場合、always_on_topをOFF
                 self.always_on_top_checkbox.blockSignals(True)
                 self.always_on_top_checkbox.setChecked(False)
                 self.always_on_top_checkbox.blockSignals(False)
@@ -482,6 +497,7 @@ class SettingsDialog(QDialog):
 
         always_on_top = self.always_on_top_checkbox.isChecked()
         bring_to_front_on_hotkey = self.bring_to_front_on_hotkey_checkbox.isChecked()
+        bring_to_front_on_search = self.bring_to_front_on_search_checkbox.isChecked()
         bring_to_back_delay_s = int(self.bring_to_back_delay_spin.value())
         
         hotkey_up = self.hotkey_up_edit.text()
@@ -497,7 +513,7 @@ class SettingsDialog(QDialog):
         print(f"Settings: Saving DB Path: {db_path}, Interval: {interval}")
         print(f"Settings: Saving Hotkeys - Up: {hotkey_up}, Down: {hotkey_down}, Left: {hotkey_left}, Right: {hotkey_right}")
         print(f"Settings: Saving YouTube Hotkeys - Preload: {hotkey_preload}, Play: {hotkey_play}, Search: {hotkey_search}")
-        print(f"Settings: Saving Window Placement - AlwaysOnTop: {always_on_top}, HotkeyFront: {bring_to_front_on_hotkey}, DelayS: {bring_to_back_delay_s}")
+        print(f"Settings: Saving Window Placement - AlwaysOnTop: {always_on_top}, HotkeyFront: {bring_to_front_on_hotkey}, SearchFront: {bring_to_front_on_search}, DelayS: {bring_to_back_delay_s}")
         print(f"Settings: Saving YouTube API Key: {'*' * len(youtube_api_key) if youtube_api_key else '(empty)'}")
         print(f"Settings: Saving YouTube Search Template: {youtube_search_template}")
         
@@ -507,6 +523,7 @@ class SettingsDialog(QDialog):
             "player_port": player_port,
             "always_on_top": always_on_top,
             "bring_to_front_on_hotkey": bring_to_front_on_hotkey,
+            "bring_to_front_on_search": bring_to_front_on_search,
             "bring_to_back_delay_s": bring_to_back_delay_s,
             "hotkey_move_up": hotkey_up,
             "hotkey_move_down": hotkey_down,

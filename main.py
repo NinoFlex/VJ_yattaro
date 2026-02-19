@@ -520,6 +520,13 @@ class MainWindow(QMainWindow):
             if delay_ms > 0:
                 self._bring_to_back_timer.start(delay_ms)
 
+    def _schedule_bring_to_back(self, delay_seconds):
+        """指定時間後にウィンドウを最背面に移動するタイマーを設定"""
+        delay_ms = max(0, delay_seconds) * 1000
+        if delay_ms > 0:
+            self._bring_to_back_timer.start(delay_ms)
+            print(f"UI: Scheduled bring to back in {delay_seconds} seconds")
+
     def _send_to_back(self):
         """ウィンドウを最背面へ移動する（モード2用）"""
         try:
@@ -787,6 +794,11 @@ class MainWindow(QMainWindow):
             self.left_pane.clear_results()
             return
         
+        # 設定に応じてウィンドウを最前面に表示（ホットキーと同じ実装）
+        if self.config_service.get("bring_to_front_on_search", False):
+            self._bring_to_front()
+            print("UI: Brought window to front after search completion")
+        
         # サムネイルを読み込む
         processed_videos = []
         for video in videos:
@@ -807,6 +819,11 @@ class MainWindow(QMainWindow):
         # 左ペインに結果を表示
         self.left_pane.set_search_results(processed_videos)
         print(f"UI: Found {len(processed_videos)} YouTube videos")
+        
+        # ホットキー設定が有効な場合、指定時間後に最背面に移動
+        if self.config_service.get("bring_to_front_on_hotkey", True) and self.config_service.get("bring_to_front_on_search", False):
+            delay_seconds = int(self.config_service.get("bring_to_back_delay_s", 3))
+            self._schedule_bring_to_back(delay_seconds)
     
     def on_youtube_search_error(self, error_message):
         """YouTube検索エラー時のコールバック"""
