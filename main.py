@@ -252,10 +252,10 @@ class MainWindow(QMainWindow):
                 return
 
             # サーバー配下の player.html を開き、デフォルト再生動画IDをクエリで渡す
-            # 例: http://127.0.0.1:8080/player.html?defaultVideoId=xxxx
+            # 例: http://localhost:8080/player.html?defaultVideoId=xxxx
             port = int(self.config_service.get("player_port", 8080))
             default_video_id = "eyUUHfVm8Ik"
-            url = f"http://127.0.0.1:{port}/player.html?defaultVideoId={default_video_id}"
+            url = f"http://localhost:{port}/player.html?defaultVideoId={default_video_id}"
             webbrowser.open(url, new=1, autoraise=True)
             self._player_browser_opened = True
             print(f"UI: Opened player in browser: {url}")

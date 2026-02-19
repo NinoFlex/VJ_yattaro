@@ -244,7 +244,7 @@ class PlayerCommandHandler(BaseHTTPRequestHandler):
 class PlayerHttpServer:
     """YouTubeプレイヤー用HTTPサーバー"""
     
-    def __init__(self, host='127.0.0.1', port=8080):
+    def __init__(self, host='localhost', port=8080):
         self.host = host
         self.port = port
         self.server = None
@@ -364,7 +364,7 @@ def get_player_server():
     return player_server
 
 
-def start_player_server(host='127.0.0.1', port=8080):
+def start_player_server(host='localhost', port=8080):
     """プレイヤーサーバーを起動"""
     server = get_player_server()
     server.host = host

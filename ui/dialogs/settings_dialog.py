@@ -241,7 +241,7 @@ class SettingsDialog(QDialog):
     def _update_player_url(self):
         """プレイヤーURLを更新"""
         port = self.player_port_spin.value()
-        url = f"http://127.0.0.1:{port}/player.html"
+        url = f"http://localhost:{port}/player.html"
         self.player_url_label.setText(url)
         
     def _copy_player_url(self):

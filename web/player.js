@@ -10,7 +10,7 @@ class VJPlayer {
         this.isReady = { A: false, B: false };
         this.pollingInterval = null;
         // 接続先ポートは、読み込んでいるページ（player.html）のポートに追従
-        // 例: http://127.0.0.1:8080/player.html → 8080
+        // 例: http://localhost:8080/player.html → 8080
         const pagePort = window.location.port ? parseInt(window.location.port, 10) : 80;
         this.pollingPort = Number.isFinite(pagePort) ? pagePort : 8080;
         this.pollingUrl = `${window.location.protocol}//${window.location.hostname}:${this.pollingPort}/poll`;
@@ -18,7 +18,7 @@ class VJPlayer {
         
         // デフォルト動画（起動時に自動再生）
         // player側で固定値を持たず、ツール側が player.html のクエリで渡す
-        // 例: http://127.0.0.1:8080/player.html?defaultVideoId=xxxxxxxxxxx
+        // 例: http://localhost:8080/player.html?defaultVideoId=xxxxxxxxxxx
         this.defaultVideoId = this.getDefaultVideoIdFromQuery();
 
         // エラーループ抑止
