@@ -1,9 +1,9 @@
 import sys
 import webbrowser
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QEvent
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
-    QFrame, QPushButton, QLabel
+    QFrame, QPushButton, QLabel, QLineEdit
 )
 from ui.widgets.right_table_view import RightTableView, RightTableModel
 
@@ -132,10 +132,37 @@ class MainWindow(QMainWindow):
         self.left_pane.setFocusPolicy(Qt.StrongFocus)
 
         # 右ペイン
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(5)
+        
+        # YouTube検索ボックス
+        from PySide6.QtWidgets import QLineEdit
+        self.youtube_search_box = QLineEdit()
+        self.youtube_search_box.setPlaceholderText("YouTube検索 (Enterで実行)")
+        self.youtube_search_box.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 12px;
+                background-color: white;
+            }
+            QLineEdit:focus {
+                border: 2px solid #4CAF50;
+            }
+        """)
+        self.youtube_search_box.returnPressed.connect(self.search_youtube_from_box)
+        right_layout.addWidget(self.youtube_search_box)
+        
+        # 右テーブル
         self.right_table = RightTableView()
         # テーブル周囲の枠線設定
         self.right_table.setStyleSheet("border: 1px solid #ddd; border-radius: 4px;")
-        content_layout.addWidget(self.right_table, 2)
+        right_layout.addWidget(self.right_table)
+        
+        content_layout.addWidget(right_container, 2)
         
         # 右テーブルにもフォーカスを設定
         self.right_table.setFocusPolicy(Qt.StrongFocus)
@@ -200,6 +227,9 @@ class MainWindow(QMainWindow):
         # 状態フィードバック用のコールバックを設定
         self.player_server.set_state_callback(self._handle_player_feedback)
         print("UI: Player HTTP server started")
+
+        # イベントフィルターをインストール（フォーカス管理用）
+        self.installEventFilter(self)
 
         # 起動時にプレイヤー（player.html）を既定ブラウザで開く
         self._player_browser_opened = False
@@ -579,6 +609,21 @@ class MainWindow(QMainWindow):
         else:
             print("UI: Player server not available for preload")
     
+    def search_youtube_from_box(self):
+        """検索ボックスからYouTube検索を実行"""
+        search_text = self.youtube_search_box.text().strip()
+        if not search_text:
+            print("UI: Empty search text")
+            return
+        
+        print(f"UI: Searching YouTube from search box: {search_text}")
+        
+        # 検索ボックスのフォーカスを外す
+        self.youtube_search_box.clearFocus()
+        
+        # YouTube検索を実行
+        self.search_youtube(search_text, "", "")
+    
     def play_current_video(self):
         """現在選択中のYouTube動画を再生（Shift+Enter）"""
         # 設定に応じてウィンドウを最前面に表示
@@ -610,7 +655,7 @@ class MainWindow(QMainWindow):
         # - それ以外はプリロード開始→ready 到達次第自動再生
         is_selected_ready = (self.youtube_video_state == 'ready' and self.preloaded_video_id == video_id)
         print(f"UI: Current state: {self.youtube_video_state}, preloaded_video_id: {self.preloaded_video_id}, selected video: {video_id}")
-
+        
         if is_selected_ready:
             print(f"UI: Video is ready, playing immediately (play hotkey): {video_id}")
             if hasattr(self, 'player_server') and self.player_server:
@@ -977,8 +1022,45 @@ class MainWindow(QMainWindow):
             print(f"UI: Sent PRELOAD command for video: {video_id}")
         else:
             print("UI: Player server not available for preload")
+    
+    def closeEvent(self, event):
+        """アプリ終了時のクリーンアップ"""
+        try:
+            print("UI: Cleaning up on application exit...")
+            
+            # ホットキーサービスの停止
+            if hasattr(self, 'hotkey_service'):
+                self.hotkey_service.stop_health_check()
+                self.hotkey_service.unregister_all()
+                print("UI: Hotkey service stopped")
+            
+            # プレイヤーサーバーの停止
+            if hasattr(self, 'player_server'):
+                self.player_server.stop()
+                print("UI: Player server stopped")
+            
+            # DB接続の終了
+            if hasattr(self, 'rekordbox_service'):
+                self.rekordbox_service.close()
+                print("UI: Rekordbox service closed")
+            
+            event.accept()
+            
+        except Exception as e:
+            print(f"UI: Error during cleanup: {e}")
+            event.accept()  # エラーがあっても終了する
 
 
+
+def eventFilter(self, obj, event):
+        """イベントフィルター - 検索ボックス以外のフォーカスで検索ボックスのフォーカスを外す"""
+        if event.type() == QEvent.FocusIn:
+            # 検索ボックス以外にフォーカスが移ったら検索ボックスのフォーカスを外す
+            if obj != self.youtube_search_box and self.youtube_search_box.hasFocus():
+                self.youtube_search_box.clearFocus()
+                print("UI: Cleared search box focus due to focus change")
+        
+        return super().eventFilter(obj, event)
 
 def main():
     try:

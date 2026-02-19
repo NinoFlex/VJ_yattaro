@@ -37,7 +37,7 @@ class YouTubeSearchThread(QThread):
             'part': 'snippet',
             'q': self.query,
             'type': 'video',
-            'maxResults': 10,  # より多く取得してフィルタリング
+            'maxResults': 20,  # より多く取得してフィルタリング
             'key': self.api_key
             # videoDurationパラメータを削除してすべての動画を取得
         }
@@ -80,7 +80,7 @@ class YouTubeSearchThread(QThread):
         if video_ids:
             videos = self._filter_shorts(videos, video_ids)
         
-        return videos[:10]  # 上位10件を返す
+        return videos[:20]  # 上位20件を返す
     
     def _filter_shorts(self, videos: List[Dict], video_ids: List[str]) -> List[Dict]:
         """ショート動画をフィルタリング"""

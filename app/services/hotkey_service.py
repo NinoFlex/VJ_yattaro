@@ -1,5 +1,7 @@
 import keyboard
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QTimer
+import threading
+import time
 
 class HotkeyService(QObject):
     """
@@ -28,6 +30,10 @@ class HotkeyService(QObject):
         super().__init__()
         self._initialized = True
         self._registered_hotkeys = []
+        self._last_hotkey_configs = {}
+        self._health_check_timer = QTimer()
+        self._health_check_timer.timeout.connect(self._health_check)
+        self._health_check_timer.start(30000)  # 30秒ごとにチェック
     
     def register_hotkeys(self, hotkey_move_up, hotkey_move_down, hotkey_move_left=None, hotkey_move_right=None, hotkey_preload=None, hotkey_play=None, hotkey_search=None):
         """
@@ -42,6 +48,17 @@ class HotkeyService(QObject):
             hotkey_play: 再生するホットキー (例: "shift+enter")
             hotkey_search: 検索するホットキー (例: "ctrl+shift+enter")
         """
+        # 設定を保存
+        self._last_hotkey_configs = {
+            'up': hotkey_move_up,
+            'down': hotkey_move_down,
+            'left': hotkey_move_left,
+            'right': hotkey_move_right,
+            'preload': hotkey_preload,
+            'play': hotkey_play,
+            'search': hotkey_search
+        }
+        
         # 既存のホットキーを解除
         self.unregister_all()
         
@@ -94,6 +111,51 @@ class HotkeyService(QObject):
                 
         except Exception as e:
             print(f"HotkeyService: Error registering hotkeys: {e}")
+    
+    def _health_check(self):
+        """ホットキーのヘルスチェックと再登録"""
+        try:
+            # 登録されているホットキー数をチェック
+            if len(self._registered_hotkeys) == 0:
+                print("HotkeyService: No hotkeys registered, attempting to re-register...")
+                self._reregister_hotkeys()
+                return
+            
+            # keyboardライブラリの状態をチェック
+            if not hasattr(keyboard, '_listener') or keyboard._listener is None:
+                print("HotkeyService: Keyboard listener is dead, restarting...")
+                self._reregister_hotkeys()
+                
+        except Exception as e:
+            print(f"HotkeyService: Health check failed: {e}")
+            self._reregister_hotkeys()
+    
+    def _reregister_hotkeys(self):
+        """保存された設定でホットキーを再登録"""
+        if not self._last_hotkey_configs:
+            print("HotkeyService: No saved hotkey configurations")
+            return
+        
+        try:
+            print("HotkeyService: Re-registering hotkeys...")
+            self.unregister_all()
+            time.sleep(0.2)
+            
+            configs = self._last_hotkey_configs
+            self.register_hotkeys(
+                configs['up'], configs['down'], configs['left'], configs['right'],
+                configs['preload'], configs['play'], configs['search']
+            )
+            print("HotkeyService: Hotkeys re-registered successfully")
+            
+        except Exception as e:
+            print(f"HotkeyService: Failed to re-register hotkeys: {e}")
+    
+    def stop_health_check(self):
+        """ヘルスチェックタイマーを停止"""
+        if self._health_check_timer.isActive():
+            self._health_check_timer.stop()
+            print("HotkeyService: Health check timer stopped")
     
     def unregister_all(self):
         """登録されているすべてのホットキーを解除する"""

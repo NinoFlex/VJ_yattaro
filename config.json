@@ -1,9 +1,17 @@
 {
     "db_path": "J:/PIONEER/Master/master.db",
     "interval_s": 10,
-    "hotkey_move_up": "ctrl+shift+up",
-    "hotkey_move_down": "ctrl+shift+down",
+    "hotkey_move_up": "8",
+    "hotkey_move_down": "2",
+    "hotkey_move_left": "4",
+    "hotkey_move_right": "6",
     "bring_to_front_on_hotkey": true,
+    "always_on_top": false,
+    "bring_to_back_delay_s": 3,
+    "player_port": 8080,
     "youtube_api_key": "AIzaSyDtJBZXg7ZW7j1Jpk4F2_bHaPb6uVKZMWE",
-    "youtube_search_template": "%tracktitle% %comment%"
+    "youtube_search_template": "%tracktitle% %comment%",
+    "hotkey_preload": "-",
+    "hotkey_play": "+",
+    "hotkey_search": "*"
 }

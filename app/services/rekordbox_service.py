@@ -98,9 +98,14 @@ class RekordboxService:
             finally:
                 self.db = None
 
-    def get_latest_history(self, limit=10):
+    def get_latest_history(self, limit=50):
         # 同期のために一度接続を閉じる (Windowsのファイルロック回避)
         self._close_db()
+
+        # db_nameがNoneの場合は処理しない
+        if not self.db_name:
+            print("RekordboxService: db_name is None, cannot sync files")
+            return []
 
         try:
             # 最新の WAL および SHM ファイルを同期

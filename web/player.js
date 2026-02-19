@@ -61,8 +61,10 @@ class VJPlayer {
                 playerVars: {
                     autoplay: 0,
                     controls: 0,
+                    enablejsapi: 1,
                     mute: 1,
                     playsinline: 1,
+                    origin: window.location.origin,
                     rel: 0,           // 関連動画を非表示
                     showinfo: 0,       // 動画情報を非表示
                     modestbranding: 1,  // YouTubeロゴを最小化
@@ -84,8 +86,10 @@ class VJPlayer {
                 playerVars: {
                     autoplay: 0,
                     controls: 0,
+                    enablejsapi: 1,
                     mute: 1,
                     playsinline: 1,
+                    origin: window.location.origin,
                     rel: 0,           // 関連動画を非表示
                     showinfo: 0,       // 動画情報を非表示
                     modestbranding: 1,  // YouTubeロゴを最小化
@@ -276,6 +280,18 @@ class VJPlayer {
         // 150/153はフォールバックしても改善しないことが多く、黒画面ループの原因になる。
         // この環境では埋め込み再生が成立しない可能性が高いので、通知を表示
         if (event.data === 150 || event.data === 153) {
+            console.error(`Embed playback failed (code ${event.data}). Attempt iframe fallback.`);
+            // 埋め込み制限が疑われる場合、iframe 直接埋め込みでフォールバックを試みる
+            const vid = this.currentVideoId || this.nextVideoId || null;
+            if (vid) {
+                const alreadyAttempted = this._fallbackAttempts[playerId] && this._fallbackAttempts[playerId] > 0;
+                if (!alreadyAttempted) {
+                    this._fallbackAttempts[playerId] = (this._fallbackAttempts[playerId] || 0) + 1;
+                    this.tryEmbedFallback(playerId, vid);
+                    return;
+                }
+            }
+            // フォールバック失敗なら通知
             console.error(`Embed playback failed (code ${event.data}). Showing notification.`);
             this.showErrorNotification('この動画は再生できません（埋め込み制限）');
             return;
@@ -343,6 +359,194 @@ class VJPlayer {
         }
     }
 
+    tryEmbedFallback(playerId, videoId) {
+        try {
+            console.log(`Attempting iframe embed fallback for player ${playerId}, video ${videoId}`);
+
+            const container = document.getElementById(`player${playerId}Container`);
+            if (!container) {
+                console.error('Embed fallback: container not found for', playerId);
+                return;
+            }
+
+            // 既に iframe フォールバック済みなら何もしない
+            if (container.dataset && container.dataset.embedFallback === '1') {
+                console.log('Embed fallback already applied for', playerId);
+                return;
+            }
+
+            // iframe を作成して直接埋め込む
+            const iframe = document.createElement('iframe');
+            const origin = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
+            const src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&mute=1&playsinline=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
+            iframe.setAttribute('src', src);
+            iframe.setAttribute('frameborder', '0');
+            iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+            iframe.setAttribute('allowfullscreen', '');
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = '0';
+
+            // 既存のプレイヤー要素を隠す
+            const playerElem = container.querySelector(`#player${playerId}`);
+            if (playerElem) {
+                playerElem.style.display = 'none';
+            }
+
+            // 既存の YT.Player インスタンスがあれば破棄して参照をクリア
+            try {
+                if (this.players && this.players[playerId] && typeof this.players[playerId].destroy === 'function') {
+                    console.log('Destroying existing YT.Player for', playerId);
+                    try {
+                        this.players[playerId].destroy();
+                    } catch (e) {
+                        console.warn('Error while destroying YT.Player:', e);
+                    }
+                    this.players[playerId] = null;
+                    this.isReady[playerId] = false;
+                }
+            } catch (e) {
+                console.warn('Failed to clear existing player instance:', e);
+            }
+
+            // container の先頭に iframe を追加
+            container.insertBefore(iframe, container.firstChild);
+
+            // マークして重複適用を防ぐ
+            if (!container.dataset) container.dataset = {};
+            container.dataset.embedFallback = '1';
+
+            console.log('Embed fallback applied for', playerId);
+        } catch (e) {
+            console.error('Embed fallback failed:', e);
+            // 最終的に通知表示
+            this.showErrorNotification('この動画は再生できません（フォールバック失敗）');
+        }
+    }
+
+    // iframe を作成または更新して埋め込み再生する（フォールバック用）
+    ensureIframeFor(playerId, videoId, autoplay = false) {
+        try {
+            const container = document.getElementById(`player${playerId}Container`);
+            if (!container) return false;
+
+            // 既存の iframe を取得
+            let iframe = container.querySelector('iframe');
+            const origin = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
+            const autoplayParam = autoplay ? '1' : '0';
+
+            // 試行するホスト/パラメータの候補（順に試す）
+            const candidates = [];
+
+            // もし渡された videoId がフル URL なら、可能な限り元のクエリを埋め込みに反映する
+            try {
+                let parsedUrl = null;
+                if (/^https?:\/\//i.test(videoId)) {
+                    parsedUrl = new URL(videoId);
+                }
+
+                if (parsedUrl) {
+                    // YouTube の watch URL や youtu.be 短縮 URL を解析
+                    let vid = null;
+                    const sp = parsedUrl.searchParams;
+                    if (sp.has('v')) {
+                        vid = sp.get('v');
+                    } else {
+                        // youtu.be の場合 path の先頭が video id
+                        const p = parsedUrl.pathname.split('/').filter(Boolean);
+                        if (p.length > 0) vid = p[p.length - 1];
+                    }
+
+                    // 追加可能なパラメータを列挙して埋め込用に転記
+                    const extraKeys = ['list', 'start_radio', 'pp', 't', 'start', 'index'];
+                    const extraParams = [];
+                    for (const k of extraKeys) {
+                        if (sp.has(k)) {
+                            extraParams.push(`${encodeURIComponent(k)}=${encodeURIComponent(sp.get(k))}`);
+                        }
+                    }
+
+                    if (vid) {
+                        const baseParams = `autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
+                        const extras = extraParams.length ? `&${extraParams.join('&')}` : '';
+                        const src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}?${baseParams}${extras}`;
+                        candidates.push({src});
+                    }
+                }
+            } catch (e) {
+                console.warn('ensureIframeFor: failed to parse provided URL', e);
+            }
+
+            // デフォルト候補
+            candidates.push({src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`});
+            candidates.push({src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`});
+            candidates.push({src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(window.location.href)}`});
+
+            const applySrc = (srcUrl) => {
+                if (iframe) {
+                    iframe.src = srcUrl;
+                } else {
+                    iframe = document.createElement('iframe');
+                    iframe.setAttribute('src', srcUrl);
+                    iframe.setAttribute('frameborder', '0');
+                    iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; autoplay');
+                    iframe.setAttribute('allowfullscreen', '');
+                    iframe.style.width = '100%';
+                    iframe.style.height = '100%';
+                    iframe.style.border = '0';
+                    container.insertBefore(iframe, container.firstChild);
+                }
+                container.dataset.embedFallback = '1';
+                container.dataset.embedVideoId = videoId;
+            };
+
+            // 既存 iframe が目的の動画であれば autoplay のみ更新して終わり
+            if (iframe && iframe.src && iframe.src.indexOf(`/embed/${encodeURIComponent(videoId)}`) !== -1) {
+                if (autoplay) {
+                    // 強制的に src を差し替えて autoplay を適用
+                    const primary = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
+                    iframe.src = primary;
+                }
+                container.dataset.embedFallback = '1';
+                container.dataset.embedVideoId = videoId;
+                return true;
+            }
+
+            // 候補を順に適用（最初に DOM 操作に成功したものを使用）
+            for (let c of candidates) {
+                try {
+                    applySrc(c.src);
+                    console.log('ensureIframeFor: applied candidate src:', c.src);
+                    break; // DOMに適用できたら終了（ブラウザ側で再生可否が決まる）
+                } catch (e) {
+                    console.warn('ensureIframeFor: failed to apply candidate', c.src, e);
+                    // 次の候補へ
+                }
+            }
+
+            // 既存の YT.Player を隠す/破棄
+            const playerElem = container.querySelector(`#player${playerId}`);
+            if (playerElem) playerElem.style.display = 'none';
+            try {
+                if (this.players && this.players[playerId] && typeof this.players[playerId].destroy === 'function') {
+                    this.players[playerId].destroy();
+                    this.players[playerId] = null;
+                    this.isReady[playerId] = false;
+                }
+            } catch (e) {
+                console.warn('ensureIframeFor: failed to destroy player', e);
+            }
+
+            container.dataset.embedFallback = '1';
+            container.dataset.embedVideoId = videoId;
+
+            return true;
+        } catch (e) {
+            console.error('ensureIframeFor error:', e);
+            return false;
+        }
+    }
+
     // コマンドポーリング開始
     startPolling() {
         console.log('Starting command polling...');
@@ -393,24 +597,47 @@ class VJPlayer {
 
         console.log(`Preloading video: ${videoId}`);
         this.nextVideoId = videoId;
-        
+
         // 状態フィードバックを送信
         this.sendFeedback('preloading', videoId);
-        
-        // 次のプレイヤーに動画をロード
-        this.players[this.nextPlayer].cueVideoById({
-            videoId: videoId,
-            startSeconds: 0,
-            suggestedQuality: 'hd720'
-        });
-        
-        // プリロード完了後にready状態を送信
-        setTimeout(() => {
-            if (this.nextVideoId === videoId) {
-                this.sendFeedback('ready', videoId);
-                console.log(`Video ready: ${videoId}`);
+
+        // 次のプレイヤーが存在する場合は通常の cue を使う
+        const nextPlayerObj = this.players[this.nextPlayer];
+        if (nextPlayerObj && typeof nextPlayerObj.cueVideoById === 'function') {
+            try {
+                this.players[this.nextPlayer].cueVideoById({
+                    videoId: videoId,
+                    startSeconds: 0,
+                    suggestedQuality: 'hd720'
+                });
+
+                // プリロード完了後にready状態を送信
+                setTimeout(() => {
+                    if (this.nextVideoId === videoId) {
+                        this.sendFeedback('ready', videoId);
+                        console.log(`Video ready: ${videoId}`);
+                    }
+                }, 1000); // 1秒後にready状態を送信
+            } catch (e) {
+                console.warn('cueVideoById failed, falling back to iframe:', e);
+                // iframe フォールバックとして埋め込む（autoplayはしない）
+                if (this.ensureIframeFor(this.nextPlayer, videoId, false)) {
+                    // iframe の場合は即 ready 扱いにする
+                    this.sendFeedback('ready', videoId);
+                    console.log(`Iframe preload ready: ${videoId}`);
+                } else {
+                    this.showManualPlayback();
+                }
             }
-        }, 1000); // 1秒後にready状態を送信
+        } else {
+            // YT.Playerが無い（フォールバック済み）なら iframe を作成して ready 扱い
+            if (this.ensureIframeFor(this.nextPlayer, videoId, false)) {
+                this.sendFeedback('ready', videoId);
+                console.log(`Iframe preload ready: ${videoId}`);
+            } else {
+                this.showManualPlayback();
+            }
+        }
     }
 
     // 再生処理
@@ -426,25 +653,48 @@ class VJPlayer {
             // 準備完了している場合、即座に切り替え
             console.log('Ready - switching immediately');
             this.switchAndPlay(videoId);
-        } else {
-            // 準備完了していない場合、ロードしてから切り替え
-            console.log('Not ready - loading and waiting');
-            this.nextVideoId = videoId;
-            this.players[this.nextPlayer].loadVideoById({
-                videoId: videoId,
-                startSeconds: 0,
-                suggestedQuality: 'hd720'
-            });
-            
-            // ロード完了を待って切り替え
-            this.waitForReadyAndSwitch(videoId);
+            return;
         }
+
+        // 準備完了していない場合、YT.Player があれば load、なければ iframe フォールバックを作る
+        console.log('Not ready - loading and waiting');
+        this.nextVideoId = videoId;
+
+        const nextPlayerObj = this.players[this.nextPlayer];
+        if (nextPlayerObj && typeof nextPlayerObj.loadVideoById === 'function') {
+            try {
+                nextPlayerObj.loadVideoById({
+                    videoId: videoId,
+                    startSeconds: 0,
+                    suggestedQuality: 'hd720'
+                });
+            } catch (e) {
+                console.warn('loadVideoById failed, falling back to iframe:', e);
+                // iframe に差し替えて自動再生を試みる
+                if (this.ensureIframeFor(this.nextPlayer, videoId, true)) {
+                    // iframe は即時切り替え可能とみなす
+                    this.isReady[this.nextPlayer] = true;
+                }
+            }
+        } else {
+            // YT.Player が存在しない場合は iframe で再生を行う
+            if (this.ensureIframeFor(this.nextPlayer, videoId, true)) {
+                this.isReady[this.nextPlayer] = true;
+            }
+        }
+
+        // ロード完了を待って切り替え
+        this.waitForReadyAndSwitch(videoId);
     }
 
     // 準備完了を待って切り替え
     waitForReadyAndSwitch(videoId) {
         const checkReady = () => {
-            if (this.isReady[this.nextPlayer] && this.nextVideoId === videoId) {
+            // YT.Player が消えて iframe フォールバックになっている場合、iframe が目的の動画を指していれば即座に切替
+            const nextContainer = document.getElementById(`player${this.nextPlayer}Container`);
+            const iframePresent = nextContainer && nextContainer.dataset && nextContainer.dataset.embedFallback === '1' && nextContainer.dataset.embedVideoId === videoId;
+
+            if ((this.isReady[this.nextPlayer] && this.nextVideoId === videoId) || iframePresent) {
                 this.switchAndPlay(videoId);
             } else {
                 setTimeout(checkReady, 100);
@@ -464,9 +714,12 @@ class VJPlayer {
             playerB: document.getElementById('playerBContainer')
         });
         
-        // 現在のプレイヤーを停止
+        // 現在のプレイヤーを停止（存在チェック）
         if (this.currentVideoId) {
-            this.players[this.currentPlayer].stopVideo();
+            const curPlayerObj = this.players[this.currentPlayer];
+            if (curPlayerObj && typeof curPlayerObj.stopVideo === 'function') {
+                try { curPlayerObj.stopVideo(); } catch (e) { console.warn('stopVideo failed:', e); }
+            }
         }
         
         // 状態更新（切り替え前に実行）
@@ -508,8 +761,17 @@ class VJPlayer {
             }
         }
         
-        // 新しい動画を再生
-        this.players[this.currentPlayer].playVideo();
+        // 新しい動画を再生（YT.Playerが存在する場合のみ）。
+        const nextPlayerObj = this.players[this.currentPlayer];
+        if (nextPlayerObj && typeof nextPlayerObj.playVideo === 'function') {
+            try {
+                nextPlayerObj.playVideo();
+            } catch (e) {
+                console.warn('playVideo failed:', e);
+            }
+        } else {
+            console.log('No YT.Player for current player; assume iframe fallback will autoplay if present');
+        }
         
         // 状態フィードバックを送信
         this.sendFeedback('playing', videoId);

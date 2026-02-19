@@ -9,6 +9,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 import time
 import os
+import sys
 from pathlib import Path
 
 
@@ -257,10 +258,17 @@ class PlayerHttpServer:
             return
         
         try:
-            # web ルート（このファイルから見た ../../web ）
-            services_dir = Path(__file__).resolve().parent
-            project_root = services_dir.parent.parent
-            web_dir = (project_root / 'web').resolve()
+            # web ルート（exeの場合は実行ファイルと同じ階層のwebフォルダを参照）
+            if getattr(sys, 'frozen', False):
+                # exe化されている場合
+                exe_dir = Path(sys.executable).parent
+                web_dir = (exe_dir / 'web').resolve()
+            else:
+                # 開発環境の場合
+                services_dir = Path(__file__).resolve().parent
+                project_root = services_dir.parent.parent
+                web_dir = (project_root / 'web').resolve()
+            
             PlayerCommandHandler.web_root = str(web_dir)
 
             self.server = HTTPServer((self.host, self.port), PlayerCommandHandler)

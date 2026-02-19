@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
                                QLabel, QLineEdit, QPushButton, QTabWidget, 
-                               QCheckBox, QSpinBox, QGroupBox, QWidget, QApplication)
+                               QCheckBox, QSpinBox, QGroupBox, QWidget, QApplication, QFileDialog)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QClipboard, QKeyEvent
 
@@ -37,6 +37,8 @@ class HotkeyEdit(QLineEdit):
             key_parts.append("shift")
         if modifiers & Qt.AltModifier:
             key_parts.append("alt")
+        if modifiers & Qt.MetaModifier:
+            key_parts.append("windows")
         
         # 通常キーを追加（修飾キー自体は除外）
         if key not in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta):
@@ -67,6 +69,31 @@ class HotkeyEdit(QLineEdit):
             Qt.Key_End: "end",
             Qt.Key_PageUp: "page up",
             Qt.Key_PageDown: "page down",
+            Qt.Key_Insert: "insert",
+            Qt.Key_Escape: "esc",
+            Qt.Key_CapsLock: "caps lock",
+            Qt.Key_ScrollLock: "scroll lock",
+            Qt.Key_Pause: "pause",
+            Qt.Key_Print: "print screen",
+            Qt.Key_SysReq: "sys req",
+            # テンキー（NumLockオン時は通常キーとして扱う）
+            Qt.Key_NumLock: "num lock",
+            Qt.Key_Slash: "/",
+            Qt.Key_Asterisk: "*",
+            Qt.Key_Minus: "-",
+            Qt.Key_Plus: "+",
+            Qt.Key_Enter: "enter",
+            Qt.Key_Period: ".",
+            Qt.Key_0: "0",
+            Qt.Key_1: "1",
+            Qt.Key_2: "2",
+            Qt.Key_3: "3",
+            Qt.Key_4: "4",
+            Qt.Key_5: "5",
+            Qt.Key_6: "6",
+            Qt.Key_7: "7",
+            Qt.Key_8: "8",
+            Qt.Key_9: "9",
         }
         
         if key in key_map:
@@ -146,6 +173,7 @@ class SettingsDialog(QDialog):
         self.player_port_spin.setRange(1, 65535)
         self.player_port_spin.setValue(8080)
         self.player_port_spin.valueChanged.connect(self._update_player_url)
+        port_layout.addWidget(QLabel("ポート番号:"))
         port_layout.addWidget(self.player_port_spin)
         
         # URL表示とコピーボタン
