@@ -228,13 +228,22 @@ class SettingsDialog(QDialog):
         always_on_top = self.always_on_top_checkbox.isChecked()
         hotkey_front = self.bring_to_front_on_hotkey_checkbox.isChecked()
 
-        # 排他（両方ONは禁止）
+        # 排他処理（両方ONは禁止）
         if always_on_top and hotkey_front:
-            # 最後に変更された方を優先したいが、シンプルに always_on_top を優先
-            self.bring_to_front_on_hotkey_checkbox.blockSignals(True)
-            self.bring_to_front_on_hotkey_checkbox.setChecked(False)
-            self.bring_to_front_on_hotkey_checkbox.blockSignals(False)
-            hotkey_front = False
+            # シグナルを一時的に無効化して相互に排他
+            sender = self.sender()
+            if sender == self.always_on_top_checkbox:
+                # always_on_topが変更された場合、hotkey_frontをOFF
+                self.bring_to_front_on_hotkey_checkbox.blockSignals(True)
+                self.bring_to_front_on_hotkey_checkbox.setChecked(False)
+                self.bring_to_front_on_hotkey_checkbox.blockSignals(False)
+                hotkey_front = False
+            elif sender == self.bring_to_front_on_hotkey_checkbox:
+                # hotkey_frontが変更された場合、always_on_topをOFF
+                self.always_on_top_checkbox.blockSignals(True)
+                self.always_on_top_checkbox.setChecked(False)
+                self.always_on_top_checkbox.blockSignals(False)
+                always_on_top = False
 
         self.bring_to_back_delay_spin.setEnabled(hotkey_front)
 
