@@ -79,7 +79,16 @@ html, body {
 
 /* フェードトランジション */
 .player-container {
-    transition: opacity 0.3s ease-in-out;
+    transition: opacity 0.5s ease-in-out;
+}
+
+/* クロスフェード用のz-index管理 */
+.player-container.crossfade-out {
+    z-index: 5;
+}
+
+.player-container.crossfade-in {
+    z-index: 10;
 }
 
 /* 手動再生用オーバーレイ */

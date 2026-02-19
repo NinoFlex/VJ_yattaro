@@ -149,18 +149,78 @@ class YouTubeItemDelegate(QStyledItemDelegate):
             painter.setPen(pen)
             painter.drawRect(option.rect.adjusted(2, 2, -2, -2))
         
-        # 状態を持つ動画の枠線を描画（選択状態に関わらず）- 最前面に表示
+        # 状態を持つ動画の枠線と状態テキストを描画（選択状態に関わらず）- 最前面に表示
         data = index.data(Qt.DisplayRole)
         video_id = data.get('video_id', '') if data else ''
 
         if self.preloaded_video_id == video_id and self.preloaded_state:
             if self.preloaded_state == 'preloading':
-                border_color = QColor(255, 215, 0)  # 金色
+                border_color = QColor(250, 190, 1)  # #fabe01
+                status_text = "LOADING..."
             else:
-                border_color = QColor(0, 255, 0)  # 緑色
+                border_color = QColor(1, 154, 68)  # #019a44
+                status_text = "READY"
+            
+            # 枠線を描画
             painter.setPen(QPen(border_color, 4))
             painter.drawRect(option.rect.adjusted(2, 2, -2, -2))
+            
+            # 状態テキスト用の背景枠（左下）
+            font = QFont()
+            font.setPointSize(10)
+            font.setBold(True)
+            painter.setFont(font)
+            
+            # テキストサイズを計算
+            text_width = painter.fontMetrics().horizontalAdvance(status_text)
+            text_height = painter.fontMetrics().height()
+            
+            # 背景枠（左下に配置）
+            padding = 4
+            status_rect = QRect(
+                option.rect.left() + 8,  # 左端から8px
+                option.rect.bottom() - text_height - padding * 2 - 8,  # 下端から余白を引いて配置
+                text_width + padding * 2,  # テキスト幅 + 左右のパディング
+                text_height + padding * 2  # テキスト高さ + 上下のパディング
+            )
+            
+            # 背景を描画（枠の色と同じ）
+            painter.fillRect(status_rect, border_color)
+            
+            # 白抜き文字でテキストを描画
+            painter.setPen(QColor(255, 255, 255))  # 白色
+            painter.drawText(status_rect, Qt.AlignCenter, status_text)
 
         if self.playing_video_id == video_id:
-            painter.setPen(QPen(QColor(0, 123, 255), 4))
+            border_color = QColor(0, 123, 255)  # 青色
+            status_text = "NOW PLAYING"
+            
+            # 枠線を描画
+            painter.setPen(QPen(border_color, 4))
             painter.drawRect(option.rect.adjusted(2, 2, -2, -2))
+            
+            # 状態テキスト用の背景枠（左下）
+            font = QFont()
+            font.setPointSize(10)
+            font.setBold(True)
+            painter.setFont(font)
+            
+            # テキストサイズを計算
+            text_width = painter.fontMetrics().horizontalAdvance(status_text)
+            text_height = painter.fontMetrics().height()
+            
+            # 背景枠（左下に配置）
+            padding = 4
+            status_rect = QRect(
+                option.rect.left() + 8,  # 左端から8px
+                option.rect.bottom() - text_height - padding * 2 - 8,  # 下端から余白を引いて配置
+                text_width + padding * 2,  # テキスト幅 + 左右のパディング
+                text_height + padding * 2  # テキスト高さ + 上下のパディング
+            )
+            
+            # 背景を描画（枠の色と同じ）
+            painter.fillRect(status_rect, border_color)
+            
+            # 白抜き文字でテキストを描画
+            painter.setPen(QColor(255, 255, 255))  # 白色
+            painter.drawText(status_rect, Qt.AlignCenter, status_text)

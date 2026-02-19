@@ -714,22 +714,15 @@ class VJPlayer {
             playerB: document.getElementById('playerBContainer')
         });
         
-        // 現在のプレイヤーを停止（存在チェック）
-        if (this.currentVideoId) {
-            const curPlayerObj = this.players[this.currentPlayer];
-            if (curPlayerObj && typeof curPlayerObj.stopVideo === 'function') {
-                try { curPlayerObj.stopVideo(); } catch (e) { console.warn('stopVideo failed:', e); }
-            }
-        }
-        
         // 状態更新（切り替え前に実行）
         const oldPlayer = this.currentPlayer;
+        const oldPlayerObj = this.players[oldPlayer];
         this.currentVideoId = videoId;
         this.currentPlayer = this.nextPlayer;
         this.nextPlayer = this.nextPlayer === 'A' ? 'B' : 'A';
         this.nextVideoId = null;
         
-        // プレイヤー切り替え（新しい状態で）
+        // プレイヤー切り替え（フェード処理付き）
         const currentContainer = document.getElementById(`player${oldPlayer}Container`);
         const nextContainer = document.getElementById(`player${this.currentPlayer}Container`);
         
@@ -739,18 +732,91 @@ class VJPlayer {
         });
         
         if (currentContainer && nextContainer) {
-            console.log('Both containers found, switching visibility');
-            // 現在のプレイヤーを背面に
-            currentContainer.classList.remove('active');
-            currentContainer.classList.add('hidden');
+            console.log('Both containers found, starting stable crossfade transition');
             
-            // 次のプレイヤーを前面に
+            // 新しい動画を再生開始（フェードは待機）
+            const nextPlayerObj = this.players[this.currentPlayer];
+            let videoStarted = false;
+            
+            if (nextPlayerObj && typeof nextPlayerObj.playVideo === 'function') {
+                try {
+                    nextPlayerObj.playVideo();
+                    console.log('Started playing next video, waiting for actual playback');
+                    videoStarted = true;
+                } catch (e) {
+                    console.warn('playVideo failed:', e);
+                }
+            } else {
+                console.log('No YT.Player for current player; assume iframe fallback will autoplay if present');
+                videoStarted = true;
+            }
+            
+            // 次のプレイヤーを非表示状態で準備
             nextContainer.classList.remove('hidden');
             nextContainer.classList.add('active');
+            nextContainer.style.opacity = '0';
+            nextContainer.style.transition = 'opacity 0.5s ease-in-out';
+            
+            // 現在のプレイヤーにもトランジションを確実に設定
+            currentContainer.style.transition = 'opacity 0.5s ease-in-out';
+            
+            // 動画再生開始を待ってからフェード開始
+            const startFade = () => {
+                console.log('Starting stable crossfade after video playback started');
+                
+                // クロスフェード開始
+                // 両方のプレイヤーを重ねて表示
+                currentContainer.classList.add('crossfade-out');
+                nextContainer.classList.add('crossfade-in');
+                
+                // 同時にフェード開始
+                requestAnimationFrame(() => {
+                    // 現在のプレイヤーをフェードアウト
+                    currentContainer.style.opacity = '0';
+                    currentContainer.classList.remove('active');
+                    currentContainer.classList.add('hidden');
+                    
+                    // 次のプレイヤーをフェードイン
+                    nextContainer.style.opacity = '1';
+                });
+                
+                // フェードアウト完了後に古い動画を停止
+                setTimeout(() => {
+                    if (oldPlayerObj && typeof oldPlayerObj.stopVideo === 'function') {
+                        try { 
+                            oldPlayerObj.stopVideo(); 
+                            console.log('Stopped previous video after fade-out');
+                        } catch (e) { 
+                            console.warn('stopVideo failed:', e); 
+                        }
+                    }
+                    // z-indexをリセット
+                    currentContainer.classList.remove('crossfade-out');
+                    nextContainer.classList.remove('crossfade-in');
+                }, 500); // フェードアウト完了時間
+            };
+            
+            if (videoStarted) {
+                // 少し待ってからフェード開始（動画の再生開始を待つ）
+                setTimeout(startFade, 300); // 300ms待機（より安定）
+            } else {
+                // 再生開始できなかった場合は即時フェード
+                startFade();
+            }
+            
         } else {
             console.error('Container elements not found:', {oldPlayer, currentPlayer: this.currentPlayer});
             
             // フォールバック：直接スタイルを操作
+            const nextPlayerObj = this.players[this.currentPlayer];
+            if (nextPlayerObj && typeof nextPlayerObj.playVideo === 'function') {
+                try {
+                    nextPlayerObj.playVideo();
+                } catch (e) {
+                    console.warn('playVideo failed:', e);
+                }
+            }
+            
             if (currentContainer) {
                 currentContainer.style.opacity = '0';
                 currentContainer.style.pointerEvents = 'none';
@@ -759,18 +825,13 @@ class VJPlayer {
                 nextContainer.style.opacity = '1';
                 nextContainer.style.pointerEvents = 'auto';
             }
-        }
-        
-        // 新しい動画を再生（YT.Playerが存在する場合のみ）。
-        const nextPlayerObj = this.players[this.currentPlayer];
-        if (nextPlayerObj && typeof nextPlayerObj.playVideo === 'function') {
-            try {
-                nextPlayerObj.playVideo();
-            } catch (e) {
-                console.warn('playVideo failed:', e);
-            }
-        } else {
-            console.log('No YT.Player for current player; assume iframe fallback will autoplay if present');
+            
+            // フォールバック時も古い動画は停止
+            setTimeout(() => {
+                if (oldPlayerObj && typeof oldPlayerObj.stopVideo === 'function') {
+                    try { oldPlayerObj.stopVideo(); } catch (e) { console.warn('stopVideo failed:', e); }
+                }
+            }, 500);
         }
         
         // 状態フィードバックを送信
