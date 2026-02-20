@@ -532,8 +532,14 @@ class MainWindow(QMainWindow):
     def _finalize_bring_to_front(self, original_flags):
         """最前面表示の最終処理（タイマー遅延実行）"""
         try:
-            # フラグを元に戻す
-            self.setWindowFlags(original_flags)
+            # 常に最前面モードの場合はWindowStaysOnTopHintを維持
+            if bool(self.config_service.get("always_on_top", False)):
+                final_flags = original_flags | Qt.WindowStaysOnTopHint
+            else:
+                final_flags = original_flags
+            
+            # フラグを設定
+            self.setWindowFlags(final_flags)
             self.show()
             self.activateWindow()
             print("UI: Finalized bring to front operation")
@@ -790,6 +796,9 @@ class MainWindow(QMainWindow):
         
         print(f"UI: Searching YouTube for: {search_query}")
         
+        # 検索中のUI状態を設定（検索ボックスのみ無効化）
+        self._set_searching_state(True)
+        
         try:
             # YouTube検索を実行
             self.youtube_search_thread = youtube_service.search_videos(
@@ -800,13 +809,40 @@ class MainWindow(QMainWindow):
             # エラーシグナルも接続
             self.youtube_search_thread.search_error.connect(self.on_youtube_search_error)
             
+            # スレッド終了時のクリーンアップも接続
+            self.youtube_search_thread.finished.connect(self._on_search_finished)
+            
             self.youtube_search_thread.start()
             
         except Exception as e:
             print(f"UI: YouTube search error: {e}")
             # エラー時はダミー結果を表示
+            self._set_searching_state(False)
             self._show_dummy_youtube_results()
     
+    def _set_searching_state(self, is_searching):
+        """検索中のUI状態を設定（検索ボックスのみ無効化）"""
+        if is_searching:
+            # 検索中は検索ボックスのみ無効化してインジケーター表示
+            self.youtube_search_box.setEnabled(False)
+            self.youtube_search_box.setPlaceholderText("検索中...")
+            # カーソルを待機カーソルに変更（検索ボックスのみ）
+            from PySide6.QtGui import QCursor
+            self.youtube_search_box.setCursor(QCursor(Qt.WaitCursor))
+            print("UI: Search started - search box disabled")
+        else:
+            # 検索完了で検索ボックスを有効化
+            self.youtube_search_box.setEnabled(True)
+            self.youtube_search_box.setPlaceholderText("YouTube検索 (Enterで実行)")
+            # カーソルを通常に戻す
+            self.youtube_search_box.unsetCursor()
+            print("UI: Search completed - search box enabled")
+    
+    def _on_search_finished(self):
+        """検索スレッド終了時のクリーンアップ"""
+        self._set_searching_state(False)
+        self.youtube_search_thread = None
+
     def on_youtube_search_completed(self, videos):
         """YouTube検索完了時のコールバック"""
         if not videos:
@@ -818,6 +854,9 @@ class MainWindow(QMainWindow):
         if self.config_service.get("bring_to_front_on_search", False):
             self._bring_to_front()
             print("UI: Brought window to front after search completion")
+        
+        # 検索完了を通知
+        self._on_search_finished()
         
         # サムネイルを読み込む
         processed_videos = []
@@ -848,6 +887,8 @@ class MainWindow(QMainWindow):
     def on_youtube_search_error(self, error_message):
         """YouTube検索エラー時のコールバック"""
         print(f"UI: YouTube search error: {error_message}")
+        # UI状態をリセット
+        self._set_searching_state(False)
         # エラー時はダミー結果を表示
         self._show_dummy_youtube_results()
     
