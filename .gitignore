@@ -22,3 +22,31 @@ Thumbs.db
 
 # ログファイル
 *.log
+
+# ビルド関連ファイル
+/build/
+/dist/
+*.spec
+*.exe
+*.app
+*.dmg
+*.deb
+*.rpm
+
+# Node.js（もし使用している場合）
+node_modules/
+package-lock.json
+yarn.lock
+
+# その他のビルドゴミ
+*.pyo
+*.pyd
+*.pyc
+__pycache__/
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
