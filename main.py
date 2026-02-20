@@ -91,6 +91,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("VJ_yattaro")
         self.resize(1920, 240)
         
+        # 画面一番下にウィンドウを配置
+        from PySide6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            screen_geometry = screen.availableGeometry()
+            window_width = 1920
+            window_height = 240
+            x = (screen_geometry.width() - window_width) // 2  # 中央揃え
+            y = screen_geometry.height() - window_height - 10  # 下から10px上
+            self.move(x, y)
+        
         # 枠なしウィンドウ設定
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)

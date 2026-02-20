@@ -797,8 +797,12 @@ class VJPlayer {
             };
             
             if (videoStarted) {
-                // 少し待ってからフェード開始（動画の再生開始を待つ）
-                setTimeout(startFade, 300); // 300ms待機（より安定）
+                // プリロード済みかどうかで待機時間を調整
+                // プリロード済み（ready状態）なら即フェード、未プリロードなら300ms待機
+                const wasPreloaded = this.nextVideoId === videoId;
+                const waitTime = wasPreloaded ? 50 : 300; // プリロード済みは50ms、未プリロードは300ms
+                console.log(`Video was preloaded: ${wasPreloaded}, waiting ${waitTime}ms before fade`);
+                setTimeout(startFade, waitTime);
             } else {
                 // 再生開始できなかった場合は即時フェード
                 startFade();
