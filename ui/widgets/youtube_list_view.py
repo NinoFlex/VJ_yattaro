@@ -36,6 +36,26 @@ class YouTubeListModel(QAbstractListModel):
         self._videos = videos
         self.endResetModel()
     
+    def update_thumbnail(self, video_id: str, thumbnail):
+        """指定された動画IDのサムネイルを更新"""
+        for i, video in enumerate(self._videos):
+            if video.get('video_id') == video_id:
+                self._videos[i]['thumbnail'] = thumbnail
+                # 該当インデックスのデータ変更を通知
+                index = self.index(i, 0)
+                self.dataChanged.emit(index, index)
+                print(f"YouTubeListModel: Updated thumbnail for video {video_id} at index {i}")
+                
+                # 選択状態を維持（親ビューから選択状態を取得）
+                parent_view = self.parent()
+                if parent_view and hasattr(parent_view, 'currentIndex'):
+                    current_index = parent_view.currentIndex()
+                    if current_index.isValid() and current_index.row() == i:
+                        # 選択を維持するために再設定
+                        parent_view.setCurrentIndex(current_index)
+                        print(f"YouTubeListModel: Maintained selection for video {video_id} at index {i}")
+                break
+    
     def get_video_at(self, index):
         """指定インデックスの動画情報を取得"""
         if 0 <= index < len(self._videos):
@@ -74,7 +94,8 @@ class YouTubeListView(QListView):
         self.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)  # ピクセル単位でスムーズにスクロール
         
         # モデルとデリゲートを設定
-        self.model = YouTubeListModel()
+        # モデルの親にビュー自身を渡して、モデル側からビューへ正しく参照できるようにする
+        self.model = YouTubeListModel(self)
         self.setModel(self.model)
         
         from .youtube_delegate import YouTubeItemDelegate
@@ -96,12 +117,15 @@ class YouTubeListView(QListView):
     
     def set_search_results(self, videos):
         """検索結果を設定"""
+        # 新しい検索結果を設定
         self.model.set_videos(videos)
-        
-        # 最初のアイテムを選択
-        if self.model.rowCount() > 0:
+
+        # 検索直後は先頭アイテムを選択しておく（外部で遅延選択している場合もあるが
+        # まずここで確実に先頭を選ぶことで一瞬右端が選択される現象を防ぐ）
+        if videos:
             first_index = self.model.index(0, 0)
-            self.setCurrentIndex(first_index)
+            if first_index.isValid():
+                self.setCurrentIndex(first_index)
     
     def get_selected_video(self):
         """選択中の動画情報を取得"""

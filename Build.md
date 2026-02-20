@@ -9,6 +9,8 @@ pip install PySide6 requests pyrekordbox pyinstaller
 
 ## ビルドコマンド
 
+py -m pip install -r requirements.txt; py -m pip install pyinstaller; Remove-Item -Recurse -Force build,dist -ErrorAction SilentlyContinue; py -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" main.py; Copy-Item config.json dist\VJ_yattaro\; Copy-Item -Recurse web dist\VJ_yattaro\web; Get-ChildItem dist\VJ_yattaro\
+
 ### 基本ビルド（単一exeファイル）
 ```bash
 pyinstaller --onefile --windowed --name="VJ_yattaro" main.py

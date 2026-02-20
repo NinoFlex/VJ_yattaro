@@ -6,6 +6,37 @@ from PySide6.QtGui import QPixmap
 import json
 from urllib.parse import urlencode
 
+
+class ThumbnailLoader(QThread):
+    """サムネイルを非同期で読み込むスレッド"""
+    thumbnail_loaded = Signal(str, QPixmap)  # video_id, thumbnail
+    
+    def __init__(self, video_id: str, thumbnail_url: str):
+        super().__init__()
+        self.video_id = video_id
+        self.thumbnail_url = thumbnail_url
+    
+    def run(self):
+        """サムネイルを読み込む"""
+        try:
+            response = requests.get(self.thumbnail_url, timeout=5)
+            response.raise_for_status()
+            
+            # QPixmapとして読み込み
+            pixmap = QPixmap()
+            pixmap.loadFromData(response.content)
+            
+            if not pixmap.isNull():
+                self.thumbnail_loaded.emit(self.video_id, pixmap)
+            else:
+                print(f"ThumbnailLoader: Failed to load thumbnail for {self.video_id}")
+                self.thumbnail_loaded.emit(self.video_id, None)
+                
+        except Exception as e:
+            print(f"ThumbnailLoader: Error loading thumbnail for {self.video_id}: {e}")
+            self.thumbnail_loaded.emit(self.video_id, None)
+
+
 class YouTubeSearchThread(QThread):
     """YouTube検索をバックグラウンドで実行するスレッド"""
     search_completed = Signal(list)
@@ -150,6 +181,42 @@ class YouTubeSearchThread(QThread):
         minutes = duration_seconds // 60
         seconds = duration_seconds % 60
         return f"{minutes}:{seconds:02d}"
+
+
+class AsyncThumbnailManager(QObject):
+    """非同期サムネイル読み込みを管理するクラス"""
+    thumbnail_ready = Signal(str, QPixmap)  # video_id, thumbnail
+    
+    def __init__(self):
+        super().__init__()
+        self.loader_threads = []
+        self.pending_videos = {}
+        self.loaded_video_ids = set()  # 読み込み済み動画IDを追跡
+    
+    def load_thumbnails_async(self, videos: List[Dict]):
+        """複数のサムネイルを非同期で読み込む"""
+        # 新しい動画のサムネイル読み込みを開始
+        for video in videos:
+            video_id = video.get('video_id')
+            if video_id and video_id not in self.loaded_video_ids and 'thumbnail_url' in video:
+                self.loaded_video_ids.add(video_id)
+                loader = ThumbnailLoader(video_id, video['thumbnail_url'])
+                loader.thumbnail_loaded.connect(self._on_thumbnail_loaded)
+                self.loader_threads.append(loader)
+                loader.start()
+    
+    def _on_thumbnail_loaded(self, video_id: str, thumbnail: QPixmap):
+        """サムネイル読み込み完了時のコールバック"""
+        self.thumbnail_ready.emit(video_id, thumbnail)
+    
+    def stop_all_loaders(self):
+        """すべてのサムネイル読み込みスレッドを停止"""
+        for loader in self.loader_threads:
+            if loader.isRunning():
+                loader.terminate()
+                loader.wait()
+        self.loader_threads.clear()
+        self.loaded_video_ids.clear()
 
 
 class YouTubeService(QObject):

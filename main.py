@@ -86,10 +86,37 @@ class TitleBar(QWidget):
             self.window().windowHandle().startSystemMove()
 
 class MainWindow(QMainWindow):
+    def _configure_logging(self):
+        """ログレベルを設定"""
+        from app.utils.logger import configure_logging, LogLevel
+        
+        # 設定からログレベルを取得
+        log_level_str = self.config_service.get("log_level", "INFO")
+        log_level_map = {
+            "DEBUG": LogLevel.DEBUG,
+            "INFO": LogLevel.INFO,
+            "WARNING": LogLevel.WARNING,
+            "ERROR": LogLevel.ERROR
+        }
+        log_level = log_level_map.get(log_level_str.upper(), LogLevel.INFO)
+        
+        # ログを設定
+        configure_logging(log_level, enabled=True)
+        print(f"UI: Logging configured at level {log_level_str}")
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("VJ_yattaro")
         self.resize(1920, 240)
+        
+        # 前面化状態管理
+        self._is_bringing_to_front = False
+        self._last_front_time = 0
+        
+        # メモリ管理
+        self._memory_check_timer = QTimer(self)
+        self._memory_check_timer.timeout.connect(self._check_memory_usage)
+        self._memory_check_timer.start(30000)  # 30秒ごとにチェック
         
         # 画面一番下にウィンドウを配置
         from PySide6.QtGui import QGuiApplication
@@ -156,7 +183,7 @@ class MainWindow(QMainWindow):
             QLineEdit {
                 padding: 8px;
                 border: 1px solid #ddd;
-                border-radius: 4px;
+                border-radius:4px;
                 font-size: 12px;
                 background-color: white;
             }
@@ -170,13 +197,20 @@ class MainWindow(QMainWindow):
         # 右テーブル
         self.right_table = RightTableView()
         # テーブル周囲の枠線設定
-        self.right_table.setStyleSheet("border: 1px solid #ddd; border-radius: 4px;")
+        self.right_table.setStyleSheet("border: 1px solid #ddd; border-radius:4px;")
         right_layout.addWidget(self.right_table)
-        
-        content_layout.addWidget(right_container, 2)
         
         # 右テーブルにもフォーカスを設定
         self.right_table.setFocusPolicy(Qt.StrongFocus)
+        
+        content_layout.addWidget(right_container, 2)
+        
+        # 設定サービスの初期化
+        from app.services.config_service import ConfigService
+        self.config_service = ConfigService()
+        
+        # ログレベルを設定
+        self._configure_logging()
         
         # 履歴監視サービスの初期化
         from app.services.history_watcher import HistoryWatcher
@@ -194,9 +228,7 @@ class MainWindow(QMainWindow):
         
         # ホットキーサービスの初期化
         from app.services.hotkey_service import HotkeyService
-        from app.services.config_service import ConfigService
         self.hotkey_service = HotkeyService()
-        self.config_service = ConfigService()
 
         # ホットキー前面化→最背面化のタイマー
         self._bring_to_back_timer = QTimer(self)
@@ -251,6 +283,8 @@ class MainWindow(QMainWindow):
 
     def _open_player_in_browser(self):
         """起動時にYouTubeプレイヤーを既定ブラウザで開く"""
+        from app.utils.logger import info, error
+        
         try:
             if self._player_browser_opened:
                 return
@@ -262,19 +296,21 @@ class MainWindow(QMainWindow):
             url = f"http://localhost:{port}/player.html?defaultVideoId={default_video_id}"
             webbrowser.open(url, new=1, autoraise=True)
             self._player_browser_opened = True
-            print(f"UI: Opened player in browser: {url}")
+            info(f"Opened player in browser: {url}", "UI")
         except Exception as e:
-            print(f"UI: Failed to open player in browser: {e}")
+            error(f"Failed to open player in browser: {e}", "UI")
 
     def _reset_youtube_state(self):
         """YouTube動画の状態をリセット"""
+        from app.utils.logger import info
+        
         self.youtube_video_state = None
         self.preloaded_video_id = None
         self.last_clicked_video_id = None
         self.current_playing_video_id = None
         self.pending_play_video_id = None
         self._update_youtube_border_color_safe('#a52a2a')  # デフォルトの枠線色
-        print("UI: YouTube state reset to default")
+        info("YouTube state reset to default", "UI")
     
     def open_settings(self):
         """詳細設定画面を別ウィンドウとして開く"""
@@ -472,68 +508,61 @@ class MainWindow(QMainWindow):
     def _bring_to_front(self):
         """ウィンドウを確実に最前面に表示する（Windows対応）"""
         import sys
-        
-        # 常に最前面モードなら、最背面化の予約はしない
-        if bool(self.config_service.get("always_on_top", False)):
-            if self._bring_to_back_timer.isActive():
-                self._bring_to_back_timer.stop()
-        else:
-            # ホットキー操作時は既存の背面移動タイマーを停止
-            if self._bring_to_back_timer.isActive():
-                self._bring_to_back_timer.stop()
-                print("UI: Stopped existing bring-to-back timer")
-
-        # 連続操作時の前面化を抑制（短時間での重複処理を防止）
         import time
+        
+        # 重複呼び出しを防止（500ms以内は無視）
         current_time = time.time()
-        if hasattr(self, '_last_front_time') and (current_time - self._last_front_time) < 0.5:  # 500ms以内の重複は無視
+        if self._is_bringing_to_front and (current_time - self._last_front_time) < 0.5:
             print("UI: Ignoring rapid front operation")
             return
         
+        # 状態を更新
+        self._is_bringing_to_front = True
         self._last_front_time = current_time
-
-        # Windowsの場合は特別な処理
-        if sys.platform == "win32":
-            try:
+        
+        # 既存のタイマーを停止
+        if self._bring_to_back_timer.isActive():
+            self._bring_to_back_timer.stop()
+            print("UI: Stopped existing bring-to-back timer")
+        
+        try:
+            # Windowsの場合は特別処理
+            if sys.platform == "win32":
                 import ctypes
                 from ctypes import wintypes
                 
-                # Windows APIでフォアグラウンドウィンドウを設定
-                user32 = ctypes.windll.user32
+                # 現在のウィンドウフラグを取得
+                current_flags = self.windowFlags()
                 
-                # 現在のフォアグラウンドウィンドウを取得
-                current_fg = user32.GetForegroundWindow()
+                # 一時的に最前面フラグを設定して確実に前面化
+                temp_flags = current_flags | Qt.WindowStaysOnTopHint
+                self.setWindowFlags(temp_flags)
+                self.show()
+                self.activateWindow()
                 
-                # 自分のウィンドウハンドルを取得
-                my_hwnd = int(self.winId())
+                # 100ms後に元のフラグに戻す
+                QTimer.singleShot(100, lambda: self._finalize_bring_to_front(current_flags))
                 
-                # フォアグラウンドに設定
-                if user32.SetForegroundWindow(my_hwnd):
-                    print("UI: Successfully brought window to front using Windows API")
-                    return
-                    
-            except Exception as e:
-                print(f"UI: Windows API failed, falling back to Qt method: {e}")
+                print("UI: Successfully brought window to front using Windows API")
+            else:
+                # Windows以外の場合は通常処理
+                self.raise_()
+                self.activateWindow()
+                print("UI: Brought window to front (standard method)")
+                
+        except Exception as e:
+            print(f"UI: Error bringing window to front: {e}")
         
-        # フォールバック：Qtの標準手法
-        self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
-        self.raise_()
-        self.activateWindow()
+        # 500ms後に状態をリセット
+        QTimer.singleShot(500, lambda: setattr(self, '_is_bringing_to_front', False))
         
-        # 最終手段：一時的に最前面フラグを設定して確実にフォーカスを取得
-        current_flags = self.windowFlags()
-        self.setWindowFlags(current_flags | Qt.WindowStaysOnTopHint)
-        self.show()
-        
-        # 少し待ってからフォーカスを確実に設定
-        QTimer.singleShot(100, lambda: self._finalize_bring_to_front(current_flags))
-
         # モード2（ホットキー時に最前面→一定秒で最背面）
         if bool(self.config_service.get("bring_to_front_on_hotkey", True)) and not bool(self.config_service.get("always_on_top", False)):
             delay_s = int(self.config_service.get("bring_to_back_delay_s", 3))
             delay_ms = max(0, delay_s) * 1000
             if delay_ms > 0:
                 self._bring_to_back_timer.start(delay_ms)
+                print(f"UI: Scheduled bring to back in {delay_s} seconds")
 
     def _finalize_bring_to_front(self, original_flags):
         """最前面表示の最終処理（タイマー遅延実行）"""
@@ -781,6 +810,7 @@ class MainWindow(QMainWindow):
     
     def search_youtube(self, track_title, artist, comment):
         """YouTubeで動画を検索"""
+        from app.utils.logger import info, debug, error
         from app.services.youtube_service import YouTubeService
         
         # 既存のスレッドがあれば停止
@@ -792,7 +822,7 @@ class MainWindow(QMainWindow):
         
         # APIキーが設定されているかチェック
         if not youtube_service.is_configured():
-            print("UI: YouTube API key not configured")
+            error("YouTube API key not configured", "UI")
             return
         
         # 検索クエリを作成
@@ -800,7 +830,7 @@ class MainWindow(QMainWindow):
             track_title, artist, comment
         )
         
-        print(f"UI: Searching YouTube for: {search_query}")
+        info(f"Searching YouTube for: {search_query}", "UI")
         
         # 検索中のUI状態を設定（検索ボックスのみ無効化）
         self._set_searching_state(True)
@@ -821,7 +851,7 @@ class MainWindow(QMainWindow):
             self.youtube_search_thread.start()
             
         except Exception as e:
-            print(f"UI: YouTube search error: {e}")
+            error(f"YouTube search error: {e}", "UI")
             # エラー時はダミー結果を表示
             self._set_searching_state(False)
             self._show_dummy_youtube_results()
@@ -851,45 +881,239 @@ class MainWindow(QMainWindow):
 
     def on_youtube_search_completed(self, videos):
         """YouTube検索完了時のコールバック"""
+        from app.utils.logger import info, debug
+        
         if not videos:
-            print("UI: No YouTube videos found")
+            info("No YouTube videos found", "UI")
             self.left_pane.clear_results()
             return
         
         # 設定に応じてウィンドウを最前面に表示（ホットキーと同じ実装）
         if self.config_service.get("bring_to_front_on_search", False):
             self._bring_to_front()
-            print("UI: Brought window to front after search completion")
+            info("Brought window to front after search completion", "UI")
         
         # 検索完了を通知
         self._on_search_finished()
         
-        # サムネイルを読み込む
+        # 段階的表示：まず5件だけ即時表示
+        initial_display_count = min(5, len(videos))
+        initial_videos = videos[:initial_display_count]
+        remaining_videos = videos[initial_display_count:]
+        
+        # 最初の5件を即時表示（サムネイルなし）
         processed_videos = []
-        for video in videos:
-            thumbnail = None
-            if 'thumbnail_url' in video:
-                from app.services.youtube_service import YouTubeService
-                youtube_service = YouTubeService()
-                thumbnail = youtube_service.load_thumbnail(video['thumbnail_url'])
-            
+        for video in initial_videos:
             processed_videos.append({
                 'video_id': video.get('video_id', ''),
                 'title': video.get('title', ''),
-                'thumbnail': thumbnail,
-                'duration': video.get('duration', ''),  # APIから取得したdurationを使用
+                'thumbnail': None,  # 後で非同期読み込み
+                'duration': video.get('duration', ''),
                 'url': video.get('url', '')
             })
         
-        # 左ペインに結果を表示
+        # 左ペインに即時表示
         self.left_pane.set_search_results(processed_videos)
-        print(f"UI: Found {len(processed_videos)} YouTube videos")
+        info(f"Found {len(videos)} YouTube videos (showing {initial_display_count} immediately)", "UI")
+        
+        # 最初の動画を選択状態にする（遅延実行で確実に設定）
+        if processed_videos:
+            QTimer.singleShot(200, self._select_first_video)  # 50msから200msに延長
+        
+        # 非同期でサムネイルを読み込む（最初の5件）
+        self._load_thumbnails_async(initial_videos)
+        
+        # 残りの動画をバックグラウンドで追加
+        if remaining_videos:
+            self._schedule_remaining_videos(remaining_videos)
         
         # ホットキー設定が有効な場合、指定時間後に最背面に移動
-        # 検索時の前面化が有効な場合も背面移動を適用
         if self.config_service.get("bring_to_front_on_hotkey", True):
             delay_seconds = int(self.config_service.get("bring_to_back_delay_s", 3))
             self._schedule_bring_to_back(delay_seconds)
+    
+    def _schedule_remaining_videos(self, remaining_videos):
+        """残りの動画をバックグラウンドで追加表示"""
+        from PySide6.QtCore import QTimer
+        
+        # 500ms後に残りの動画を追加
+        QTimer.singleShot(500, lambda: self._add_remaining_videos(remaining_videos))
+    
+    def _add_remaining_videos(self, remaining_videos):
+        """残りの動画をリストに追加"""
+        if not remaining_videos:
+            return
+        # 追加前の選択動画IDを保存しておく
+        previous_selected_id = None
+        try:
+            sel = self.left_pane.get_selected_video()
+            if sel:
+                previous_selected_id = sel.get('video_id')
+        except Exception:
+            previous_selected_id = None
+
+        # 現在のリストを取得
+        current_videos = []
+        for i in range(self.left_pane.model.rowCount()):
+            video = self.left_pane.model.get_video_at(i)
+            if video:
+                current_videos.append(video)
+
+        # 残りの動画を追加
+        for video in remaining_videos:
+            current_videos.append({
+                'video_id': video.get('video_id', ''),
+                'title': video.get('title', ''),
+                'thumbnail': None,  # 後で非同期読み込み
+                'duration': video.get('duration', ''),
+                'url': video.get('url', '')
+            })
+
+        # リストを更新
+        self.left_pane.model.set_videos(current_videos)
+        print(f"UI: Added {len(remaining_videos)} remaining videos to list")
+
+        # 更新後、リセットで選択が外れるため、以前の選択を復元する
+        try:
+            restored = False
+            if previous_selected_id:
+                for i in range(self.left_pane.model.rowCount()):
+                    v = self.left_pane.model.get_video_at(i)
+                    if v and v.get('video_id') == previous_selected_id:
+                        idx = self.left_pane.model.index(i, 0)
+                        if idx.isValid():
+                            self.left_pane.setCurrentIndex(idx)
+                            restored = True
+                            print(f"UI: Restored selection to video {previous_selected_id} at index {i}")
+                            break
+
+            # 以前の選択がない／見つからない場合は先頭を選択しておく
+            if not restored and self.left_pane.model.rowCount() > 0:
+                first_index = self.left_pane.model.index(0, 0)
+                if first_index.isValid():
+                    self.left_pane.setCurrentIndex(first_index)
+                    print("UI: Selected first video after adding remaining videos")
+        except Exception as e:
+            print(f"UI: Error restoring selection after adding videos: {e}")
+
+        # 残りの動画のサムネイルも非同期読み込み
+        self._load_thumbnails_async(remaining_videos)
+    
+    def _check_memory_usage(self):
+        """メモリ使用量を監視し、必要に応じてクリーンアップ"""
+        try:
+            import psutil
+            process = psutil.Process()
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            
+            # メモリ使用量が200MBを超えたら警告
+            if memory_mb > 200:
+                print(f"UI: Memory usage high: {memory_mb:.1f}MB - performing cleanup")
+                self._perform_memory_cleanup()
+            
+            # 500MBを超えたら強制クリーンアップ
+            if memory_mb > 500:
+                print(f"UI: Critical memory usage: {memory_mb:.1f}MB - forcing cleanup")
+                self._force_memory_cleanup()
+                
+        except ImportError:
+            # psutilがインストールされていない場合は代替手段
+            pass
+        except Exception as e:
+            print(f"UI: Error checking memory usage: {e}")
+    
+    def _perform_memory_cleanup(self):
+        """メモリクリーンアップを実行"""
+        try:
+            # サムネイル読み込みスレッドを停止
+            if hasattr(self, '_thumbnail_manager') and self._thumbnail_manager:
+                self._thumbnail_manager.stop_all_loaders()
+                self._thumbnail_manager = None
+                print("UI: Stopped thumbnail loaders for memory cleanup")
+            
+            # 不要なオブジェクトを解放
+            if hasattr(self, 'youtube_search_thread') and self.youtube_search_thread:
+                if self.youtube_search_thread.isFinished():
+                    self.youtube_search_thread = None
+                    print("UI: Cleaned up finished search thread")
+            
+            # ガベージコレクションを促進
+            import gc
+            gc.collect()
+            print("UI: Memory cleanup completed")
+            
+        except Exception as e:
+            print(f"UI: Error during memory cleanup: {e}")
+    
+    def _force_memory_cleanup(self):
+        """強制メモリクリーンアップを実行"""
+        try:
+            # すべてのスレッドを強制停止
+            self._cleanup_thumbnail_loaders()
+            
+            # YouTube検索スレッドを強制停止
+            if hasattr(self, 'youtube_search_thread') and self.youtube_search_thread:
+                if self.youtube_search_thread.isRunning():
+                    self.youtube_search_thread.terminate()
+                    self.youtube_search_thread.wait()
+                self.youtube_search_thread = None
+                print("UI: Force stopped search thread")
+            
+            # UIコンポーネントのデータをクリア
+            if hasattr(self, 'left_pane') and self.left_pane.model:
+                self.left_pane.model.clear_videos()
+                print("UI: Cleared YouTube list for memory cleanup")
+            
+            # ガベージコレクションを複数回実行
+            import gc
+            for _ in range(3):
+                gc.collect()
+            
+            print("UI: Force memory cleanup completed")
+            
+        except Exception as e:
+            print(f"UI: Error during force memory cleanup: {e}")
+
+    def _select_first_video(self):
+        """最初の動画を選択状態にする"""
+        try:
+            if hasattr(self, 'left_pane') and self.left_pane.model.rowCount() > 0:
+                # 選択をクリアしてから最初のアイテムを選択
+                self.left_pane.clearSelection()
+                first_index = self.left_pane.model.index(0, 0)
+                self.left_pane.setCurrentIndex(first_index)
+                # フォーカスも設定
+                self.left_pane.setFocus()
+                print("UI: Selected first YouTube video after search")
+            else:
+                print("UI: No videos available for selection")
+        except Exception as e:
+            print(f"UI: Error selecting first video: {e}")
+    
+    def _load_thumbnails_async(self, videos):
+        """サムネイルを非同期で読み込む"""
+        from app.services.youtube_service import AsyncThumbnailManager
+        
+        # 既存のサムネイル読み込みを停止しない（複数の読み込みを許容）
+        if not hasattr(self, '_thumbnail_manager') or not self._thumbnail_manager:
+            self._thumbnail_manager = AsyncThumbnailManager()
+            self._thumbnail_manager.thumbnail_ready.connect(self._on_thumbnail_ready)
+        
+        # 非同期読み込みを開始
+        self._thumbnail_manager.load_thumbnails_async(videos)
+    
+    def _on_thumbnail_ready(self, video_id: str, thumbnail):
+        """サムネイル読み込み完了時の処理"""
+        # 左ペインのモデルを更新
+        if hasattr(self, 'left_pane') and self.left_pane.model:
+            self.left_pane.model.update_thumbnail(video_id, thumbnail)
+            print(f"UI: Thumbnail loaded for video {video_id}")
+    
+    def _cleanup_thumbnail_loaders(self):
+        """サムネイル読み込みスレッドをクリーンアップ"""
+        if hasattr(self, '_thumbnail_manager') and self._thumbnail_manager:
+            self._thumbnail_manager.stop_all_loaders()
+            self._thumbnail_manager = None
     
     def on_youtube_search_error(self, error_message):
         """YouTube検索エラー時のコールバック"""
@@ -1109,35 +1333,53 @@ class MainWindow(QMainWindow):
             print("UI: Player server not available for preload")
     
     def closeEvent(self, event):
-        """アプリ終了時のクリーンアップ"""
+        """アプリケーション終了時のクリーンアップ"""
         try:
             print("UI: Cleaning up on application exit...")
             
+            # メモリ監視タイマーを停止
+            if hasattr(self, '_memory_check_timer'):
+                self._memory_check_timer.stop()
+            
+            # 強制メモリクリーンアップを実行
+            self._force_memory_cleanup()
+            
+            # サムネイル読み込みスレッドの停止
+            self._cleanup_thumbnail_loaders()
+            
             # ホットキーサービスの停止
             if hasattr(self, 'hotkey_service'):
-                self.hotkey_service.stop_health_check()
-                self.hotkey_service.unregister_all()
+                self.hotkey_service.stop()
                 print("UI: Hotkey service stopped")
+            
+            # 履歴監視サービスの停止
+            if hasattr(self, 'watcher'):
+                self.watcher.stop()
+                print("UI: History watcher stopped")
             
             # プレイヤーサーバーの停止
             if hasattr(self, 'player_server'):
-                self.player_server.stop()
+                from app.services.player_http_server import stop_player_server
+                stop_player_server()
                 print("UI: Player server stopped")
             
-            # DB接続の終了
-            if hasattr(self, 'rekordbox_service'):
-                self.rekordbox_service.close()
-                print("UI: Rekordbox service closed")
+            # 最終ガベージコレクション
+            import gc
+            gc.collect()
             
             event.accept()
             
         except Exception as e:
             print(f"UI: Error during cleanup: {e}")
-            event.accept()  # エラーがあっても終了する
+            event.accept()  # エラーがあっても終了を許可する
 
+    def _force_memory_cleanup(self):
+        """強制メモリクリーンアップ"""
+        import gc
+        gc.collect()
+        print("UI: Forced memory cleanup")
 
-
-def eventFilter(self, obj, event):
+    def eventFilter(self, obj, event):
         """イベントフィルター - 検索ボックス以外のフォーカスで検索ボックスのフォーカスを外す"""
         if event.type() == QEvent.FocusIn:
             # 検索ボックス以外にフォーカスが移ったら検索ボックスのフォーカスを外す
