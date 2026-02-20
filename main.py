@@ -246,14 +246,7 @@ class MainWindow(QMainWindow):
         self._player_browser_opened = False
         self._open_player_in_browser()
         
-        # YouTube動画の状態管理
-        self.preloaded_video_id = None
-        self.last_clicked_video_id = None
-        self.current_playing_video_id = None  # 現在再生中の動画ID
-        self.youtube_video_state = None  # 'preloading', 'ready', 'playing', None
-        self.pending_play_video_id = None
-        
-        # 起動時の状態をリセット
+        # YouTube動画の状態管理（初期化は_reset_youtube_stateで実施）
         self._reset_youtube_state()
 
     def _open_player_in_browser(self):
@@ -280,7 +273,6 @@ class MainWindow(QMainWindow):
         self.last_clicked_video_id = None
         self.current_playing_video_id = None
         self.pending_play_video_id = None
-        self._update_youtube_border_color(None)  # デリゲートもリセット
         self._update_youtube_border_color_safe('#a52a2a')  # デフォルトの枠線色
         print("UI: YouTube state reset to default")
     
@@ -485,6 +477,11 @@ class MainWindow(QMainWindow):
         if bool(self.config_service.get("always_on_top", False)):
             if self._bring_to_back_timer.isActive():
                 self._bring_to_back_timer.stop()
+        else:
+            # ホットキー操作時は既存の背面移動タイマーを停止
+            if self._bring_to_back_timer.isActive():
+                self._bring_to_back_timer.stop()
+                print("UI: Stopped existing bring-to-back timer")
 
         # Windowsの場合は特別な処理
         if sys.platform == "win32":
@@ -880,7 +877,8 @@ class MainWindow(QMainWindow):
         print(f"UI: Found {len(processed_videos)} YouTube videos")
         
         # ホットキー設定が有効な場合、指定時間後に最背面に移動
-        if self.config_service.get("bring_to_front_on_hotkey", True) and self.config_service.get("bring_to_front_on_search", False):
+        # 検索時の前面化が有効な場合も背面移動を適用
+        if self.config_service.get("bring_to_front_on_hotkey", True):
             delay_seconds = int(self.config_service.get("bring_to_back_delay_s", 3))
             self._schedule_bring_to_back(delay_seconds)
     

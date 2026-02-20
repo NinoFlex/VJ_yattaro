@@ -88,11 +88,9 @@ class HistoryWatcher(QObject):
     def check_database(self):
         """データベースをチェックし、必要に応じて信号を発行する"""
         try:
-            print("HistoryWatcher: Checking rekordbox DB for updates...")
-            
-            # データベースが存在するかチェック
+            # データベースが存在するかチェック（警告出力を抑制）
             if not self.service.db_path or not os.path.exists(self.service.db_path):
-                print(f"HistoryWatcher: Database file not found: {self.service.db_path}")
+                # 警告をコンソールに出力せず、静かに処理
                 return
             
             new_history = self.service.get_latest_history(limit=10)

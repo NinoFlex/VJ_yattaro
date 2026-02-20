@@ -51,7 +51,7 @@ class RekordboxService:
 
     def _initialize_db(self):
         if not self.db_path or not os.path.exists(self.db_path):
-            print(f"RekordboxService: DB path '{self.db_path}' does not exist!")
+            # 警告をコンソールに出力せず、静かに処理
             return
 
         try:
