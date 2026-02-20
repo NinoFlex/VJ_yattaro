@@ -514,15 +514,13 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
         
-        # 最終手段：一時的に最前面フラグ
+        # 最終手段：一時的に最前面フラグを設定して確実にフォーカスを取得
         current_flags = self.windowFlags()
         self.setWindowFlags(current_flags | Qt.WindowStaysOnTopHint)
         self.show()
         
-        # すぐにフラグを解除
-        self.setWindowFlags(current_flags)
-        self.show()
-        self.activateWindow()
+        # 少し待ってからフォーカスを確実に設定
+        QTimer.singleShot(100, lambda: self._finalize_bring_to_front(current_flags))
 
         # モード2（ホットキー時に最前面→一定秒で最背面）
         if bool(self.config_service.get("bring_to_front_on_hotkey", True)) and not bool(self.config_service.get("always_on_top", False)):
@@ -530,6 +528,17 @@ class MainWindow(QMainWindow):
             delay_ms = max(0, delay_s) * 1000
             if delay_ms > 0:
                 self._bring_to_back_timer.start(delay_ms)
+
+    def _finalize_bring_to_front(self, original_flags):
+        """最前面表示の最終処理（タイマー遅延実行）"""
+        try:
+            # フラグを元に戻す
+            self.setWindowFlags(original_flags)
+            self.show()
+            self.activateWindow()
+            print("UI: Finalized bring to front operation")
+        except Exception as e:
+            print(f"UI: Error finalizing bring to front: {e}")
 
     def _schedule_bring_to_back(self, delay_seconds):
         """指定時間後にウィンドウを最背面に移動するタイマーを設定"""

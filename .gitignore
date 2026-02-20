@@ -1,0 +1,24 @@
+# 設定ファイル（個別の環境に依存するため）
+config.json
+
+# Pythonキャッシュファイル
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEファイル
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 一時ファイル
+*.tmp
+*.temp
+
+# OS生成ファイル
+.DS_Store
+Thumbs.db
+
+# ログファイル
+*.log
