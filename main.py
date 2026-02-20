@@ -483,6 +483,15 @@ class MainWindow(QMainWindow):
                 self._bring_to_back_timer.stop()
                 print("UI: Stopped existing bring-to-back timer")
 
+        # 連続操作時の前面化を抑制（短時間での重複処理を防止）
+        import time
+        current_time = time.time()
+        if hasattr(self, '_last_front_time') and (current_time - self._last_front_time) < 0.5:  # 500ms以内の重複は無視
+            print("UI: Ignoring rapid front operation")
+            return
+        
+        self._last_front_time = current_time
+
         # Windowsの場合は特別な処理
         if sys.platform == "win32":
             try:
@@ -823,7 +832,7 @@ class MainWindow(QMainWindow):
             # 検索中は検索ボックスのみ無効化してインジケーター表示
             self.youtube_search_box.setEnabled(False)
             self.youtube_search_box.setPlaceholderText("検索中...")
-            # カーソルを待機カーソルに変更（検索ボックスのみ）
+            # カーソルを待機カーソルに変更（検索ボックスのみ）*
             from PySide6.QtGui import QCursor
             self.youtube_search_box.setCursor(QCursor(Qt.WaitCursor))
             print("UI: Search started - search box disabled")

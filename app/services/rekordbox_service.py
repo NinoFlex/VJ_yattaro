@@ -1,7 +1,11 @@
 import os
 import shutil
 import tempfile
+import logging
 from pyrekordbox.db6 import Rekordbox6Database, DjmdContent, DjmdSongHistory, DjmdArtist
+
+# pyrekordboxの警告出力を抑制
+logging.getLogger('pyrekordbox').setLevel(logging.ERROR)
 
 class RekordboxService:
     def __init__(self, db_path=None):
