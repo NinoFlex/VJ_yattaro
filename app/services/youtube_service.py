@@ -19,7 +19,7 @@ class ThumbnailLoader(QThread):
     def run(self):
         """サムネイルを読み込む"""
         try:
-            response = requests.get(self.thumbnail_url, timeout=5)
+            response = requests.get(self.thumbnail_url, timeout=20)
             response.raise_for_status()
             
             # QPixmapとして読み込み
@@ -339,7 +339,7 @@ class YouTubeService(QObject):
     def load_thumbnail(self, thumbnail_url: str) -> QPixmap:
         """サムネイル画像を読み込む"""
         try:
-            response = requests.get(thumbnail_url, timeout=10)
+            response = requests.get(thumbnail_url, timeout=20)
             response.raise_for_status()
             
             # QPixmapとして読み込み
