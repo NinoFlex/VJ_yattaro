@@ -107,9 +107,9 @@ class YouTubeSearchThread(QThread):
                 'url': f"https://www.youtube.com/watch?v={video_id}"
             })
         
-        # 動画の詳細情報を取得して長さを確認
-        if video_ids:
-            videos = self._filter_shorts(videos, video_ids)
+        # 動画の詳細情報を取得して長さを確認（一時的に無効化）
+        # if video_ids:
+        #     videos = self._filter_shorts(videos, video_ids)
         
         return videos[:20]  # 上位20件を返す
     
@@ -136,30 +136,30 @@ class YouTubeSearchThread(QThread):
             if 'items' not in data:
                 return videos
             
-            # 動画IDから長さ情報を作成
-            duration_map = {}
-            for item in data['items']:
-                video_id = item['id']
-                duration_str = item['contentDetails']['duration']
-                duration_seconds = self._parse_duration(duration_str)
-                duration_map[video_id] = duration_seconds
-            
-            # ショート動画（60秒未満）を除外
-            filtered_videos = []
-            for video in videos:
-                video_id = video['video_id']
-                duration = duration_map.get(video_id, 0)
-                
-                # 60秒以上の動画のみを含める
-                if duration >= 60:
-                    video['duration'] = self._format_duration(duration)
-                    filtered_videos.append(video)
-            
-            return filtered_videos
-            
         except Exception as e:
             print(f"Error filtering shorts: {e}")
             return videos  # エラーの場合は元のリストを返す
+        
+        # 動画IDから長さ情報を作成
+        duration_map = {}
+        for item in data['items']:
+            video_id = item['id']
+            duration_str = item['contentDetails']['duration']
+            duration_seconds = self._parse_duration(duration_str)
+            duration_map[video_id] = duration_seconds
+        
+        # ショート動画（60秒未満）を除外
+        filtered_videos = []
+        for video in videos:
+            video_id = video['video_id']
+            duration = duration_map.get(video_id, 0)
+            
+            # 60秒以上の動画のみを含める
+            if duration >= 60:
+                video['duration'] = self._format_duration(duration)
+                filtered_videos.append(video)
+        
+        return filtered_videos
     
     def _parse_duration(self, duration_str: str) -> int:
         """ISO 8601期間フォーマットを秒数に変換"""
@@ -184,39 +184,67 @@ class YouTubeSearchThread(QThread):
 
 
 class AsyncThumbnailManager(QObject):
-    """非同期サムネイル読み込みを管理するクラス"""
+    """非同期サムネイル読み込みを管理するクラス（シーケンシャル版）"""
     thumbnail_ready = Signal(str, QPixmap)  # video_id, thumbnail
     
     def __init__(self):
         super().__init__()
-        self.loader_threads = []
-        self.pending_videos = {}
+        self.current_loader = None
+        self.pending_videos = []
         self.loaded_video_ids = set()  # 読み込み済み動画IDを追跡
+        self.is_loading = False
     
     def load_thumbnails_async(self, videos: List[Dict]):
-        """複数のサムネイルを非同期で読み込む"""
-        # 新しい動画のサムネイル読み込みを開始
+        """複数のサムネイルを順番に非同期で読み込む"""
+        # 新しい動画のみをペンディングリストに追加
         for video in videos:
             video_id = video.get('video_id')
             if video_id and video_id not in self.loaded_video_ids and 'thumbnail_url' in video:
-                self.loaded_video_ids.add(video_id)
-                loader = ThumbnailLoader(video_id, video['thumbnail_url'])
-                loader.thumbnail_loaded.connect(self._on_thumbnail_loaded)
-                self.loader_threads.append(loader)
-                loader.start()
+                self.pending_videos.append(video)
+        
+        # 現在読み込み中でなければ開始
+        if not self.is_loading and self.pending_videos:
+            self._load_next_thumbnail()
+    
+    def _load_next_thumbnail(self):
+        """次のサムネイルを読み込む"""
+        if not self.pending_videos:
+            self.is_loading = False
+            return
+        
+        self.is_loading = True
+        video = self.pending_videos.pop(0)  # 先頭から取得（1位から順番）
+        video_id = video['video_id']
+        thumbnail_url = video['thumbnail_url']
+        
+        self.loaded_video_ids.add(video_id)
+        self.current_loader = ThumbnailLoader(video_id, thumbnail_url)
+        self.current_loader.thumbnail_loaded.connect(self._on_thumbnail_loaded)
+        self.current_loader.start()
     
     def _on_thumbnail_loaded(self, video_id: str, thumbnail: QPixmap):
         """サムネイル読み込み完了時のコールバック"""
         self.thumbnail_ready.emit(video_id, thumbnail)
+        
+        # 現在のローダーをクリーンアップ
+        if self.current_loader:
+            self.current_loader.deleteLater()
+            self.current_loader = None
+        
+        # 次のサムネイルを読み込み
+        self._load_next_thumbnail()
     
     def stop_all_loaders(self):
         """すべてのサムネイル読み込みスレッドを停止"""
-        for loader in self.loader_threads:
-            if loader.isRunning():
-                loader.terminate()
-                loader.wait()
-        self.loader_threads.clear()
+        if self.current_loader and self.current_loader.isRunning():
+            self.current_loader.terminate()
+            self.current_loader.wait()
+            self.current_loader.deleteLater()
+        
+        self.current_loader = None
+        self.pending_videos.clear()
         self.loaded_video_ids.clear()
+        self.is_loading = False
 
 
 class YouTubeService(QObject):
