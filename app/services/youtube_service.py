@@ -107,9 +107,9 @@ class YouTubeSearchThread(QThread):
                 'url': f"https://www.youtube.com/watch?v={video_id}"
             })
         
-        # 動画の詳細情報を取得して長さを確認（一時的に無効化）
-        # if video_ids:
-        #     videos = self._filter_shorts(videos, video_ids)
+        # 動画の詳細情報を取得して長さを確認
+        if video_ids:
+            videos = self._filter_shorts(videos, video_ids)
         
         return videos[:20]  # 上位20件を返す
     
@@ -134,11 +134,17 @@ class YouTubeSearchThread(QThread):
             data = response.json()
             
             if 'items' not in data:
+                # エラー時はすべての動画に空のdurationを設定して返す
+                for video in videos:
+                    video['duration'] = ''
                 return videos
             
         except Exception as e:
             print(f"Error filtering shorts: {e}")
-            return videos  # エラーの場合は元のリストを返す
+            # エラー時はすべての動画に空のdurationを設定して返す
+            for video in videos:
+                video['duration'] = ''
+            return videos
         
         # 動画IDから長さ情報を作成
         duration_map = {}
