@@ -192,6 +192,7 @@ class MainWindow(QMainWindow):
             }
         """)
         self.youtube_search_box.returnPressed.connect(self.search_youtube_from_box)
+        self.youtube_search_box.installEventFilter(self)
         right_layout.addWidget(self.youtube_search_box)
         
         # 右テーブル
@@ -1380,10 +1381,21 @@ class MainWindow(QMainWindow):
         print("UI: Forced memory cleanup")
 
     def eventFilter(self, obj, event):
-        """イベントフィルター - 検索ボックス以外のフォーカスで検索ボックスのフォーカスを外す"""
+        """イベントフィルター - フォーカス管理とホットキーの一時無効化"""
+        if obj == self.youtube_search_box:
+            if event.type() == QEvent.FocusIn:
+                print("UI: Search box focused - temporarily unregistering hotkeys")
+                if hasattr(self, 'hotkey_service'):
+                    self.hotkey_service.unregister_all()
+            elif event.type() == QEvent.FocusOut:
+                print("UI: Search box focus lost - re-registering hotkeys")
+                # 少し遅延させて再登録することで、IME系のイベント処理が終わってからフックし直す
+                if hasattr(self, 'hotkey_service'):
+                    QTimer.singleShot(100, self.hotkey_service._reregister_hotkeys)
+
         if event.type() == QEvent.FocusIn:
             # 検索ボックス以外にフォーカスが移ったら検索ボックスのフォーカスを外す
-            if obj != self.youtube_search_box and self.youtube_search_box.hasFocus():
+            if obj != self.youtube_search_box and hasattr(self, 'youtube_search_box') and self.youtube_search_box.hasFocus():
                 self.youtube_search_box.clearFocus()
                 print("UI: Cleared search box focus due to focus change")
         

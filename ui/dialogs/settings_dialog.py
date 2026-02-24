@@ -26,6 +26,10 @@ class HotkeyEdit(QLineEdit):
             self.clear()
             self.hotkey_changed.emit("")
             return
+            
+        # 修飾キー単体（Ctrl, Shift, Alt, Meta）の場合は無視
+        if key in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta):
+            return
         
         # 修飾キーと通常キーを収集
         modifiers = event.modifiers()
@@ -34,26 +38,43 @@ class HotkeyEdit(QLineEdit):
         if modifiers & Qt.ControlModifier:
             key_parts.append("ctrl")
         if modifiers & Qt.ShiftModifier:
+            # 文字キー（A, *, +等）で、すでにその文字がShiftを必要とする場合は含めない判断もあるが、
+            # HotkeyService側で解釈できるように基本は付ける
             key_parts.append("shift")
         if modifiers & Qt.AltModifier:
             key_parts.append("alt")
         if modifiers & Qt.MetaModifier:
             key_parts.append("windows")
         
-        # 通常キーを追加（修飾キー自体は除外）
-        if key not in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta):
-            key_name = self._get_key_name(key)
-            if key_name:
-                key_parts.append(key_name)
+        # 通常キーを追加
+        key_name = self._get_key_name(event)
+        if key_name:
+            # '+' はパース用の特殊文字なのでそのまま追加（結合は join で行う）
+            key_parts.append(key_name)
         
         # ホットキー文字列を生成
         if key_parts:
-            hotkey_str = "+".join(key_parts)
+            # 重複（ctrl+ctrlなど）を排除しつつ定義
+            final_parts = []
+            for p in key_parts:
+                if p not in final_parts:
+                    final_parts.append(p)
+            
+            hotkey_str = "+".join(final_parts)
             self.setText(hotkey_str)
             self.hotkey_changed.emit(hotkey_str)
     
-    def _get_key_name(self, key):
-        """Qtのキーコードをkeyboardライブラリの形式に変換"""
+    def _get_key_name(self, event: QKeyEvent):
+        """QtのキーイベントからOSが期待するキー名を取得"""
+        key = event.key()
+        text = event.text()
+        
+        # 記号系：event.text() があればそれ（*, +, -, . 等）を優先
+        # ただし制御文字（Spaceなど）は文字として扱わない
+        if text and text.isprintable() and text.strip():
+            # 数字やアルファベット、記号はそのまま返す
+            return text.lower()
+            
         key_map = {
             Qt.Key_Up: "up",
             Qt.Key_Down: "down",
@@ -71,29 +92,12 @@ class HotkeyEdit(QLineEdit):
             Qt.Key_PageDown: "page down",
             Qt.Key_Insert: "insert",
             Qt.Key_Escape: "esc",
-            Qt.Key_CapsLock: "caps lock",
-            Qt.Key_ScrollLock: "scroll lock",
-            Qt.Key_Pause: "pause",
-            Qt.Key_Print: "print screen",
-            Qt.Key_SysReq: "sys req",
-            # テンキー（NumLockオン時は通常キーとして扱う）
-            Qt.Key_NumLock: "num lock",
-            Qt.Key_Slash: "/",
+            # テンキー明示マッピング
             Qt.Key_Asterisk: "*",
-            Qt.Key_Minus: "-",
             Qt.Key_Plus: "+",
-            Qt.Key_Enter: "enter",
+            Qt.Key_Minus: "-",
             Qt.Key_Period: ".",
-            Qt.Key_0: "0",
-            Qt.Key_1: "1",
-            Qt.Key_2: "2",
-            Qt.Key_3: "3",
-            Qt.Key_4: "4",
-            Qt.Key_5: "5",
-            Qt.Key_6: "6",
-            Qt.Key_7: "7",
-            Qt.Key_8: "8",
-            Qt.Key_9: "9",
+            Qt.Key_Slash: "/",
         }
         
         if key in key_map:
@@ -103,9 +107,7 @@ class HotkeyEdit(QLineEdit):
         if Qt.Key_F1 <= key <= Qt.Key_F12:
             return f"f{key - Qt.Key_F1 + 1}"
         
-        # 通常の文字キー
-        text = chr(key).lower() if 32 <= key <= 126 else None
-        return text
+        return None
 
 
 class SettingsDialog(QDialog):
