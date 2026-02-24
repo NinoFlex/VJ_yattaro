@@ -584,6 +584,12 @@ class VJPlayer {
             case 'PLAY':
                 this.handlePlay(videoId);
                 break;
+            case 'REWIND':
+                this.handleRewind(parseFloat(videoId) || 10);
+                break;
+            case 'FORWARD':
+                this.handleForward(parseFloat(videoId) || 10);
+                break;
             default:
                 console.log('Unknown command:', cmd);
         }
@@ -701,6 +707,45 @@ class VJPlayer {
             }
         };
         checkReady();
+    }
+
+    // 巻き戻し処理
+    handleRewind(seconds) {
+        console.log(`Rewinding ${seconds} seconds`);
+        const currentPlayerObj = this.players[this.currentPlayer];
+        
+        if (currentPlayerObj && typeof currentPlayerObj.seekTo === 'function') {
+            try {
+                const currentTime = currentPlayerObj.getCurrentTime();
+                const newTime = Math.max(0, currentTime - seconds);
+                currentPlayerObj.seekTo(newTime, true);
+                console.log(`Rewound to ${newTime} seconds`);
+            } catch (error) {
+                console.error('Error during rewind:', error);
+            }
+        } else {
+            console.log('Rewind not available: current player does not support seekTo');
+        }
+    }
+
+    // 早送り処理
+    handleForward(seconds) {
+        console.log(`Forwarding ${seconds} seconds`);
+        const currentPlayerObj = this.players[this.currentPlayer];
+        
+        if (currentPlayerObj && typeof currentPlayerObj.seekTo === 'function') {
+            try {
+                const currentTime = currentPlayerObj.getCurrentTime();
+                const duration = currentPlayerObj.getDuration();
+                const newTime = Math.min(duration || currentTime + seconds, currentTime + seconds);
+                currentPlayerObj.seekTo(newTime, true);
+                console.log(`Forwarded to ${newTime} seconds`);
+            } catch (error) {
+                console.error('Error during forward:', error);
+            }
+        } else {
+            console.log('Forward not available: current player does not support seekTo');
+        }
     }
 
     // プレイヤー切り替えと再生

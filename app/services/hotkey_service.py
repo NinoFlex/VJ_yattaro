@@ -41,6 +41,8 @@ class HotkeyService(QObject):
     preload_triggered = Signal()
     play_triggered = Signal()
     search_triggered = Signal()
+    rewind_triggered = Signal()
+    forward_triggered = Signal()
     
     def __new__(cls):
         if cls._instance is None:
@@ -195,7 +197,7 @@ class HotkeyService(QObject):
         
         return success
 
-    def register_hotkeys(self, hotkey_move_up, hotkey_move_down, hotkey_move_left=None, hotkey_move_right=None, hotkey_preload=None, hotkey_play=None, hotkey_search=None):
+    def register_hotkeys(self, hotkey_move_up, hotkey_move_down, hotkey_move_left=None, hotkey_move_right=None, hotkey_preload=None, hotkey_play=None, hotkey_search=None, hotkey_rewind=None, hotkey_forward=None):
         """グローバルホットキーを登録する"""
         
         self._last_hotkey_configs = {
@@ -205,7 +207,9 @@ class HotkeyService(QObject):
             'right': hotkey_move_right,
             'preload': hotkey_preload,
             'play': hotkey_play,
-            'search': hotkey_search
+            'search': hotkey_search,
+            'rewind': hotkey_rewind,
+            'forward': hotkey_forward
         }
         
         self.unregister_all()
@@ -221,6 +225,8 @@ class HotkeyService(QObject):
             if hotkey_preload: self._register_single(hotkey_preload, self.preload_triggered.emit)
             if hotkey_play: self._register_single(hotkey_play, self.play_triggered.emit)
             if hotkey_search: self._register_single(hotkey_search, self.search_triggered.emit)
+            if hotkey_rewind: self._register_single(hotkey_rewind, self.rewind_triggered.emit)
+            if hotkey_forward: self._register_single(hotkey_forward, self.forward_triggered.emit)
         except Exception as e:
             print(f"HotkeyService: Error registering hotkeys: {e}")
 
@@ -239,7 +245,8 @@ class HotkeyService(QObject):
         configs = self._last_hotkey_configs
         self.register_hotkeys(
             configs['up'], configs['down'], configs['left'], configs['right'],
-            configs['preload'], configs['play'], configs['search']
+            configs['preload'], configs['play'], configs['search'],
+            configs['rewind'], configs['forward']
         )
     
     def stop(self):

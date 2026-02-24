@@ -50,6 +50,20 @@ class TitleBar(QWidget):
                 background-color: #f8f8f8;
                 border-color: #999;
             }
+            #seek_button {
+                font-size: 16px;
+                background-color: #ffffff;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                margin: 4px 2px;
+                padding: 0 8px;
+                color: #333;
+                min-width: 32px;
+            }
+            #seek_button:hover {
+                background-color: #f8f8f8;
+                border-color: #999;
+            }
         """)
 
         layout = QHBoxLayout(self)
@@ -61,6 +75,18 @@ class TitleBar(QWidget):
         self.settings_button.setObjectName("settings_button")
         self.settings_button.clicked.connect(self._main_window.open_settings)
         layout.addWidget(self.settings_button)
+
+        # 巻き戻しボタン
+        self.rewind_button = QPushButton("◀◀")
+        self.rewind_button.setObjectName("seek_button")
+        self.rewind_button.clicked.connect(self._main_window.rewind_video)
+        layout.addWidget(self.rewind_button)
+
+        # 早送りボタン
+        self.forward_button = QPushButton("▶▶")
+        self.forward_button.setObjectName("seek_button")
+        self.forward_button.clicked.connect(self._main_window.forward_video)
+        layout.addWidget(self.forward_button)
 
         # タイトル
         self.title_label = QLabel("あんたの代わりにVJやっ太郎")
@@ -252,6 +278,8 @@ class MainWindow(QMainWindow):
         self.hotkey_service.preload_triggered.connect(self.preload_current_video)
         self.hotkey_service.play_triggered.connect(self.play_current_video)
         self.hotkey_service.search_triggered.connect(self.search_selected_track)
+        self.hotkey_service.rewind_triggered.connect(self.rewind_video)
+        self.hotkey_service.forward_triggered.connect(self.forward_video)
         
         # 右テーブルのダブルクリックシグナルを接続
         self.right_table.doubleClicked.connect(self.on_table_double_click)
@@ -616,10 +644,13 @@ class MainWindow(QMainWindow):
             hotkey_preload = self.config_service.get("hotkey_preload", "ctrl+enter")
             hotkey_play = self.config_service.get("hotkey_play", "shift+enter")
             hotkey_search = self.config_service.get("hotkey_search", "ctrl+shift+enter")
+            hotkey_rewind = self.config_service.get("hotkey_rewind", "ctrl+;")
+            hotkey_forward = self.config_service.get("hotkey_forward", "ctrl+:")
             
             self.hotkey_service.register_hotkeys(hotkey_up, hotkey_down, hotkey_left, hotkey_right, 
-                                               hotkey_preload, hotkey_play, hotkey_search)
-            print(f"UI: Hotkeys reloaded - Up: {hotkey_up}, Down: {hotkey_down}, Left: {hotkey_left}, Right: {hotkey_right}, Preload: {hotkey_preload}, Play: {hotkey_play}, Search: {hotkey_search}")
+                                               hotkey_preload, hotkey_play, hotkey_search,
+                                               hotkey_rewind, hotkey_forward)
+            print(f"UI: Hotkeys reloaded - Up: {hotkey_up}, Down: {hotkey_down}, Left: {hotkey_left}, Right: {hotkey_right}, Preload: {hotkey_preload}, Play: {hotkey_play}, Search: {hotkey_search}, Rewind: {hotkey_rewind}, Forward: {hotkey_forward}")
         except Exception as e:
             print(f"UI: Error reloading hotkeys: {e}")
             # 再試行
@@ -627,7 +658,8 @@ class MainWindow(QMainWindow):
             time.sleep(1)
             try:
                 self.hotkey_service.register_hotkeys(hotkey_up, hotkey_down, hotkey_left, hotkey_right, 
-                                                   hotkey_preload, hotkey_play, hotkey_search)
+                                                   hotkey_preload, hotkey_play, hotkey_search,
+                                                   hotkey_rewind, hotkey_forward)
                 print("UI: Hotkeys reloaded successfully after retry")
             except Exception as e2:
                 print(f"UI: Failed to reload hotkeys after retry: {e2}")
@@ -746,6 +778,24 @@ class MainWindow(QMainWindow):
             print(f"UI: Sent PRELOAD command, will auto-play when ready (play hotkey): {video_id}")
         else:
             print("UI: Player server not available for play")
+    
+    def rewind_video(self):
+        """現在再生中の動画を指定秒数巻き戻す"""
+        rewind_seconds = self.config_service.get("rewind_seconds", 2)
+        if hasattr(self, 'player_server') and self.player_server:
+            self.player_server.send_command('REWIND', str(rewind_seconds))
+            print(f"UI: Sent REWIND command ({rewind_seconds} seconds)")
+        else:
+            print("UI: Player server not available for rewind")
+    
+    def forward_video(self):
+        """現在再生中の動画を指定秒数早送りする"""
+        forward_seconds = self.config_service.get("forward_seconds", 2)
+        if hasattr(self, 'player_server') and self.player_server:
+            self.player_server.send_command('FORWARD', str(forward_seconds))
+            print(f"UI: Sent FORWARD command ({forward_seconds} seconds)")
+        else:
+            print("UI: Player server not available for forward")
     
     def on_table_double_click(self, index):
         """右テーブルがダブルクリックされた時の処理"""

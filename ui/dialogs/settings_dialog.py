@@ -162,6 +162,8 @@ class SettingsDialog(QDialog):
         self.bring_to_front_on_hotkey_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_hotkey", True)))
         self.bring_to_front_on_search_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_search", False)))
         self.bring_to_back_delay_spin.setValue(int(self.config_service.get("bring_to_back_delay_s", 3)))
+        self.rewind_seconds_spin.setValue(int(self.config_service.get("rewind_seconds", 2)))
+        self.forward_seconds_spin.setValue(int(self.config_service.get("forward_seconds", 2)))
         self._sync_window_placement_mode_ui()
         self.hotkey_up_edit.setText(self.config_service.get("hotkey_move_up", "ctrl+shift+up"))
         self.hotkey_down_edit.setText(self.config_service.get("hotkey_move_down", "ctrl+shift+down"))
@@ -170,6 +172,8 @@ class SettingsDialog(QDialog):
         self.hotkey_preload_edit.setText(self.config_service.get("hotkey_preload", "ctrl+enter"))
         self.hotkey_play_edit.setText(self.config_service.get("hotkey_play", "shift+enter"))
         self.hotkey_search_edit.setText(self.config_service.get("hotkey_search", "ctrl+shift+enter"))
+        self.hotkey_rewind_edit.setText(self.config_service.get("hotkey_rewind", "ctrl+;"))
+        self.hotkey_forward_edit.setText(self.config_service.get("hotkey_forward", "ctrl+:"))
         self.youtube_api_key_edit.setText(self.config_service.get("youtube_api_key", ""))
         self.youtube_search_template_edit.setText(self.config_service.get("youtube_search_template", "%tracktitle% %comment%"))
 
@@ -210,6 +214,35 @@ class SettingsDialog(QDialog):
         
         # 初期URLを設定
         self._update_player_url()
+
+        # 巻き戻し・早送り設定
+        seek_group = QGroupBox("巻き戻し・早送り")
+        seek_layout = QVBoxLayout(seek_group)
+
+        # 巻き戻し秒数
+        rewind_row = QHBoxLayout()
+        rewind_row.addWidget(QLabel("巻き戻し秒数:"))
+        self.rewind_seconds_spin = QSpinBox()
+        self.rewind_seconds_spin.setRange(1, 60)
+        self.rewind_seconds_spin.setSuffix(" 秒")
+        self.rewind_seconds_spin.setValue(2)
+        rewind_row.addWidget(self.rewind_seconds_spin)
+        rewind_row.addStretch()
+
+        # 早送り秒数
+        forward_row = QHBoxLayout()
+        forward_row.addWidget(QLabel("早送り秒数:"))
+        self.forward_seconds_spin = QSpinBox()
+        self.forward_seconds_spin.setRange(1, 60)
+        self.forward_seconds_spin.setSuffix(" 秒")
+        self.forward_seconds_spin.setValue(2)
+        forward_row.addWidget(self.forward_seconds_spin)
+        forward_row.addStretch()
+
+        seek_layout.addLayout(rewind_row)
+        seek_layout.addLayout(forward_row)
+
+        layout.addRow(seek_group)
 
         # ウィンドウ配置モード
         window_group = QGroupBox("ウィンドウ配置モード")
@@ -393,6 +426,26 @@ class SettingsDialog(QDialog):
         clear_search_btn.clicked.connect(lambda: self.hotkey_search_edit.clear())
         search_layout.addWidget(clear_search_btn)
         layout.addRow("選択曲でYouTube検索:", search_layout)
+
+        # 巻き戻しホットキー
+        self.hotkey_rewind_edit = HotkeyEdit()
+        clear_rewind_btn = QPushButton("クリア")
+        clear_rewind_btn.setFixedWidth(60)
+        clear_rewind_btn.clicked.connect(lambda: self.hotkey_rewind_edit.clear())
+        rewind_layout = QHBoxLayout()
+        rewind_layout.addWidget(self.hotkey_rewind_edit)
+        rewind_layout.addWidget(clear_rewind_btn)
+        layout.addRow("巻き戻し:", rewind_layout)
+
+        # 早送りホットキー
+        self.hotkey_forward_edit = HotkeyEdit()
+        clear_forward_btn = QPushButton("クリア")
+        clear_forward_btn.setFixedWidth(60)
+        clear_forward_btn.clicked.connect(lambda: self.hotkey_forward_edit.clear())
+        forward_layout = QHBoxLayout()
+        forward_layout.addWidget(self.hotkey_forward_edit)
+        forward_layout.addWidget(clear_forward_btn)
+        layout.addRow("早送り:", forward_layout)
         
         # 注釈
         help_label = QLabel("※ Escキーでもクリアできます。\n※ 左右キーはYouTubeリストの動画選択に使用します。\n※ プリロード/再生はYouTube動画の操作に使用します。\n※ 検索は右ペインの選択曲でYouTube検索します。")
@@ -513,6 +566,8 @@ class SettingsDialog(QDialog):
         bring_to_front_on_hotkey = self.bring_to_front_on_hotkey_checkbox.isChecked()
         bring_to_front_on_search = self.bring_to_front_on_search_checkbox.isChecked()
         bring_to_back_delay_s = int(self.bring_to_back_delay_spin.value())
+        rewind_seconds = int(self.rewind_seconds_spin.value())
+        forward_seconds = int(self.forward_seconds_spin.value())
         
         hotkey_up = self.hotkey_up_edit.text()
         hotkey_down = self.hotkey_down_edit.text()
@@ -521,13 +576,16 @@ class SettingsDialog(QDialog):
         hotkey_preload = self.hotkey_preload_edit.text()
         hotkey_play = self.hotkey_play_edit.text()
         hotkey_search = self.hotkey_search_edit.text()
+        hotkey_rewind = self.hotkey_rewind_edit.text()
+        hotkey_forward = self.hotkey_forward_edit.text()
         youtube_api_key = self.youtube_api_key_edit.text()
         youtube_search_template = self.youtube_search_template_edit.text()
             
         print(f"Settings: Saving DB Path: {db_path}, Interval: {interval}")
         print(f"Settings: Saving Hotkeys - Up: {hotkey_up}, Down: {hotkey_down}, Left: {hotkey_left}, Right: {hotkey_right}")
-        print(f"Settings: Saving YouTube Hotkeys - Preload: {hotkey_preload}, Play: {hotkey_play}, Search: {hotkey_search}")
+        print(f"Settings: Saving YouTube Hotkeys - Preload: {hotkey_preload}, Play: {hotkey_play}, Search: {hotkey_search}, Rewind: {hotkey_rewind}, Forward: {hotkey_forward}")
         print(f"Settings: Saving Window Placement - AlwaysOnTop: {always_on_top}, HotkeyFront: {bring_to_front_on_hotkey}, SearchFront: {bring_to_front_on_search}, DelayS: {bring_to_back_delay_s}")
+        print(f"Settings: Saving Seek Settings - Rewind: {rewind_seconds}s, Forward: {forward_seconds}s")
         print(f"Settings: Saving YouTube API Key: {'*' * len(youtube_api_key) if youtube_api_key else '(empty)'}")
         print(f"Settings: Saving YouTube Search Template: {youtube_search_template}")
         
@@ -539,6 +597,8 @@ class SettingsDialog(QDialog):
             "bring_to_front_on_hotkey": bring_to_front_on_hotkey,
             "bring_to_front_on_search": bring_to_front_on_search,
             "bring_to_back_delay_s": bring_to_back_delay_s,
+            "rewind_seconds": rewind_seconds,
+            "forward_seconds": forward_seconds,
             "hotkey_move_up": hotkey_up,
             "hotkey_move_down": hotkey_down,
             "hotkey_move_left": hotkey_left,
@@ -546,6 +606,8 @@ class SettingsDialog(QDialog):
             "hotkey_preload": hotkey_preload,
             "hotkey_play": hotkey_play,
             "hotkey_search": hotkey_search,
+            "hotkey_rewind": hotkey_rewind,
+            "hotkey_forward": hotkey_forward,
             "youtube_api_key": youtube_api_key,
             "youtube_search_template": youtube_search_template
         })
