@@ -95,7 +95,8 @@ class HotkeyService(QObject):
             'backspace': 0x08, 'tab': 0x09, 'enter': 0x0D, 'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12,
             'esc': 0x1B, 'space': 0x20, 'page up': 0x21, 'page down': 0x22, 'end': 0x23, 'home': 0x24,
             'left': 0x25, 'up': 0x26, 'right': 0x27, 'down': 0x28, 'insert': 0x2D, 'delete': 0x2E,
-            # テンキー明示指定用
+            # テンキー優先指定（記号単体ならテンキーのコードを割り当てる）
+            '*': 0x6A, '+': 0x6B, '-': 0x6D, '.': 0x6E, '/': 0x6F,
             'numpad *': 0x6A, 'numpad +': 0x6B, 'numpad -': 0x6D, 'numpad /': 0x6F, 'numpad .': 0x6E,
             'subtract': 0x6D, 'add': 0x6B, 'multiply': 0x6A, 'divide': 0x6F, 'numpad_period': 0x6E,
             # Windows/JIS配列 特殊記号
@@ -144,20 +145,55 @@ class HotkeyService(QObject):
         if not vk:
             return False
             
-        hotkey_id = self._next_id
-        self._next_id += 1
+        # 登録したい仮想キーのリスト（基本は1つだが、記号の場合はテンキーとメインを両方含める）
+        vks_to_register = [vk]
         
-        # RegisterHotKey(hWnd, id, fsModifiers, vk)
-        # hWnd=None でスレッドメッセージキューに入る
-        result = self.user32.RegisterHotKey(None, hotkey_id, modifiers, vk)
-        if result:
-            self._hotkeys[hotkey_id] = callback
-            print(f"HotkeyService: Registered Win32 hotkey '{hotkey_str}' (ID:{hotkey_id}, VK:{hex(vk)}, Mod:{hex(modifiers)})")
-            return True
-        else:
-            err = ctypes.GetLastError()
-            print(f"HotkeyService: Failed to register hotkey '{hotkey_str}' (ID:{hotkey_id}). Error code: {err}")
-            return False
+        # 記号系の場合、対になるキーも自動登録対象にする
+        # 0x6A-0x6F はテンキーの * + - . /
+        symbol_pairs = {
+            0x6A: 0xBA, # Numpad * -> Main * (JISではShift+:) ※レイアウトにより変動するが代表をセット
+            0x6B: 0xBB, # Numpad + -> Main + (JISではShift+;)
+            0x6D: 0xBD, # Numpad - -> Main - (JISでは-)
+            0x6E: 0xBE, # Numpad . -> Main .
+            0x6F: 0xBF, # Numpad / -> Main /
+            # 逆方向（メイン -> テンキー）
+            0xBA: 0x6A, 0xBB: 0x6B, 0xBD: 0x6D, 0xBE: 0x6E, 0xBF: 0x6F
+        }
+        
+        if vk in symbol_pairs:
+            pair_vk = symbol_pairs[vk]
+            if pair_vk not in vks_to_register:
+                vks_to_register.append(pair_vk)
+
+        success = False
+        for target_vk in vks_to_register:
+            # 修飾キーがない場合、テンキー以外の記号キーなどは制限する
+            # (タイピング中の誤爆を防ぐため)
+            is_numpad = (0x60 <= target_vk <= 0x6F) # Numpad 0-9, * + - . /
+            is_arrow_or_nav = (0x21 <= target_vk <= 0x28) # Arrows, PgUp, PgDn, End, Home
+            is_function_key = (0x70 <= target_vk <= 0x87) # F1-F24
+            
+            if modifiers == 0:
+                if not (is_numpad or is_arrow_or_nav or is_function_key):
+                    # テンキー以外のキー（メインキーボードの記号など）で修飾キーがない場合はスキップ
+                    continue
+
+            hotkey_id = self._next_id
+            self._next_id += 1
+            
+            # RegisterHotKey(hWnd, id, fsModifiers, vk)
+            result = self.user32.RegisterHotKey(None, hotkey_id, modifiers, target_vk)
+            if result:
+                self._hotkeys[hotkey_id] = callback
+                print(f"HotkeyService: Registered Win32 hotkey '{hotkey_str}' (ID:{hotkey_id}, VK:{hex(target_vk)}, Mod:{hex(modifiers)})")
+                success = True
+            else:
+                err = ctypes.GetLastError()
+                # 既に登録されているなどのエラーは無視して進める
+                if err != 1409: # 1409 = Hotkey already registered
+                    print(f"HotkeyService: Failed to register hotkey '{hotkey_str}' (VK:{hex(target_vk)}). Error code: {err}")
+        
+        return success
 
     def register_hotkeys(self, hotkey_move_up, hotkey_move_down, hotkey_move_left=None, hotkey_move_right=None, hotkey_preload=None, hotkey_play=None, hotkey_search=None):
         """グローバルホットキーを登録する"""
