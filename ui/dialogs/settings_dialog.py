@@ -45,36 +45,37 @@ class HotkeyEdit(QLineEdit):
             key_parts.append("alt")
         if modifiers & Qt.MetaModifier:
             key_parts.append("windows")
-        
         # 通常キーを追加
         key_name = self._get_key_name(event)
         if key_name:
-            # '+' はパース用の特殊文字なのでそのまま追加（結合は join で行う）
+            key_parts.append(key_name)
+        elif key in (Qt.Key_Backslash, Qt.Key_Yen, Qt.Key_Bar):
+            # _get_key_name が何らかの理由で None を返した場合のバックアップ
+            key_name = "\\" if key != Qt.Key_Bar else "|"
             key_parts.append(key_name)
         
         # ホットキー文字列を生成
         if key_parts:
-            # 重複（ctrl+ctrlなど）を排除しつつ定義
-            final_parts = []
+            # 修飾キーのみの場合（例: ctrl だけ押されている）は、ホットキーとして不完全なのでテキストを更新しない
+            # ただし、すでに通常キーが含まれている場合はOK。
+            # 通常キーが含まれていない場合、表示を ctrl+... 等にして保留する
+            has_normal_key = False
             for p in key_parts:
-                if p not in final_parts:
-                    final_parts.append(p)
+                if p not in ("ctrl", "shift", "alt", "windows"):
+                    has_normal_key = True
+                    break
             
-            hotkey_str = "+".join(final_parts)
+            # ユーザーが求めているのは「ctrl + \」のような完成形なので、通常キーがある場合のみ emit する
+            hotkey_str = "+".join(key_parts)
             self.setText(hotkey_str)
-            self.hotkey_changed.emit(hotkey_str)
+            if has_normal_key:
+                self.hotkey_changed.emit(hotkey_str)
     
     def _get_key_name(self, event: QKeyEvent):
         """QtのキーイベントからOSが期待するキー名を取得"""
         key = event.key()
         text = event.text()
         
-        # 記号系：event.text() があればそれ（*, +, -, . 等）を優先
-        # ただし制御文字（Spaceなど）は文字として扱わない
-        if text and text.isprintable() and text.strip():
-            # 数字やアルファベット、記号はそのまま返す
-            return text.lower()
-            
         key_map = {
             Qt.Key_Up: "up",
             Qt.Key_Down: "down",
@@ -92,18 +93,29 @@ class HotkeyEdit(QLineEdit):
             Qt.Key_PageDown: "page down",
             Qt.Key_Insert: "insert",
             Qt.Key_Escape: "esc",
-            # テンキー明示マッピング
+            # 記号・テンキー明示マッピング
             Qt.Key_Asterisk: "*",
             Qt.Key_Plus: "+",
             Qt.Key_Minus: "-",
             Qt.Key_Period: ".",
             Qt.Key_Slash: "/",
+            Qt.Key_Backslash: "\\",
+            Qt.Key_Bar: "|",
         }
         
+        # 1. まずは固定マップ（特殊キーや記号）を優先確認
         if key in key_map:
             return key_map[key]
         
-        # F1-F12キー
+        # JIS配列の円記号 (¥) やバックスラッシュが数値で報告される場合への対応
+        if key == 165 or key == 167: # 165 は ¥
+            return "\\"
+        
+        # 2. 記号系：event.text() 判定
+        if text and text.isprintable() and text.strip():
+            return text.lower()
+            
+        # 3. F1-F12キー
         if Qt.Key_F1 <= key <= Qt.Key_F12:
             return f"f{key - Qt.Key_F1 + 1}"
         
