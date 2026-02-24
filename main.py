@@ -388,7 +388,10 @@ class MainWindow(QMainWindow):
                 # 一番上の項目が変更された場合
                 print(f"UI: Top track updated from {self._last_top_track} to {new_top_track}")
                 self._last_top_track = new_top_track
-                
+                # 右カラムが更新されたら検索ボックスをクリア
+                if hasattr(self, 'youtube_search_box') and self.youtube_search_box.text().strip():
+                    self.youtube_search_box.clear()
+                    print("UI: Cleared YouTube search box due to right column update")        
                 # 一番上の項目で自動検索
                 if len(new_top_track) >= 3:
                     track_title = new_top_track[0] or ""
@@ -1132,7 +1135,7 @@ class MainWindow(QMainWindow):
         for i in range(5):
             dummy_videos.append({
                 'video_id': f'dummy_{i}',
-                'title': f'Test Video {i+1}',
+                'title': f'取得失敗しました。APIキーを確認してください。',
                 'thumbnail': None,  # 後でサムネイルを設定
                 'duration': f'{random.randint(2,10)}:{random.randint(10,59):02d}',
                 'url': f'https://youtube.com/watch?v=dummy_{i}'
