@@ -138,6 +138,8 @@ class MainWindow(QMainWindow):
         # 前面化状態管理
         self._is_bringing_to_front = False
         self._last_front_time = 0
+        self._last_user_interacted_time = 0  # ユーザーの直接操作があった時刻
+        self._user_has_clicked_since_front = False  # 前面化後にクリックされたか
         
         # メモリ管理
         self._memory_check_timer = QTimer(self)
@@ -300,8 +302,24 @@ class MainWindow(QMainWindow):
         self.player_server.set_state_callback(self._handle_player_feedback)
         print("UI: Player HTTP server started")
 
-        # イベントフィルターをインストール（フォーカス管理用）
+        # イベントフィルターをインストール（フォーカス管理やタイマー制御用）
+        # すべての操作可能な領域に対してフィルターを設定し、クリックを確実に捕捉する
         self.installEventFilter(self)
+        self.main_container.installEventFilter(self)
+        self.left_pane.installEventFilter(self)
+        self.left_pane.viewport().installEventFilter(self)
+        self.right_table.installEventFilter(self)
+        self.right_table.viewport().installEventFilter(self)
+        
+        # タイトルバーとその中の操作ボタン
+        self.title_bar.installEventFilter(self)
+        for btn in [self.title_bar.settings_button, self.title_bar.rewind_button, 
+                   self.title_bar.forward_button, self.title_bar.min_button, 
+                   self.title_bar.close_button]:
+            btn.installEventFilter(self)
+            
+        # 検索ボックス
+        self.youtube_search_box.installEventFilter(self)
 
         # 起動時にプレイヤー（player.html）を既定ブラウザで開く
         self._player_browser_opened = False
@@ -549,8 +567,15 @@ class MainWindow(QMainWindow):
             return
         
         # 状態を更新
+        is_already_active = self.isActiveWindow()
         self._is_bringing_to_front = True
         self._last_front_time = current_time
+        
+        # すでにアクティブな場合は「クリック済み」と同等とみなす
+        if is_already_active:
+            self._user_has_clicked_since_front = True
+        else:
+            self._user_has_clicked_since_front = False
         
         # 既存のタイマーを停止
         if self._bring_to_back_timer.isActive():
@@ -589,12 +614,16 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(500, lambda: setattr(self, '_is_bringing_to_front', False))
         
         # モード2（ホットキー時に最前面→一定秒で最背面）
+        # ただし、既にウィンドウがアクティブ（ユーザーが操作中）な場合は背面送りにしない
         if bool(self.config_service.get("bring_to_front_on_hotkey", True)) and not bool(self.config_service.get("always_on_top", False)):
-            delay_s = int(self.config_service.get("bring_to_back_delay_s", 3))
-            delay_ms = max(0, delay_s) * 1000
-            if delay_ms > 0:
-                self._bring_to_back_timer.start(delay_ms)
-                print(f"UI: Scheduled bring to back in {delay_s} seconds")
+            if not is_already_active:
+                delay_s = int(self.config_service.get("bring_to_back_delay_s", 3))
+                delay_ms = max(0, delay_s) * 1000
+                if delay_ms > 0:
+                    self._bring_to_back_timer.start(delay_ms)
+                    print(f"UI: Scheduled bring to back in {delay_s} seconds (coming from background)")
+            else:
+                print("UI: Already active, skipping bring-to-back timer")
 
     def _finalize_bring_to_front(self, original_flags):
         """最前面表示の最終処理（タイマー遅延実行）"""
@@ -615,6 +644,10 @@ class MainWindow(QMainWindow):
 
     def _schedule_bring_to_back(self, delay_seconds):
         """指定時間後にウィンドウを最背面に移動するタイマーを設定"""
+        if self.isActiveWindow() or getattr(self, '_user_has_clicked_since_front', False):
+            print("UI: skipping _schedule_bring_to_back because window is active or recently clicked")
+            return
+            
         delay_ms = max(0, delay_seconds) * 1000
         if delay_ms > 0:
             self._bring_to_back_timer.start(delay_ms)
@@ -627,6 +660,17 @@ class MainWindow(QMainWindow):
                 return
             if not bool(self.config_service.get("bring_to_front_on_hotkey", True)):
                 return
+            
+            # ホットキー前面化後にユーザー操作（マウスクリック等）があった場合は背面移動をキャンセル
+            if getattr(self, '_user_has_clicked_since_front', False):
+                print("UI: Skipping bring-to-back because user interacted with the window since it was brought to front")
+                return
+
+            import time
+            if (time.time() - getattr(self, '_last_user_interacted_time', 0)) < 0.5:
+                print("UI: Skipping bring-to-back because user recently interacted with the window")
+                return
+
             self.lower()
             print("UI: Sent window to back (after hotkey)")
         except Exception as e:
@@ -1434,7 +1478,24 @@ class MainWindow(QMainWindow):
         print("UI: Forced memory cleanup")
 
     def eventFilter(self, obj, event):
-        """イベントフィルター - フォーカス管理とホットキーの一時無効化"""
+        """イベントフィルター - フォーカス管理、ホットキー、タイマー制御"""
+        
+        # タイマー動作中にユーザーによる手動操作（クリック）があったらその時刻とフラグを記録
+        if event.type() == QEvent.MouseButtonPress:
+            import time
+            self._last_user_interacted_time = time.time()
+            self._user_has_clicked_since_front = True  # 前面化後のクリックを記録
+            if hasattr(self, '_bring_to_back_timer') and self._bring_to_back_timer.isActive():
+                self._bring_to_back_timer.stop()
+                print(f"UI: Stopped bring-to-back timer due to MouseButtonPress on {obj}")
+        
+        elif event.type() == QEvent.WindowActivate:
+            # プログラム経由でない（_is_bringing_to_front が False の時）のアクティブ化はユーザー操作
+            if not getattr(self, '_is_bringing_to_front', False) and obj == self:
+                if hasattr(self, '_bring_to_back_timer') and self._bring_to_back_timer.isActive():
+                    self._bring_to_back_timer.stop()
+                    print("UI: Stopped bring-to-back timer due to manual window activation")
+
         if obj == self.youtube_search_box:
             if event.type() == QEvent.FocusIn:
                 print("UI: Search box focused - temporarily unregistering hotkeys")
