@@ -129,7 +129,9 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         from app.services.config_service import ConfigService
+        from app.services.hotkey_service import HotkeyService
         self.config_service = ConfigService()
+        self.hotkey_service = HotkeyService()
         
         self.setWindowTitle("詳細設定")
         self.resize(500, 300)
@@ -152,6 +154,10 @@ class SettingsDialog(QDialog):
         
         # ボタンエリア
         self._init_button_box()
+        
+        # 設定画面が開いている間はホットキーを無効化
+        self.hotkey_service.unregister_all()
+        print("SettingsDialog: Hotkeys disabled while settings dialog is open")
 
     def _load_current_settings(self):
         """現在の設定値をUIに反映させる"""
@@ -611,4 +617,38 @@ class SettingsDialog(QDialog):
             "youtube_api_key": youtube_api_key,
             "youtube_search_template": youtube_search_template
         })
+        
+        # 設定画面を閉じる際にホットキーを再登録
+        self._restore_hotkeys()
+        
         super().accept()
+
+    def reject(self):
+        """キャンセルボタンが押された時の処理"""
+        # 設定画面を閉じる際にホットキーを再登録
+        self._restore_hotkeys()
+        print("SettingsDialog: Restored hotkeys on cancel")
+        super().reject()
+
+    def _restore_hotkeys(self):
+        """ホットキーを再登録する"""
+        try:
+            # 設定からホットキーを取得して再登録
+            hotkey_up = self.config_service.get("hotkey_move_up", "ctrl+shift+up")
+            hotkey_down = self.config_service.get("hotkey_move_down", "ctrl+shift+down")
+            hotkey_left = self.config_service.get("hotkey_move_left", "ctrl+shift+left")
+            hotkey_right = self.config_service.get("hotkey_move_right", "ctrl+shift+right")
+            hotkey_preload = self.config_service.get("hotkey_preload", "ctrl+enter")
+            hotkey_play = self.config_service.get("hotkey_play", "shift+enter")
+            hotkey_search = self.config_service.get("hotkey_search", "ctrl+shift+enter")
+            hotkey_rewind = self.config_service.get("hotkey_rewind", "ctrl+;")
+            hotkey_forward = self.config_service.get("hotkey_forward", "ctrl+:")
+            
+            self.hotkey_service.register_hotkeys(
+                hotkey_up, hotkey_down, hotkey_left, hotkey_right,
+                hotkey_preload, hotkey_play, hotkey_search,
+                hotkey_rewind, hotkey_forward
+            )
+            print("SettingsDialog: Hotkeys restored")
+        except Exception as e:
+            print(f"SettingsDialog: Error restoring hotkeys: {e}")
