@@ -225,8 +225,7 @@ class MainWindow(QMainWindow):
         
         # 右テーブル
         self.right_table = RightTableView()
-        # テーブル周囲の枠線設定
-        self.right_table.setStyleSheet("border: 1px solid #ddd; border-radius:4px;")
+        # 枠線などはウィジェット側のスタイル設定を活かしつつ、必要なら追加
         right_layout.addWidget(self.right_table)
         
         # 右テーブルにもフォーカスを設定

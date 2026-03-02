@@ -58,13 +58,40 @@ class RightTableView(QTableView):
         # 基本設定
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.verticalHeader().setVisible(False)
-        self.setSelectionBehavior(QTableView.SelectRows)
-        self.setSelectionMode(QTableView.SingleSelection)
+        self.setSelectionBehavior(QTableView.SelectRows)  # 行単位の選択を設定
+        self.setSelectionMode(QTableView.SingleSelection) # 単一選択
+        self.setEditTriggers(QTableView.NoEditTriggers)   # 直接の編集を無効化
         self.setAlternatingRowColors(True)
-        self.setShowGrid(True)
+        self.setShowGrid(False)  # グリッドを非表示にして「行」の一体感を出す
+        
+        # ヘッダーの選択強調をオフにする
+        self.horizontalHeader().setHighlightSections(False)
+        
+        # 行の高さをクリックしやすいサイズに設定
+        self.verticalHeader().setDefaultSectionSize(32)
         
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # 行全体の選択・ホバーを自然に見せるためのスタイル
+        self.setStyleSheet("""
+            QTableView {
+                background-color: white;
+                alternate-background-color: #f9f9f9;
+                selection-background-color: #e3f2fd;
+                selection-color: black;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                outline: none; /* フォーカスの点線（focus rect）を表示させない */
+            }
+            QTableView::item {
+                padding: 5px;
+            }
+            QTableView::item:selected {
+                background-color: #bbdefb;
+                color: black;
+            }
+        """)
         
     def setModel(self, model):
         super().setModel(model)
