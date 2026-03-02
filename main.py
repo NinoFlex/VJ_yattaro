@@ -571,9 +571,11 @@ class MainWindow(QMainWindow):
         self._is_bringing_to_front = True
         self._last_front_time = current_time
         
-        # すでにアクティブな場合は「クリック済み」と同等とみなす
+        # 重要: すでにアクティブであっても、それがホットキーによる前面化の結果であれば
+        # (まだクリックされていないなら)、クリック済みフラグは False を維持する。
+        # これにより、ホットキー連打時にタイマーが正しく再起動されるようになる。
         if is_already_active:
-            self._user_has_clicked_since_front = True
+            self._user_has_clicked_since_front = getattr(self, '_user_has_clicked_since_front', False)
         else:
             self._user_has_clicked_since_front = False
         
@@ -614,16 +616,16 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(500, lambda: setattr(self, '_is_bringing_to_front', False))
         
         # モード2（ホットキー時に最前面→一定秒で最背面）
-        # ただし、既にウィンドウがアクティブ（ユーザーが操作中）な場合は背面送りにしない
+        # ただし、既にユーザーが操作中（クリック済み）の場合は背面送りにしない
         if bool(self.config_service.get("bring_to_front_on_hotkey", True)) and not bool(self.config_service.get("always_on_top", False)):
-            if not is_already_active:
+            if not self._user_has_clicked_since_front:
                 delay_s = int(self.config_service.get("bring_to_back_delay_s", 3))
                 delay_ms = max(0, delay_s) * 1000
                 if delay_ms > 0:
                     self._bring_to_back_timer.start(delay_ms)
-                    print(f"UI: Scheduled bring to back in {delay_s} seconds (coming from background)")
+                    print(f"UI: Scheduled/Restarted bring to back in {delay_s} seconds")
             else:
-                print("UI: Already active, skipping bring-to-back timer")
+                print("UI: User has interacted with the window, skipping bring-to-back timer")
 
     def _finalize_bring_to_front(self, original_flags):
         """最前面表示の最終処理（タイマー遅延実行）"""
@@ -1492,6 +1494,7 @@ class MainWindow(QMainWindow):
         elif event.type() == QEvent.WindowActivate:
             # プログラム経由でない（_is_bringing_to_front が False の時）のアクティブ化はユーザー操作
             if not getattr(self, '_is_bringing_to_front', False) and obj == self:
+                self._user_has_clicked_since_front = True  # 手動アクティブ化も「操作済み」とみなす
                 if hasattr(self, '_bring_to_back_timer') and self._bring_to_back_timer.isActive():
                     self._bring_to_back_timer.stop()
                     print("UI: Stopped bring-to-back timer due to manual window activation")
