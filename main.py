@@ -1061,6 +1061,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(200, self._select_first_video)  # 50msから200msに延長
         
         # 非同期でサムネイルを読み込む（最初の5件）
+        # 新しい検索開始なのでキューをリセットしてから追加
+        if hasattr(self, '_thumbnail_manager') and self._thumbnail_manager:
+            self._thumbnail_manager.reset()
         self._load_thumbnails_async(initial_videos)
         
         # 残りの動画をバックグラウンドで追加

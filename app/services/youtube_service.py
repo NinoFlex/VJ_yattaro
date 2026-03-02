@@ -214,12 +214,14 @@ class AsyncThumbnailManager(QObject):
         self.loaded_video_ids = set()  # 読み込み済み動画IDを追跡
         self.is_loading = False
     
+    def reset(self):
+        """新しい検索開始時に呼ぶ。キューと読み込み済みIDをリセットする"""
+        self.pending_videos.clear()
+        self.loaded_video_ids.clear()
+    
     def load_thumbnails_async(self, videos: List[Dict]):
         """複数のサムネイルを順番に非同期で読み込む"""
-        # 新しいリクエストが来たらキューをクリアして最新を優先
-        self.pending_videos.clear()
-        
-        # 新しい動画のみをペンディングリストに追加
+        # 新しい動画のみをペンディングリストに追加（同一検索の2回目呼び出しを考慮してclearしない）
         for video in videos:
             video_id = video.get('video_id')
             if video_id and video_id not in self.loaded_video_ids and 'thumbnail_url' in video:
