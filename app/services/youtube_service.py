@@ -15,9 +15,13 @@ class ThumbnailLoader(QThread):
         super().__init__()
         self.video_id = video_id
         self.thumbnail_url = thumbnail_url
+        self._is_aborted = False
     
     def run(self):
         """サムネイルを読み込む"""
+        if self._is_aborted:
+            return
+            
         try:
             response = requests.get(self.thumbnail_url, timeout=20)
             response.raise_for_status()
@@ -26,6 +30,9 @@ class ThumbnailLoader(QThread):
             pixmap = QPixmap()
             pixmap.loadFromData(response.content)
             
+            if self._is_aborted:
+                return
+
             if not pixmap.isNull():
                 self.thumbnail_loaded.emit(self.video_id, pixmap)
             else:
@@ -46,14 +53,21 @@ class YouTubeSearchThread(QThread):
         super().__init__()
         self.api_key = api_key
         self.query = query
+        self._is_aborted = False
     
     def run(self):
         """YouTube APIで検索を実行"""
+        if self._is_aborted:
+            return
+            
         try:
             videos = self._search_youtube()
+            if self._is_aborted:
+                return
             self.search_completed.emit(videos)
         except Exception as e:
-            self.search_error.emit(str(e))
+            if not self._is_aborted:
+                self.search_error.emit(str(e))
     
     def stop_search(self):
         """検索を停止"""
@@ -202,6 +216,9 @@ class AsyncThumbnailManager(QObject):
     
     def load_thumbnails_async(self, videos: List[Dict]):
         """複数のサムネイルを順番に非同期で読み込む"""
+        # 新しいリクエストが来たらキューをクリアして最新を優先
+        self.pending_videos.clear()
+        
         # 新しい動画のみをペンディングリストに追加
         for video in videos:
             video_id = video.get('video_id')
@@ -209,6 +226,7 @@ class AsyncThumbnailManager(QObject):
                 self.pending_videos.append(video)
         
         # 現在読み込み中でなければ開始
+        # 読み込み中の場合は _on_thumbnail_loaded が次の pending_videos を拾う
         if not self.is_loading and self.pending_videos:
             self._load_next_thumbnail()
     
@@ -243,6 +261,11 @@ class AsyncThumbnailManager(QObject):
     def stop_all_loaders(self):
         """すべてのサムネイル読み込みスレッドを停止"""
         if self.current_loader and self.current_loader.isRunning():
+            try:
+                self.current_loader._is_aborted = True
+                self.current_loader.thumbnail_loaded.disconnect()
+            except:
+                pass
             self.current_loader.terminate()
             self.current_loader.wait()
             self.current_loader.deleteLater()

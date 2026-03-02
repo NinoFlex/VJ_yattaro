@@ -948,8 +948,15 @@ class MainWindow(QMainWindow):
         
         # 既存のスレッドがあれば停止
         if self.youtube_search_thread and self.youtube_search_thread.isRunning():
+            try:
+                self.youtube_search_thread._is_aborted = True
+                self.youtube_search_thread.search_completed.disconnect()
+                self.youtube_search_thread.search_error.disconnect()
+            except:
+                pass
             self.youtube_search_thread.terminate()
             self.youtube_search_thread.wait()
+            self.youtube_search_thread = None
         
         youtube_service = YouTubeService()
         
@@ -1187,6 +1194,12 @@ class MainWindow(QMainWindow):
             # YouTube検索スレッドを強制停止
             if hasattr(self, 'youtube_search_thread') and self.youtube_search_thread:
                 if self.youtube_search_thread.isRunning():
+                    try:
+                        self.youtube_search_thread._is_aborted = True
+                        self.youtube_search_thread.search_completed.disconnect()
+                        self.youtube_search_thread.search_error.disconnect()
+                    except:
+                        pass
                     self.youtube_search_thread.terminate()
                     self.youtube_search_thread.wait()
                 self.youtube_search_thread = None
@@ -1510,11 +1523,7 @@ class MainWindow(QMainWindow):
             print(f"UI: Error during cleanup: {e}")
             event.accept()  # エラーがあっても終了を許可する
 
-    def _force_memory_cleanup(self):
-        """強制メモリクリーンアップ"""
-        import gc
-        gc.collect()
-        print("UI: Forced memory cleanup")
+    # 旧 _force_memory_cleanup は上記 1181 行付近に統合済み
 
     def eventFilter(self, obj, event):
         """イベントフィルター - フォーカス管理、ホットキー、タイマー制御"""

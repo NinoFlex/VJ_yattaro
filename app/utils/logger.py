@@ -36,35 +36,58 @@ class Logger:
         """ログを出力すべきか判定"""
         return self._enabled and level >= self._level
     
+    def _log_to_file(self, formatted_message: str):
+        """ファイルにログを記録"""
+        try:
+            import os
+            from datetime import datetime
+            log_file = "vj_yattaro.log"
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"[{timestamp}] {formatted_message}\n")
+        except:
+            # ファイル書き込み失敗は無視する（無限ループ防止）
+            pass
+
     def debug(self, message: str, prefix: Optional[str] = None):
         """DEBUGレベルログ"""
         if self._should_log(LogLevel.DEBUG):
             prefix = prefix or self.name
-            print(f"{prefix}: {message}")
+            formatted = f"{prefix}: {message}"
+            print(formatted)
+            self._log_to_file(formatted)
     
     def info(self, message: str, prefix: Optional[str] = None):
         """INFOレベルログ"""
         if self._should_log(LogLevel.INFO):
             prefix = prefix or self.name
-            print(f"{prefix}: {message}")
+            formatted = f"{prefix}: {message}"
+            print(formatted)
+            self._log_to_file(formatted)
     
     def warning(self, message: str, prefix: Optional[str] = None):
         """WARNINGレベルログ"""
         if self._should_log(LogLevel.WARNING):
             prefix = prefix or self.name
-            print(f"{prefix}: {message}")
+            formatted = f"{prefix}: {message}"
+            print(formatted)
+            self._log_to_file(formatted)
     
     def error(self, message: str, prefix: Optional[str] = None):
         """ERRORレベルログ"""
         if self._should_log(LogLevel.ERROR):
             prefix = prefix or self.name
-            print(f"{prefix}: {message}")
+            formatted = f"{prefix}: {message}"
+            print(formatted)
+            self._log_to_file(formatted)
     
     def log(self, message: str, level: LogLevel = LogLevel.INFO, prefix: Optional[str] = None):
         """指定レベルでログ出力"""
         if self._should_log(level):
             prefix = prefix or self.name
-            print(f"{prefix}: {message}")
+            formatted = f"{prefix}: {message}"
+            print(formatted)
+            self._log_to_file(formatted)
 
 
 # グローバルロガーインスタンス
