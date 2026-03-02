@@ -112,6 +112,13 @@ class PlayerCommandHandler(BaseHTTPRequestHandler):
     
     def handle_poll(self):
         """コマンドポーリング処理"""
+        # ポーリング時刻を更新
+        try:
+            import time
+            PlayerCommandHandler._last_poll_time = time.time()
+        except:
+            pass
+            
         try:
             with self.queue_lock:
                 if self.command_queue:

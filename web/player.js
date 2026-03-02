@@ -15,7 +15,7 @@ class VJPlayer {
         this.pollingPort = Number.isFinite(pagePort) ? pagePort : 8080;
         this.pollingUrl = `${window.location.protocol}//${window.location.hostname}:${this.pollingPort}/poll`;
         this.feedbackUrl = `${window.location.protocol}//${window.location.hostname}:${this.pollingPort}/feedback`;
-        
+
         // デフォルト動画（起動時に自動再生）
         // player側で固定値を持たず、ツール側が player.html のクエリで渡す
         // 例: http://localhost:8080/player.html?defaultVideoId=xxxxxxxxxxx
@@ -28,7 +28,7 @@ class VJPlayer {
         this._lastErrorCode = { A: null, B: null };
         this._lastPlayerState = { A: null, B: null };
         this._lastPlayingAtMs = { A: 0, B: 0 };
-        
+
         console.log('VJ Player initialized');
         this.init();
     }
@@ -52,7 +52,7 @@ class VJPlayer {
     createPlayers() {
         console.log('Creating players...');
         console.log('YT.Player available:', typeof YT.Player);
-        
+
         try {
             // プレイヤーAの作成
             this.players.A = new YT.Player('playerA', {
@@ -130,7 +130,7 @@ class VJPlayer {
         const notification = document.createElement('div');
         notification.className = 'error-notification';
         notification.textContent = message;
-        
+
         // スタイルを設定
         notification.style.cssText = `
             position: fixed;
@@ -145,7 +145,7 @@ class VJPlayer {
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
             animation: slideIn 0.3s ease-out;
         `;
-        
+
         // アニメーションを追加
         const style = document.createElement('style');
         style.textContent = `
@@ -159,9 +159,9 @@ class VJPlayer {
             }
         `;
         document.head.appendChild(style);
-        
+
         document.body.appendChild(notification);
-        
+
         // 3秒後に自動で消す
         setTimeout(() => {
             notification.style.animation = 'slideOut 0.3s ease-out';
@@ -187,7 +187,7 @@ class VJPlayer {
     onPlayerReady(playerId, event) {
         console.log(`Player ${playerId} is ready`);
         this.isReady[playerId] = true;
-        
+
         // 両方のプレイヤーが準備完了したら
         if (this.isReady.A && this.isReady.B) {
             console.log('Both players are ready');
@@ -199,7 +199,7 @@ class VJPlayer {
         // プレイヤーAを前面に、プレイヤーBを背面に配置
         document.getElementById('playerAContainer').classList.add('active');
         document.getElementById('playerBContainer').classList.add('hidden');
-        
+
         // デフォルト動画を自動再生（クエリで渡された場合のみ）
         if (this.defaultVideoId) {
             console.log('Starting default video playback');
@@ -211,25 +211,25 @@ class VJPlayer {
             this.showManualPlayback();
         }
     }
-    
+
     playDefaultVideo() {
         // デフォルト動画を再生
         console.log(`Playing default video: ${this.defaultVideoId}`);
-        
+
         try {
             this.players.A.loadVideoById({
                 videoId: this.defaultVideoId,
                 startSeconds: 0,
                 suggestedQuality: 'medium' // 品質を下げて安定性を向上
             });
-            
+
             // 状態を更新
             this.currentVideoId = this.defaultVideoId;
             this.currentPlayer = 'A';
-            
+
             // 状態フィードバックを送信
             this.sendFeedback('playing', this.defaultVideoId);
-            
+
             console.log(`Default video started: ${this.defaultVideoId}`);
         } catch (error) {
             console.error('Error playing default video:', error);
@@ -245,7 +245,7 @@ class VJPlayer {
             this._lastPlayingAtMs[playerId] = Date.now();
         }
         console.log(`Player ${playerId} state changed: ${state}`);
-        
+
         // isReady状態の更新
         if (state === YT.PlayerState.CUED || state === YT.PlayerState.PLAYING) {
             this.isReady[playerId] = true;
@@ -254,7 +254,7 @@ class VJPlayer {
             this.isReady[playerId] = false;
             console.log(`Player ${playerId} not ready (state: ${state})`);
         }
-        
+
         // 動画終了時の処理（ループ）
         if (state === YT.PlayerState.ENDED && playerId === this.currentPlayer) {
             this.players[playerId].playVideo();
@@ -264,7 +264,7 @@ class VJPlayer {
     onPlayerError(playerId, event) {
         console.error(`Player ${playerId} error:`, event);
         console.error(`Error code: ${event.data}`);
-        
+
         // エラーコードの詳細
         const errorCodes = {
             2: 'Invalid parameter',
@@ -274,7 +274,7 @@ class VJPlayer {
             150: 'HTML5 player error',
             153: 'HTML5 player error - video may not be embeddable or has restrictions'
         };
-        
+
         console.error(`Error description: ${errorCodes[event.data] || 'Unknown error'}`);
 
         // 150/153はフォールバックしても改善しないことが多く、黒画面ループの原因になる。
@@ -296,7 +296,7 @@ class VJPlayer {
             this.showErrorNotification('この動画は再生できません（埋め込み制限）');
             return;
         }
-        
+
         // 再生中なら(特に150/153)は無視する。実際に再生は継続しているケースがある。
         const recentlyPlaying = (Date.now() - (this._lastPlayingAtMs[playerId] || 0)) < 2500;
         if ((this._lastPlayerState[playerId] === YT.PlayerState.PLAYING || recentlyPlaying) && (event.data === 150 || event.data === 153)) {
@@ -338,13 +338,13 @@ class VJPlayer {
         console.log(`Attempting fallback video for error ${event.data}...`);
         this.tryFallbackVideo(playerId);
     }
-    
+
     tryFallbackVideo(playerId) {
         // 埋め込み確実な代替動画を試す
         const fallbackVideoId = 'dQw4w9WgXcQ'; // Rick Roll
 
         this._fallbackAttempts[playerId] = (this._fallbackAttempts[playerId] || 0) + 1;
-        
+
         try {
             this.players[playerId].loadVideoById({
                 videoId: fallbackVideoId,
@@ -470,7 +470,7 @@ class VJPlayer {
                         const baseParams = `autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
                         const extras = extraParams.length ? `&${extraParams.join('&')}` : '';
                         const src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}?${baseParams}${extras}`;
-                        candidates.push({src});
+                        candidates.push({ src });
                     }
                 }
             } catch (e) {
@@ -478,9 +478,9 @@ class VJPlayer {
             }
 
             // デフォルト候補
-            candidates.push({src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`});
-            candidates.push({src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`});
-            candidates.push({src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(window.location.href)}`});
+            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
+            candidates.push({ src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
+            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(window.location.href)}` });
 
             const applySrc = (srcUrl) => {
                 if (iframe) {
@@ -550,6 +550,7 @@ class VJPlayer {
     // コマンドポーリング開始
     startPolling() {
         console.log('Starting command polling...');
+        this._lastHeartbeatAt = 0;
         this.pollingInterval = setInterval(() => {
             this.pollCommands();
         }, 100); // 100msごとにポーリング
@@ -558,9 +559,16 @@ class VJPlayer {
     // コマンドポーリング
     async pollCommands() {
         try {
+            // 定期的に生存信号（Heartbeat）を送信（5秒に1回）
+            const now = Date.now();
+            if (now - this._lastHeartbeatAt > 5000) {
+                this.sendFeedback('HEARTBEAT', this.currentVideoId || '');
+                this._lastHeartbeatAt = now;
+            }
+
             const response = await fetch(this.pollingUrl);
             const data = await response.json();
-            
+
             if (data.cmd && data.cmd.trim()) {
                 console.log('Received command:', data);
                 this.processCommand(data);
@@ -576,7 +584,7 @@ class VJPlayer {
     processCommand(command) {
         const cmd = command.cmd;
         const videoId = command.videoId;
-        
+
         switch (cmd) {
             case 'PRELOAD':
                 this.handlePreload(videoId);
@@ -654,7 +662,7 @@ class VJPlayer {
 
         console.log(`Playing video: ${videoId}`);
         console.log(`Current state: isReady[${this.nextPlayer}]=${this.isReady[this.nextPlayer]}, nextVideoId=${this.nextVideoId}`);
-        
+
         if (this.isReady[this.nextPlayer] && this.nextVideoId === videoId) {
             // 準備完了している場合、即座に切り替え
             console.log('Ready - switching immediately');
@@ -713,7 +721,7 @@ class VJPlayer {
     handleRewind(seconds) {
         console.log(`Rewinding ${seconds} seconds`);
         const currentPlayerObj = this.players[this.currentPlayer];
-        
+
         if (currentPlayerObj && typeof currentPlayerObj.seekTo === 'function') {
             try {
                 const currentTime = currentPlayerObj.getCurrentTime();
@@ -732,7 +740,7 @@ class VJPlayer {
     handleForward(seconds) {
         console.log(`Forwarding ${seconds} seconds`);
         const currentPlayerObj = this.players[this.currentPlayer];
-        
+
         if (currentPlayerObj && typeof currentPlayerObj.seekTo === 'function') {
             try {
                 const currentTime = currentPlayerObj.getCurrentTime();
@@ -751,14 +759,14 @@ class VJPlayer {
     // プレイヤー切り替えと再生
     switchAndPlay(videoId) {
         console.log(`Switching to player ${this.nextPlayer} with video: ${videoId}`);
-        
+
         // DOMの準備状態を確認
         console.log('DOM ready state:', document.readyState);
         console.log('Available containers:', {
             playerA: document.getElementById('playerAContainer'),
             playerB: document.getElementById('playerBContainer')
         });
-        
+
         // 状態更新（切り替え前に実行）
         const oldPlayer = this.currentPlayer;
         const oldPlayerObj = this.players[oldPlayer];
@@ -766,23 +774,23 @@ class VJPlayer {
         this.currentPlayer = this.nextPlayer;
         this.nextPlayer = this.nextPlayer === 'A' ? 'B' : 'A';
         this.nextVideoId = null;
-        
+
         // プレイヤー切り替え（フェード処理付き）
         const currentContainer = document.getElementById(`player${oldPlayer}Container`);
         const nextContainer = document.getElementById(`player${this.currentPlayer}Container`);
-        
+
         console.log('Looking for containers:', {
             [`player${oldPlayer}Container`]: currentContainer,
             [`player${this.currentPlayer}Container`]: nextContainer
         });
-        
+
         if (currentContainer && nextContainer) {
             console.log('Both containers found, starting stable crossfade transition');
-            
+
             // 新しい動画を再生開始（フェードは待機）
             const nextPlayerObj = this.players[this.currentPlayer];
             let videoStarted = false;
-            
+
             if (nextPlayerObj && typeof nextPlayerObj.playVideo === 'function') {
                 try {
                     nextPlayerObj.playVideo();
@@ -795,44 +803,44 @@ class VJPlayer {
                 console.log('No YT.Player for current player; assume iframe fallback will autoplay if present');
                 videoStarted = true;
             }
-            
+
             // 次のプレイヤーを非表示状態で準備
             nextContainer.classList.remove('hidden');
             nextContainer.classList.add('active');
             nextContainer.style.opacity = '0';
             nextContainer.style.transition = 'opacity 0.5s ease-in-out';
-            
+
             // 現在のプレイヤーにもトランジションを確実に設定
             currentContainer.style.transition = 'opacity 0.5s ease-in-out';
-            
+
             // 動画再生開始を待ってからフェード開始
             const startFade = () => {
                 console.log('Starting stable crossfade after video playback started');
-                
+
                 // クロスフェード開始
                 // 両方のプレイヤーを重ねて表示
                 currentContainer.classList.add('crossfade-out');
                 nextContainer.classList.add('crossfade-in');
-                
+
                 // 同時にフェード開始
                 requestAnimationFrame(() => {
                     // 現在のプレイヤーをフェードアウト
                     currentContainer.style.opacity = '0';
                     currentContainer.classList.remove('active');
                     currentContainer.classList.add('hidden');
-                    
+
                     // 次のプレイヤーをフェードイン
                     nextContainer.style.opacity = '1';
                 });
-                
+
                 // フェードアウト完了後に古い動画を停止
                 setTimeout(() => {
                     if (oldPlayerObj && typeof oldPlayerObj.stopVideo === 'function') {
-                        try { 
-                            oldPlayerObj.stopVideo(); 
+                        try {
+                            oldPlayerObj.stopVideo();
                             console.log('Stopped previous video after fade-out');
-                        } catch (e) { 
-                            console.warn('stopVideo failed:', e); 
+                        } catch (e) {
+                            console.warn('stopVideo failed:', e);
                         }
                     }
                     // z-indexをリセット
@@ -840,7 +848,7 @@ class VJPlayer {
                     nextContainer.classList.remove('crossfade-in');
                 }, 500); // フェードアウト完了時間
             };
-            
+
             if (videoStarted) {
                 // プリロード済みかどうかで待機時間を調整
                 // プリロード済み（ready状態）なら即フェード、未プリロードなら300ms待機
@@ -852,10 +860,10 @@ class VJPlayer {
                 // 再生開始できなかった場合は即時フェード
                 startFade();
             }
-            
+
         } else {
-            console.error('Container elements not found:', {oldPlayer, currentPlayer: this.currentPlayer});
-            
+            console.error('Container elements not found:', { oldPlayer, currentPlayer: this.currentPlayer });
+
             // フォールバック：直接スタイルを操作
             const nextPlayerObj = this.players[this.currentPlayer];
             if (nextPlayerObj && typeof nextPlayerObj.playVideo === 'function') {
@@ -865,7 +873,7 @@ class VJPlayer {
                     console.warn('playVideo failed:', e);
                 }
             }
-            
+
             if (currentContainer) {
                 currentContainer.style.opacity = '0';
                 currentContainer.style.pointerEvents = 'none';
@@ -874,7 +882,7 @@ class VJPlayer {
                 nextContainer.style.opacity = '1';
                 nextContainer.style.pointerEvents = 'auto';
             }
-            
+
             // フォールバック時も古い動画は停止
             setTimeout(() => {
                 if (oldPlayerObj && typeof oldPlayerObj.stopVideo === 'function') {
@@ -882,10 +890,10 @@ class VJPlayer {
                 }
             }, 500);
         }
-        
+
         // 状態フィードバックを送信
         this.sendFeedback('playing', videoId);
-        
+
         console.log(`Switch complete. Current player: ${this.currentPlayer}`);
     }
 
@@ -896,7 +904,7 @@ class VJPlayer {
         this.feedbackUrl = `http://127.0.0.1:${port}/feedback`;
         console.log(`Polling URL updated: ${this.pollingUrl}`);
     }
-    
+
     // 状態フィードバック送信
     async sendFeedback(state, videoId) {
         try {
@@ -905,7 +913,7 @@ class VJPlayer {
                 videoId: videoId,
                 timestamp: Date.now()
             };
-            
+
             const response = await fetch(this.feedbackUrl, {
                 method: 'POST',
                 headers: {
@@ -913,7 +921,7 @@ class VJPlayer {
                 },
                 body: JSON.stringify(feedbackData)
             });
-            
+
             if (response.ok) {
                 console.log(`Feedback sent: ${state} for ${videoId}`);
             } else {
@@ -930,14 +938,14 @@ class VJPlayer {
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
         }
-        
+
         // プレイヤーの破棄
         Object.keys(this.players).forEach(playerId => {
             if (this.players[playerId]) {
                 this.players[playerId].destroy();
             }
         });
-        
+
         console.log('VJ Player destroyed');
     }
 }

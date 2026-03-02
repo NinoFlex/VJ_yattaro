@@ -141,6 +141,10 @@ class MainWindow(QMainWindow):
         self._last_user_interacted_time = 0  # ユーザーの直接操作があった時刻
         self._user_has_clicked_since_front = False  # 前面化後にクリックされたか
         
+        # プレイヤー接続状態
+        import time
+        self._last_player_feedback_time = 0
+        
         # メモリ管理
         self._memory_check_timer = QTimer(self)
         self._memory_check_timer.timeout.connect(self._check_memory_usage)
@@ -328,21 +332,51 @@ class MainWindow(QMainWindow):
         self._reset_youtube_state()
 
     def _open_player_in_browser(self):
-        """起動時にYouTubeプレイヤーを既定ブラウザで開く"""
+        """起動時にYouTubeプレイヤーを既定ブラウザで開く（既に開いている場合はスキップ）"""
         from app.utils.logger import info, error
+        import time
         
         try:
             if self._player_browser_opened:
                 return
 
-            # サーバー配下の player.html を開き、デフォルト再生動画IDをクエリで渡す
-            # 例: http://localhost:8080/player.html?defaultVideoId=xxxx
-            port = int(self.config_service.get("player_port", 8080))
-            default_video_id = "eyUUHfVm8Ik"
-            url = f"http://localhost:{port}/player.html?defaultVideoId={default_video_id}"
-            webbrowser.open(url, new=1, autoraise=True)
-            self._player_browser_opened = True
-            info(f"Opened player in browser: {url}", "UI")
+            # フィードバックを待つために少し遅延させてチェック
+            # もし既にブラウザが開いていれば、1秒以内にフィードバックが届くはず
+            def check_and_open():
+                # プレイヤーがサーバーにアクセス（ポーリング）しているか確認
+                # サーバー起動から間もない場合、既にブラウザがあるなら数ミリ秒〜数百ミリ秒で最初のアクセスが来るはず
+                # 最終アクセス（ポーリング）が3秒以内であれば「既に起動中」とみなす
+                last_access = 0
+                try:
+                    from app.services.player_http_server import PlayerCommandHandler
+                    import time
+                    # 前回のポーリング時刻を取得（PlayerCommandHandlerに持たせるか、サーバー内部の状態を見る）
+                    # ここではシンプルに前回フィードバック時刻も併用
+                    last_access = getattr(PlayerCommandHandler, '_last_poll_time', 0)
+                except:
+                    pass
+                
+                current_time = time.time()
+                time_since_last_poll = current_time - last_access
+                time_since_feedback = current_time - self._last_player_feedback_time
+                
+                # 5秒以内にアクセスまたはフィードバックがあれば起動中とみなす
+                if time_since_last_poll < 5.0 or time_since_feedback < 5.0:
+                    info(f"Player already running (last poll {time_since_last_poll:.1f}s ago, feedback {time_since_feedback:.1f}s ago). Skipping browser open.", "UI")
+                    self._player_browser_opened = True
+                    return
+
+                # サーバー配下の player.html を開き、デフォルト再生動画IDをクエリで渡す
+                port = int(self.config_service.get("player_port", 8080))
+                default_video_id = "eyUUHfVm8Ik"
+                url = f"http://localhost:{port}/player.html?defaultVideoId={default_video_id}"
+                webbrowser.open(url, new=1, autoraise=True)
+                self._player_browser_opened = True
+                info(f"Opened player in browser: {url}", "UI")
+
+            # 1.5秒待ってから判定（ポーリング周期を考慮）
+            QTimer.singleShot(1500, check_and_open)
+            
         except Exception as e:
             error(f"Failed to open player in browser: {e}", "UI")
 
@@ -1296,6 +1330,10 @@ class MainWindow(QMainWindow):
             state = feedback_data.get('state')
             video_id = feedback_data.get('videoId')  # videoId で取得
             timestamp = feedback_data.get('timestamp')
+            
+            # 最終フィードバック時刻を更新
+            import time
+            self._last_player_feedback_time = time.time()
             
             print(f"UI: Player feedback received - state: {state}, video: {video_id}")
             
