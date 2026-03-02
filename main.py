@@ -1146,13 +1146,13 @@ class MainWindow(QMainWindow):
             process = psutil.Process()
             memory_mb = process.memory_info().rss / 1024 / 1024
             
-            # メモリ使用量が200MBを超えたら警告
-            if memory_mb > 200:
+            # メモリ使用量が600MBを超えたら警告 (サムネイル表示アプリとして200MBは低すぎる)
+            if memory_mb > 600:
                 print(f"UI: Memory usage high: {memory_mb:.1f}MB - performing cleanup")
                 self._perform_memory_cleanup()
             
-            # 500MBを超えたら強制クリーンアップ
-            if memory_mb > 500:
+            # 1500MBを超えたら強制クリーンアップ
+            if memory_mb > 1500:
                 print(f"UI: Critical memory usage: {memory_mb:.1f}MB - forcing cleanup")
                 self._force_memory_cleanup()
                 
@@ -1165,13 +1165,7 @@ class MainWindow(QMainWindow):
     def _perform_memory_cleanup(self):
         """メモリクリーンアップを実行"""
         try:
-            # サムネイル読み込みスレッドを停止
-            if hasattr(self, '_thumbnail_manager') and self._thumbnail_manager:
-                self._thumbnail_manager.stop_all_loaders()
-                self._thumbnail_manager = None
-                print("UI: Stopped thumbnail loaders for memory cleanup")
-            
-            # 不要なオブジェクトを解放
+            # 完了済みの検索スレッドのみ解放（実行中は止めない）
             if hasattr(self, 'youtube_search_thread') and self.youtube_search_thread:
                 if self.youtube_search_thread.isFinished():
                     self.youtube_search_thread = None
