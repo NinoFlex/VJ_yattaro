@@ -147,24 +147,31 @@ class LoggerStream:
         if "\n" in self.line_buffer:
             lines = self.line_buffer.split("\n")
             for line in lines[:-1]:
-                if line.strip():
-                    self.logger._log_to_file(line)
-                    # 元のストリームにも出力（存在する場合のみ）
+                # 空行やインデントされた行も重要なのでそのまま記録する
+                self.logger._log_to_file(line)
+                
+                # 元のストリームにも出力（デバッグ用などに元のコンソールが生きている場合）
+                try:
                     if self.level == LogLevel.ERROR:
-                        if self.logger._stderr:
+                        if self.logger._stderr and hasattr(self.logger._stderr, 'write'):
                             self.logger._stderr.write(line + "\n")
                     else:
-                        if self.logger._stdout:
+                        if self.logger._stdout and hasattr(self.logger._stdout, 'write'):
                             self.logger._stdout.write(line + "\n")
+                except:
+                    pass
             self.line_buffer = lines[-1]
 
     def flush(self):
-        if self.level == LogLevel.ERROR:
-            if self.logger._stderr:
-                self.logger._stderr.flush()
-        else:
-            if self.logger._stdout:
-                self.logger._stdout.flush()
+        try:
+            if self.level == LogLevel.ERROR:
+                if self.logger._stderr and hasattr(self.logger._stderr, 'flush'):
+                    self.logger._stderr.flush()
+            else:
+                if self.logger._stdout and hasattr(self.logger._stdout, 'flush'):
+                    self.logger._stdout.flush()
+        except:
+            pass
 
 
 # グローバルロガーインスタンス

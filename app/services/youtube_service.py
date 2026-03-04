@@ -72,8 +72,11 @@ class YouTubeSearchThread(QThread):
     
     def stop_search(self):
         """検索を停止"""
-        self.terminate()
-        self.wait()
+        self._is_aborted = True
+        # terminate() は危険なので使用せず、フラグで停止させてから待機
+        if self.isRunning():
+            self.quit()
+            self.wait(2000) # 最大2秒待機
     
     def _search_youtube(self) -> List[Dict]:
         """YouTube Data API v3で動画検索（ショート動画を除外）"""
@@ -269,8 +272,8 @@ class AsyncThumbnailManager(QObject):
                 self.current_loader.thumbnail_loaded.disconnect()
             except:
                 pass
-            self.current_loader.terminate()
-            self.current_loader.wait()
+            self.current_loader.quit()
+            self.current_loader.wait(1000)
             self.current_loader.deleteLater()
         
         self.current_loader = None

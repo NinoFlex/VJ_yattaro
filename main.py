@@ -126,9 +126,9 @@ class MainWindow(QMainWindow):
         }
         log_level = log_level_map.get(log_level_str.upper(), LogLevel.INFO)
         
-        # ログを設定
-        configure_logging(log_level, enabled=True)
-        print(f"UI: Logging configured at level {log_level_str}")
+        # ログを設定 (以前のリダイレクト状態を維持するように redirect=True を追加)
+        configure_logging(log_level, enabled=True, redirect=True)
+        print(f"UI: Logging configured at level {log_level_str} (Redirection active)")
 
     def __init__(self):
         super().__init__()
@@ -956,8 +956,9 @@ class MainWindow(QMainWindow):
                 self.youtube_search_thread.search_error.disconnect()
             except:
                 pass
-            self.youtube_search_thread.terminate()
-            self.youtube_search_thread.wait()
+            # terminate() は極力避ける
+            self.youtube_search_thread.quit()
+            self.youtube_search_thread.wait(2000)
             self.youtube_search_thread = None
         
         youtube_service = YouTubeService()
@@ -1197,10 +1198,11 @@ class MainWindow(QMainWindow):
                         self.youtube_search_thread._is_aborted = True
                         self.youtube_search_thread.search_completed.disconnect()
                         self.youtube_search_thread.search_error.disconnect()
-                    except:
-                        pass
-                    self.youtube_search_thread.terminate()
-                    self.youtube_search_thread.wait()
+                    except Exception as e:
+                        print(f"UI: Error disconnecting search thread signals: {e}")
+                # terminate() ではなく安全な終了を試みる
+                self.youtube_search_thread.quit()
+                self.youtube_search_thread.wait(1000) # 1秒待機
                 self.youtube_search_thread = None
                 print("UI: Force stopped search thread")
             
@@ -1599,9 +1601,15 @@ def main():
         sys.exit(app.exec())
         
     except Exception as e:
-        print(f"UI: FATAL ERROR in main: {e}")
+        # ロガー経由で致命的エラーを出力
         import traceback
-        print(f"UI: Traceback: {traceback.format_exc()}")
+        error_msg = f"UI: FATAL ERROR in main: {e}\n{traceback.format_exc()}"
+        print(error_msg)
+        try:
+            from app.utils.logger import error
+            error(error_msg, "FATAL")
+        except:
+            pass
         sys.exit(1)
 
 

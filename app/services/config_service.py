@@ -28,7 +28,13 @@ class ConfigService:
 
     def _load_default_config(self):
         # 現在のユーザー名を取得してrekordboxのデフォルトパスを生成
-        username = os.getlogin()
+        try:
+            import os
+            import getpass
+            username = os.environ.get('USERNAME') or os.environ.get('USER') or getpass.getuser()
+        except:
+            username = "Default"
+        
         default_db_path = f"C:\\Users\\{username}\\AppData\\Roaming\\Pioneer\\rekordbox\\master.db"
         
         self.config = {
