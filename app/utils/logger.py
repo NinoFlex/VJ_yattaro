@@ -63,9 +63,13 @@ class Logger:
             prefix = prefix or self.name
             formatted = f"{prefix}: {message}"
             if self._redirected:
-                self._stdout.write(formatted + "\n")
+                if self._stdout:
+                    self._stdout.write(formatted + "\n")
             else:
-                print(formatted)
+                try:
+                    print(formatted)
+                except:
+                    pass
             self._log_to_file(formatted)
     
     def info(self, message: str, prefix: Optional[str] = None):
@@ -74,9 +78,13 @@ class Logger:
             prefix = prefix or self.name
             formatted = f"{prefix}: {message}"
             if self._redirected:
-                self._stdout.write(formatted + "\n")
+                if self._stdout:
+                    self._stdout.write(formatted + "\n")
             else:
-                print(formatted)
+                try:
+                    print(formatted)
+                except:
+                    pass
             self._log_to_file(formatted)
     
     def warning(self, message: str, prefix: Optional[str] = None):
@@ -85,9 +93,13 @@ class Logger:
             prefix = prefix or self.name
             formatted = f"{prefix}: {message}"
             if self._redirected:
-                self._stdout.write(formatted + "\n")
+                if self._stdout:
+                    self._stdout.write(formatted + "\n")
             else:
-                print(formatted)
+                try:
+                    print(formatted)
+                except:
+                    pass
             self._log_to_file(formatted)
     
     def error(self, message: str, prefix: Optional[str] = None):
@@ -96,9 +108,13 @@ class Logger:
             prefix = prefix or self.name
             formatted = f"{prefix}: {message}"
             if self._redirected:
-                self._stderr.write(formatted + "\n")
+                if self._stderr:
+                    self._stderr.write(formatted + "\n")
             else:
-                print(formatted, file=sys.stderr)
+                try:
+                    print(formatted, file=sys.stderr)
+                except:
+                    pass
             self._log_to_file(formatted)
 
     def redirect_stdout(self):
@@ -133,18 +149,22 @@ class LoggerStream:
             for line in lines[:-1]:
                 if line.strip():
                     self.logger._log_to_file(line)
-                    # 元のストリームにも出力
+                    # 元のストリームにも出力（存在する場合のみ）
                     if self.level == LogLevel.ERROR:
-                        self.logger._stderr.write(line + "\n")
+                        if self.logger._stderr:
+                            self.logger._stderr.write(line + "\n")
                     else:
-                        self.logger._stdout.write(line + "\n")
+                        if self.logger._stdout:
+                            self.logger._stdout.write(line + "\n")
             self.line_buffer = lines[-1]
 
     def flush(self):
         if self.level == LogLevel.ERROR:
-            self.logger._stderr.flush()
+            if self.logger._stderr:
+                self.logger._stderr.flush()
         else:
-            self.logger._stdout.flush()
+            if self.logger._stdout:
+                self.logger._stdout.flush()
 
 
 # グローバルロガーインスタンス
