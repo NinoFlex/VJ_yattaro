@@ -171,6 +171,7 @@ class SettingsDialog(QDialog):
         self.rewind_seconds_spin.setValue(int(self.config_service.get("rewind_seconds", 2)))
         self.forward_seconds_spin.setValue(int(self.config_service.get("forward_seconds", 2)))
         self._sync_window_placement_mode_ui()
+        self.enable_logging_checkbox.setChecked(bool(self.config_service.get("enable_logging", True)))
         self.hotkey_up_edit.setText(self.config_service.get("hotkey_move_up", "ctrl+shift+up"))
         self.hotkey_down_edit.setText(self.config_service.get("hotkey_move_down", "ctrl+shift+down"))
         self.hotkey_left_edit.setText(self.config_service.get("hotkey_move_left", "ctrl+shift+left"))
@@ -277,6 +278,10 @@ class SettingsDialog(QDialog):
         self.bring_to_front_on_search_checkbox.stateChanged.connect(self._sync_window_placement_mode_ui)
 
         layout.addRow(window_group)
+        
+        # ログ設定
+        self.enable_logging_checkbox = QCheckBox("ログ出力を有効にする (vj_yattaro.log)")
+        layout.addRow("デバッグ:", self.enable_logging_checkbox)
         
         self.tabs.addTab(tab, "全般")
 
@@ -586,6 +591,7 @@ class SettingsDialog(QDialog):
         hotkey_forward = self.hotkey_forward_edit.text()
         youtube_api_key = self.youtube_api_key_edit.text()
         youtube_search_template = self.youtube_search_template_edit.text()
+        enable_logging = self.enable_logging_checkbox.isChecked()
             
         print(f"Settings: Saving DB Path: {db_path}, Interval: {interval}")
         print(f"Settings: Saving Hotkeys - Up: {hotkey_up}, Down: {hotkey_down}, Left: {hotkey_left}, Right: {hotkey_right}")
@@ -615,7 +621,8 @@ class SettingsDialog(QDialog):
             "hotkey_rewind": hotkey_rewind,
             "hotkey_forward": hotkey_forward,
             "youtube_api_key": youtube_api_key,
-            "youtube_search_template": youtube_search_template
+            "youtube_search_template": youtube_search_template,
+            "enable_logging": enable_logging
         })
         
         # 設定画面を閉じる際にホットキーを再登録

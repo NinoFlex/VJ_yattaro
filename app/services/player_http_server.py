@@ -11,6 +11,16 @@ import time
 import os
 import sys
 from pathlib import Path
+from PySide6.QtCore import QObject, Signal
+
+
+class FeedbackSignals(QObject):
+    """プレイヤーからのフィードバックを通知する信号"""
+    feedback_received = Signal(dict)
+
+
+# グローバル信号インスタンス
+feedback_signals = FeedbackSignals()
 
 
 class PlayerCommandHandler(BaseHTTPRequestHandler):
@@ -221,12 +231,12 @@ class PlayerCommandHandler(BaseHTTPRequestHandler):
             feedback_data = json.loads(post_data.decode('utf-8'))
             print(f"PlayerCommandHandler: Parsed feedback data: {feedback_data}")
             
-            # コールバックがあれば状態フィードバックを通知
+            # 信号をエミット（スレッドセーフなGUI更新のため）
+            feedback_signals.feedback_received.emit(feedback_data)
+            
+            # 互換性のためコールバックも維持（ただし、MainWindow側でこれを使わないように修正する）
             if self.state_callback:
-                print(f"PlayerCommandHandler: Calling state callback with feedback data")
                 self.state_callback(feedback_data)
-            else:
-                print(f"PlayerCommandHandler: No state callback available")
             
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')

@@ -36,11 +36,13 @@ class YouTubeListModel(QAbstractListModel):
         self._videos = videos
         self.endResetModel()
     
-    def update_thumbnail(self, video_id: str, thumbnail):
+    def update_thumbnail(self, video_id: str, thumbnail_image):
         """指定された動画IDのサムネイルを更新"""
         for i, video in enumerate(self._videos):
             if video.get('video_id') == video_id:
-                self._videos[i]['thumbnail'] = thumbnail
+                # GUIスレッドでQImageからQPixmapに変換
+                from PySide6.QtGui import QPixmap
+                self._videos[i]['thumbnail'] = QPixmap.fromImage(thumbnail_image) if thumbnail_image else QPixmap()
                 # 該当インデックスのデータ変更を通知
                 index = self.index(i, 0)
                 self.dataChanged.emit(index, index)

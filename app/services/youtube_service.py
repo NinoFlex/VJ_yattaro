@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 
 class ThumbnailLoader(QThread):
     """サムネイルを非同期で読み込むスレッド"""
-    thumbnail_loaded = Signal(str, QPixmap)  # video_id, thumbnail
+    thumbnail_loaded = Signal(str, object)  # video_id, thumbnail (QImage)
     
     def __init__(self, video_id: str, thumbnail_url: str):
         super().__init__()
@@ -23,18 +23,19 @@ class ThumbnailLoader(QThread):
             return
             
         try:
+            from PySide6.QtGui import QImage
             response = requests.get(self.thumbnail_url, timeout=20)
             response.raise_for_status()
             
-            # QPixmapとして読み込み
-            pixmap = QPixmap()
-            pixmap.loadFromData(response.content)
+            # QImageとして読み込み（スレッドセーフ）
+            image = QImage()
+            image.loadFromData(response.content)
             
             if self._is_aborted:
                 return
 
-            if not pixmap.isNull():
-                self.thumbnail_loaded.emit(self.video_id, pixmap)
+            if not image.isNull():
+                self.thumbnail_loaded.emit(self.video_id, image)
             else:
                 print(f"ThumbnailLoader: Failed to load thumbnail for {self.video_id}")
                 self.thumbnail_loaded.emit(self.video_id, None)
@@ -205,7 +206,7 @@ class YouTubeSearchThread(QThread):
 
 class AsyncThumbnailManager(QObject):
     """非同期サムネイル読み込みを管理するクラス（シーケンシャル版）"""
-    thumbnail_ready = Signal(str, QPixmap)  # video_id, thumbnail
+    thumbnail_ready = Signal(str, object)  # video_id, thumbnail (QImage)
     
     def __init__(self):
         super().__init__()

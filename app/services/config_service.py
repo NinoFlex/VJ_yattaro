@@ -43,7 +43,8 @@ class ConfigService:
             "bring_to_back_delay_s": 3,
             "player_port": 8080,
             "youtube_api_key": "",
-            "youtube_search_template": "%tracktitle% %comment%"
+            "youtube_search_template": "%tracktitle% %comment%",
+            "enable_logging": True
         }
 
 

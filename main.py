@@ -301,8 +301,9 @@ class MainWindow(QMainWindow):
         self._player_port = player_port
         self.player_server = start_player_server(port=player_port)
         
-        # 状態フィードバック用のコールバックを設定
-        self.player_server.set_state_callback(self._handle_player_feedback)
+        # 状態フィードバック用の信号を接続（スレッドセーフ）
+        from app.services.player_http_server import feedback_signals
+        feedback_signals.feedback_received.connect(self._handle_player_feedback)
         print("UI: Player HTTP server started")
 
         # イベントフィルターをインストール（フォーカス管理やタイマー制御用）
@@ -398,6 +399,12 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         if dialog.exec():
             print("UI: Settings dialog accepted. Reflecting changes...")
+            
+            # ログ設定を反映
+            from app.utils.logger import configure_logging
+            enable_logging = self.config_service.get("enable_logging", True)
+            configure_logging(enabled=enable_logging, redirect=True)
+
             self.watcher.reload_settings()
             self.reload_hotkeys()  # ホットキーを再登録
             self.apply_window_placement_mode()  # ウィンドウ配置モードを反映
@@ -418,7 +425,6 @@ class MainWindow(QMainWindow):
             print(f"UI: Restarting player server due to port change: {old_port} -> {new_port}")
             stop_player_server()
             self.player_server = start_player_server(port=new_port)
-            self.player_server.set_state_callback(self._handle_player_feedback)
             self._player_port = new_port
 
             # ブラウザ自動オープンをやり直したい場合は、再度開ける
@@ -593,24 +599,18 @@ class MainWindow(QMainWindow):
         import sys
         import time
         
-        # 重複呼び出しを防止（500ms以内は無視）
+        # 重複呼び出しを防止（1000ms以内は無視。OSのフラグ反映待ちを考慮）
         current_time = time.time()
-        if self._is_bringing_to_front and (current_time - self._last_front_time) < 0.5:
+        if self._is_bringing_to_front and (current_time - self._last_front_time) < 1.0:
             print("UI: Ignoring rapid front operation")
             return
         
         # 状態を更新
-        is_already_active = self.isActiveWindow()
         self._is_bringing_to_front = True
         self._last_front_time = current_time
         
-        # 重要: すでにアクティブであっても、それがホットキーによる前面化の結果であれば
-        # (まだクリックされていないなら)、クリック済みフラグは False を維持する。
-        # これにより、ホットキー連打時にタイマーが正しく再起動されるようになる。
-        if is_already_active:
-            self._user_has_clicked_since_front = getattr(self, '_user_has_clicked_since_front', False)
-        else:
-            self._user_has_clicked_since_front = False
+        # ホットキー操作があった場合は常に「操作済み」をリセットし、自動帰還の対象にする
+        self._user_has_clicked_since_front = False
         
         # 既存のタイマーを停止
         if self._bring_to_back_timer.isActive():
@@ -623,8 +623,9 @@ class MainWindow(QMainWindow):
                 import ctypes
                 from ctypes import wintypes
                 
-                # 現在のウィンドウフラグを取得
-                current_flags = self.windowFlags()
+                # 現在のウィンドウフラグから最前面フラグを除外したものを「元の状態」として保存
+                # こうすることで、万が一フラグが残っている状態で再度呼ばれても、復元時に確実に解除される
+                current_flags = self.windowFlags() & ~Qt.WindowStaysOnTopHint
                 
                 # 一時的に最前面フラグを設定して確実に前面化
                 temp_flags = current_flags | Qt.WindowStaysOnTopHint
@@ -645,8 +646,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"UI: Error bringing window to front: {e}")
         
-        # 500ms後に状態をリセット
-        QTimer.singleShot(500, lambda: setattr(self, '_is_bringing_to_front', False))
+        # 1000ms後に状態をリセット
+        QTimer.singleShot(1000, lambda: setattr(self, '_is_bringing_to_front', False))
         
         # モード2（ホットキー時に最前面→一定秒で最背面）
         # ただし、既にユーザーが操作中（クリック済み）の場合は背面送りにしない
@@ -667,7 +668,8 @@ class MainWindow(QMainWindow):
             if bool(self.config_service.get("always_on_top", False)):
                 final_flags = original_flags | Qt.WindowStaysOnTopHint
             else:
-                final_flags = original_flags
+                # 常に最前面モードでない場合は、ここで確実にフラグを落とす
+                final_flags = original_flags & ~Qt.WindowStaysOnTopHint
             
             # フラグを設定
             self.setWindowFlags(final_flags)
@@ -1535,12 +1537,9 @@ class MainWindow(QMainWindow):
                 print(f"UI: Stopped bring-to-back timer due to MouseButtonPress on {obj}")
         
         elif event.type() == QEvent.WindowActivate:
-            # プログラム経由でない（_is_bringing_to_front が False の時）のアクティブ化はユーザー操作
-            if not getattr(self, '_is_bringing_to_front', False) and obj == self:
-                self._user_has_clicked_since_front = True  # 手動アクティブ化も「操作済み」とみなす
-                if hasattr(self, '_bring_to_back_timer') and self._bring_to_back_timer.isActive():
-                    self._bring_to_back_timer.stop()
-                    print("UI: Stopped bring-to-back timer due to manual window activation")
+            # プログラムによるフラグ変更でも発生するため、ここでのタイマー停止は行わず
+            # WindowActivate 自体は無視する（クリックのみを操作とみなす）
+            pass
 
         if obj == self.youtube_search_box:
             if event.type() == QEvent.FocusIn:
@@ -1563,6 +1562,13 @@ class MainWindow(QMainWindow):
 
 def main():
     try:
+        # ログ初期設定
+        from app.services.config_service import ConfigService
+        from app.utils.logger import configure_logging
+        config = ConfigService()
+        enable_logging = config.get("enable_logging", True)
+        configure_logging(enabled=enable_logging, redirect=True)
+        
         print("UI: Starting application...")
         app = QApplication(sys.argv)
         
