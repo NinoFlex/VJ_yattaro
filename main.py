@@ -139,7 +139,7 @@ class MainWindow(QMainWindow):
         self._is_bringing_to_front = False
         self._last_front_time = 0
         self._last_user_interacted_time = 0  # ユーザーの直接操作があった時刻
-        self._user_has_clicked_since_front = False  # 前面化後にクリックされたか
+        self._user_has_clicked_since_front = True  # 前面化後にクリックされたか (初期は前面扱いとする)
         
         # プレイヤー接続状態
         import time
@@ -615,8 +615,13 @@ class MainWindow(QMainWindow):
         self._is_bringing_to_front = True
         self._last_front_time = current_time
         
-        # ホットキー操作があった場合は常に「操作済み」をリセットし、自動帰還の対象にする
-        self._user_has_clicked_since_front = False
+        # もともと背面にある場合のみ、クリック済みフラグをリセットして自動帰還の対象にする
+        # すでに前面（アクティブ）にある場合は、現在のクリック状態を維持する
+        if not self.isActiveWindow():
+            self._user_has_clicked_since_front = False
+            print("UI: Window was background, reset _user_has_clicked_since_front to False")
+        else:
+            print(f"UI: Window already active, current _user_has_clicked_since_front is {self._user_has_clicked_since_front}")
         
         # 既存のタイマーを停止
         if self._bring_to_back_timer.isActive():
