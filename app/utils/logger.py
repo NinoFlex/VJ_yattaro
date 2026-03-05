@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 from datetime import datetime
 from typing import Optional, List
 from enum import IntEnum
@@ -14,7 +15,7 @@ class LogLevel(IntEnum):
 
 
 class Logger:
-    """パフォーマンス最適化されたロガー"""
+    """パフォーマンス最適化されたロガー（スレッドセーフ）"""
     
     def __init__(self, name: str = "VJ_yattaro"):
         self.name = name
@@ -23,6 +24,9 @@ class Logger:
         self._stdout = sys.stdout
         self._stderr = sys.stderr
         self._redirected = False
+        
+        # ファイル書き込みをスレッドセーフにするためのロック
+        self._file_lock = threading.Lock()
         
         # ログファイルのパス（プロジェクトルート）
         if getattr(sys, 'frozen', False):
@@ -45,14 +49,16 @@ class Logger:
         return self._enabled and level >= self._level
     
     def _log_to_file(self, formatted_message: str):
-        """ファイルにログを記録"""
+        """ファイルにログを記録（スレッドセーフ）"""
         if not self._enabled:
             return
             
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            with open(self._log_file_path, "a", encoding="utf-8") as f:
-                f.write(f"[{timestamp}] {formatted_message}\n")
+            # ロックを取得してから書き込む（複数スレッドの同時書き込みによる混入を防ぐ）
+            with self._file_lock:
+                with open(self._log_file_path, "a", encoding="utf-8") as f:
+                    f.write(f"[{timestamp}] {formatted_message}\n")
         except:
             # ファイル書き込み失敗は無視する（無限ループ防止）
             pass
@@ -133,16 +139,34 @@ class Logger:
 
 
 class LoggerStream:
-    """sys.stdout/stderr をロガーにリダイレクトするためのストリームクラス"""
+    """sys.stdout/stderr をロガーにリダイレクトするためのストリームクラス（スレッドセーフ）
+    
+    line_buffer を threading.local にすることで、複数スレッドが同時に write() しても
+    各スレッド固有のバッファを使用し、行データの混入（race condition）を防ぐ。
+    """
     def __init__(self, logger: Logger, level: LogLevel):
         self.logger = logger
         self.level = level
-        self.line_buffer = ""
+        # スレッドごとに独立したバッファを持つ（他スレッドのバッファに干渉しない）
+        self._local = threading.local()
+
+    @property
+    def line_buffer(self) -> str:
+        """現在のスレッド固有のバッファを返す"""
+        if not hasattr(self._local, 'buffer'):
+            self._local.buffer = ""
+        return self._local.buffer
+
+    @line_buffer.setter
+    def line_buffer(self, value: str):
+        """現在のスレッド固有のバッファに書き込む"""
+        self._local.buffer = value
 
     def write(self, data):
         if not data:
             return
         
+        # self.line_buffer はスレッドローカルなので他スレッドと干渉しない
         self.line_buffer += data
         if "\n" in self.line_buffer:
             lines = self.line_buffer.split("\n")

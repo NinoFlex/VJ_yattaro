@@ -294,6 +294,12 @@ class MainWindow(QMainWindow):
         
         # YouTube検索スレッドの管理
         self.youtube_search_thread = None
+        # 検索中に追加された「最新の保留検索」（1件のみ保持、古いものは上書き）
+        self._pending_search_args = None
+        # 保留検索の実行タイマー
+        self._pending_search_timer = QTimer(self)
+        self._pending_search_timer.setSingleShot(True)
+        self._pending_search_timer.timeout.connect(self._execute_pending_search)
         
         # プレイヤーHTTPサーバーの初期化
         from app.services.player_http_server import start_player_server
@@ -944,22 +950,22 @@ class MainWindow(QMainWindow):
             print("UI: Invalid track data for search")
     
     def search_youtube(self, track_title, artist, comment):
-        """YouTubeで動画を検索"""
-        from app.utils.logger import info, debug, error
+        """YouTubeで動画を検索。
+        
+        - 検索中でなければ即座に実行する。
+        - 既に検索中の場合は「保留キュー」に登録する（最新1件のみ）。
+          既にキューに入っていた曲は破棄し、最後に追加されたものだけを保持する。
+        - 前の検索完了後、1秒待機してから保留中の検索を実行する。
+        """
+        from app.utils.logger import info, error
         from app.services.youtube_service import YouTubeService
         
-        # 既存のスレッドがあれば停止
+        # 検索中なら保留キューに登録して終了
         if self.youtube_search_thread and self.youtube_search_thread.isRunning():
-            try:
-                self.youtube_search_thread._is_aborted = True
-                self.youtube_search_thread.search_completed.disconnect()
-                self.youtube_search_thread.search_error.disconnect()
-            except:
-                pass
-            # terminate() は極力避ける
-            self.youtube_search_thread.quit()
-            self.youtube_search_thread.wait(2000)
-            self.youtube_search_thread = None
+            # 古い保留は破棄して最新の1件だけ保持
+            self._pending_search_args = (track_title, artist, comment)
+            info(f"Search queued (previous search running): {track_title}", "UI")
+            return
         
         youtube_service = YouTubeService()
         
@@ -1018,9 +1024,29 @@ class MainWindow(QMainWindow):
             print("UI: Search completed - search box enabled")
     
     def _on_search_finished(self):
-        """検索スレッド終了時のクリーンアップ"""
+        """検索スレッド終了時のクリーンアップ。
+        保留中の検索があれば 1秒後に実行する。
+        """
+        from app.utils.logger import info
         self._set_searching_state(False)
         self.youtube_search_thread = None
+        
+        if self._pending_search_args is not None:
+            info("Search finished. Pending search found - will execute in 1 second.", "UI")
+            self._pending_search_timer.start(1000)  # 1秒後に保留検索を実行
+    
+    def _execute_pending_search(self):
+        """保留中のYouTube検索を実行する（検索完了から1秒後に呼ばれる）"""
+        from app.utils.logger import info
+        
+        if self._pending_search_args is None:
+            return
+        
+        track_title, artist, comment = self._pending_search_args
+        self._pending_search_args = None  # キューをクリア
+        
+        info(f"Executing pending search: {track_title}", "UI")
+        self.search_youtube(track_title, artist, comment)
 
     def on_youtube_search_completed(self, videos):
         """YouTube検索完了時のコールバック"""
