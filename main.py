@@ -600,8 +600,12 @@ class MainWindow(QMainWindow):
         else:
             print("UI: Already at the last YouTube video")
     
-    def _bring_to_front(self):
-        """ウィンドウを確実に最前面に表示する（Windows対応）"""
+    def _bring_to_front(self, is_hotkey=True):
+        """ウィンドウを確実に最前面に表示する（Windows対応）
+        
+        Args:
+            is_hotkey (bool): ホットキーによる呼び出しの場合のみ、背面化タイマーを有効にする。
+        """
         import sys
         import time
         
@@ -616,7 +620,8 @@ class MainWindow(QMainWindow):
         self._last_front_time = current_time
         
         # ホットキー操作があった場合は常に「操作済み」をリセットし、自動帰還の対象にする
-        self._user_has_clicked_since_front = False
+        if is_hotkey:
+            self._user_has_clicked_since_front = False
         
         # 既存のタイマーを停止
         if self._bring_to_back_timer.isActive():
@@ -656,8 +661,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1000, lambda: setattr(self, '_is_bringing_to_front', False))
         
         # モード2（ホットキー時に最前面→一定秒で最背面）
-        # ただし、既にユーザーが操作中（クリック済み）の場合は背面送りにしない
-        if bool(self.config_service.get("bring_to_front_on_hotkey", True)) and not bool(self.config_service.get("always_on_top", False)):
+        # ホットキーによる前面化、かつユーザーがまだ操作していない場合のみ背面送りタイマーを動かす
+        if is_hotkey and bool(self.config_service.get("bring_to_front_on_hotkey", True)) and not bool(self.config_service.get("always_on_top", False)):
             if not self._user_has_clicked_since_front:
                 delay_s = int(self.config_service.get("bring_to_back_delay_s", 3))
                 delay_ms = max(0, delay_s) * 1000
@@ -1057,10 +1062,11 @@ class MainWindow(QMainWindow):
             self.left_pane.clear_results()
             return
         
-        # 設定に応じてウィンドウを最前面に表示（ホットキーと同じ実装）
-        if self.config_service.get("bring_to_front_on_search", False):
-            self._bring_to_front()
-            info("Brought window to front after search completion", "UI")
+        # 設定に応じてウィンドウを最前面に表示
+        # ただし、既にウィンドウがアクティブな場合は前面化とそれに伴うタイマー制御を避ける
+        if self.config_service.get("bring_to_front_on_search", False) and not self.isActiveWindow():
+            self._bring_to_front(is_hotkey=False)
+            info("Brought window to front after search completion (non-hotkey)", "UI")
         
         # 検索完了を通知
         self._on_search_finished()
