@@ -337,6 +337,9 @@ class MainWindow(QMainWindow):
         
         # YouTube動画の状態管理（初期化は_reset_youtube_stateで実施）
         self._reset_youtube_state()
+        
+        # 起動時にプレイヤー設定を送信（既にブラウザが開いている場合に備えて遅延送信）
+        QTimer.singleShot(3000, self._send_player_config)
 
     def _open_player_in_browser(self):
         """起動時にYouTubeプレイヤーを既定ブラウザで開く（既に開いている場合はスキップ）"""
@@ -376,7 +379,8 @@ class MainWindow(QMainWindow):
                 # サーバー配下の player.html を開き、デフォルト再生動画IDをクエリで渡す
                 port = int(self.config_service.get("player_port", 8080))
                 default_video_id = "eyUUHfVm8Ik"
-                url = f"http://localhost:{port}/player.html?defaultVideoId={default_video_id}"
+                track_info_pos = self.config_service.get("player_track_info_position", "top-right")
+                url = f"http://localhost:{port}/player.html?defaultVideoId={default_video_id}&trackInfoPosition={track_info_pos}"
                 webbrowser.open(url, new=1, autoraise=True)
                 self._player_browser_opened = True
                 info(f"Opened player in browser: {url}", "UI")
@@ -396,6 +400,8 @@ class MainWindow(QMainWindow):
         self.last_clicked_video_id = None
         self.current_playing_video_id = None
         self.pending_play_video_id = None
+        # 楽曲情報の保持（右カラムから検索した場合のみ設定される）
+        self._current_track_info = {"title": "", "artist": "", "comment": ""}
         self._update_youtube_border_color_safe('#a52a2a')  # デフォルトの枠線色
         info("YouTube state reset to default", "UI")
     
@@ -415,6 +421,7 @@ class MainWindow(QMainWindow):
             self.reload_hotkeys()  # ホットキーを再登録
             self.apply_window_placement_mode()  # ウィンドウ配置モードを反映
             self._restart_player_server_if_needed()  # プレイヤーサーバー設定を反映
+            self._send_player_config()  # プレイヤー設定を送信
         else:
             print("UI: Settings dialog cancelled.")
 
@@ -490,7 +497,7 @@ class MainWindow(QMainWindow):
                     comment = new_top_track[2] or ""
                     
                     print(f"UI: Auto-searching YouTube for updated top track: {track_title} by {artist}")
-                    self.search_youtube(track_title, artist, comment)
+                    self.search_youtube(track_title, artist, comment, from_list=True)
             elif not hasattr(self, '_last_top_track'):
                 # 初回設定
                 self._last_top_track = new_top_track
@@ -789,7 +796,7 @@ class MainWindow(QMainWindow):
         if is_selected_ready:
             print(f"UI: Video is ready, playing immediately (preload hotkey): {video_id}")
             if hasattr(self, 'player_server') and self.player_server:
-                self.player_server.send_command('PLAY', video_id)
+                self.player_server.send_command('PLAY', video_id, track_info=self._current_track_info)
                 self._update_youtube_video_state('playing', video_id)
                 print(f"UI: Sent PLAY command for ready video (preload hotkey): {video_id}")
             else:
@@ -799,7 +806,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'player_server') and self.player_server:
             self.preloaded_video_id = video_id
             self.pending_play_video_id = None
-            self.player_server.send_command('PRELOAD', video_id)
+            self.player_server.send_command('PRELOAD', video_id, track_info=self._current_track_info)
             self._update_youtube_video_state('preloading', video_id)
             print(f"UI: Sent PRELOAD command via hotkey for video: {video_id}")
         else:
@@ -817,7 +824,10 @@ class MainWindow(QMainWindow):
         # 検索ボックスのフォーカスを外す
         self.youtube_search_box.clearFocus()
         
-        # YouTube検索を実行
+        # 検索ボックスからの検索では楽曲情報をクリア
+        self._current_track_info = {"title": "", "artist": "", "comment": ""}
+        
+        # YouTube検索を実行（from_list=Falseなので楽曲情報は保持しない）
         self.search_youtube(search_text, "", "")
     
     def play_current_video(self):
@@ -855,7 +865,7 @@ class MainWindow(QMainWindow):
         if is_selected_ready:
             print(f"UI: Video is ready, playing immediately (play hotkey): {video_id}")
             if hasattr(self, 'player_server') and self.player_server:
-                self.player_server.send_command('PLAY', video_id)
+                self.player_server.send_command('PLAY', video_id, track_info=self._current_track_info)
                 self._update_youtube_video_state('playing', video_id)
                 print(f"UI: Sent PLAY command for ready video (play hotkey): {video_id}")
             else:
@@ -865,7 +875,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'player_server') and self.player_server:
             self.preloaded_video_id = video_id
             self.pending_play_video_id = video_id
-            self.player_server.send_command('PRELOAD', video_id)
+            self.player_server.send_command('PRELOAD', video_id, track_info=self._current_track_info)
             self._update_youtube_video_state('preloading', video_id)
             print(f"UI: Sent PRELOAD command, will auto-play when ready (play hotkey): {video_id}")
         else:
@@ -913,7 +923,7 @@ class MainWindow(QMainWindow):
             print(f"UI: Double clicked on track: {track_title} by {artist}")
             
             # YouTube検索を実行
-            self.search_youtube(track_title, artist, comment)
+            self.search_youtube(track_title, artist, comment, from_list=True)
     
     def search_selected_track(self):
         """右ペインで選択中の楽曲でYouTube検索する（Ctrl+Shift+Enter）"""
@@ -950,25 +960,37 @@ class MainWindow(QMainWindow):
             print(f"UI: Searching YouTube for selected track: {track_title} by {artist}")
             
             # YouTube検索を実行
-            self.search_youtube(track_title, artist, comment)
+            self.search_youtube(track_title, artist, comment, from_list=True)
         else:
             print("UI: Invalid track data for search")
     
-    def search_youtube(self, track_title, artist, comment):
+    def search_youtube(self, track_title, artist, comment, from_list=False):
         """YouTubeで動画を検索。
         
         - 検索中でなければ即座に実行する。
         - 既に検索中の場合は「保留キュー」に登録する（最新1件のみ）。
           既にキューに入っていた曲は破棄し、最後に追加されたものだけを保持する。
         - 前の検索完了後、1秒待機してから保留中の検索を実行する。
+        
+        Args:
+            from_list: 右カラムのリストから検索された場合True
         """
         from app.utils.logger import info, error
         from app.services.youtube_service import YouTubeService
         
+        # 右カラムのリストから検索された場合、楽曲情報を保持
+        if from_list:
+            self._current_track_info = {
+                "title": track_title or "",
+                "artist": artist or "",
+                "comment": comment or ""
+            }
+            print(f"UI: Track info saved - title: {track_title}, artist: {artist}, comment: {comment}")
+        
         # 検索中なら保留キューに登録して終了
         if self.youtube_search_thread and self.youtube_search_thread.isRunning():
             # 古い保留は破棄して最新の1件だけ保持
-            self._pending_search_args = (track_title, artist, comment)
+            self._pending_search_args = (track_title, artist, comment, from_list)
             info(f"Search queued (previous search running): {track_title}", "UI")
             return
         
@@ -1047,11 +1069,11 @@ class MainWindow(QMainWindow):
         if self._pending_search_args is None:
             return
         
-        track_title, artist, comment = self._pending_search_args
+        track_title, artist, comment, from_list = self._pending_search_args
         self._pending_search_args = None  # キューをクリア
         
         info(f"Executing pending search: {track_title}", "UI")
-        self.search_youtube(track_title, artist, comment)
+        self.search_youtube(track_title, artist, comment, from_list=from_list)
 
     def on_youtube_search_completed(self, videos):
         """YouTube検索完了時のコールバック"""
@@ -1346,7 +1368,7 @@ class MainWindow(QMainWindow):
                 # 2回目のダブルクリック：再生
                 print(f"UI: Second click detected - sending PLAY for {video_id}")
                 if hasattr(self, 'player_server') and self.player_server:
-                    self.player_server.send_command('PLAY', video_id)
+                    self.player_server.send_command('PLAY', video_id, track_info=self._current_track_info)
                     self._update_youtube_video_state('playing', video_id)
                     print(f"UI: Sent PLAY command for video: {video_id}")
                 else:
@@ -1356,7 +1378,7 @@ class MainWindow(QMainWindow):
                 print(f"UI: First click detected - sending PRELOAD for {video_id}")
                 self.last_clicked_video_id = video_id
                 if hasattr(self, 'player_server') and self.player_server:
-                    self.player_server.send_command('PRELOAD', video_id)
+                    self.player_server.send_command('PRELOAD', video_id, track_info=self._current_track_info)
                     self._update_youtube_video_state('preloading', video_id)
                     print(f"UI: Sent PRELOAD command for video: {video_id}")
                 else:
@@ -1391,7 +1413,7 @@ class MainWindow(QMainWindow):
                 if self.pending_play_video_id == video_id:
                     print(f"UI: Auto-playing video after ready: {video_id}")
                     if hasattr(self, 'player_server') and self.player_server:
-                        self.player_server.send_command('PLAY', video_id)
+                        self.player_server.send_command('PLAY', video_id, track_info=self._current_track_info)
                         self._update_youtube_video_state('playing', video_id)
                         self.pending_play_video_id = None
                         print(f"UI: Sent PLAY command for auto-play: {video_id}")
@@ -1508,11 +1530,25 @@ class MainWindow(QMainWindow):
             return
         
         if hasattr(self, 'player_server') and self.player_server:
-            self.player_server.send_command('PRELOAD', video_id)
+            self.player_server.send_command('PRELOAD', video_id, track_info=self._current_track_info)
             self._update_youtube_video_state('preloading', video_id)
             print(f"UI: Sent PRELOAD command for video: {video_id}")
         else:
             print("UI: Player server not available for preload")
+    
+    def _send_player_config(self):
+        """プレイヤーに設定を送信する"""
+        try:
+            if hasattr(self, 'player_server') and self.player_server:
+                position = self.config_service.get("player_track_info_position", "top-right")
+                config_data = {
+                    "trackInfoPosition": position
+                }
+                import json
+                self.player_server.send_command('SET_CONFIG', json.dumps(config_data))
+                print(f"UI: Sent SET_CONFIG to player - trackInfoPosition: {position}")
+        except Exception as e:
+            print(f"UI: Error sending player config: {e}")
     
     def closeEvent(self, event):
         """アプリケーション終了時のクリーンアップ"""

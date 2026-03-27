@@ -29,6 +29,12 @@ class VJPlayer {
         this._lastPlayerState = { A: null, B: null };
         this._lastPlayingAtMs = { A: 0, B: 0 };
 
+        // 楽曲情報の管理
+        this.currentTrackInfo = null;
+        this.nextTrackInfo = null;
+        // 楽曲情報の表示位置（クエリパラメータまたはデフォルト: 右上）
+        this.trackInfoPosition = this.getTrackInfoPositionFromQuery() || 'top-right';
+
         console.log('VJ Player initialized');
         this.init();
     }
@@ -184,6 +190,18 @@ class VJPlayer {
         }
     }
 
+    getTrackInfoPositionFromQuery() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const pos = params.get('trackInfoPosition');
+            const valid = ['top-right', 'top-left', 'bottom-right', 'bottom-left', 'none'];
+            return pos && valid.includes(pos.trim()) ? pos.trim() : null;
+        } catch (e) {
+            console.warn('Failed to parse trackInfoPosition from query:', e);
+            return null;
+        }
+    }
+
     onPlayerReady(playerId, event) {
         console.log(`Player ${playerId} is ready`);
         this.isReady[playerId] = true;
@@ -199,6 +217,9 @@ class VJPlayer {
         // プレイヤーAを前面に、プレイヤーBを背面に配置
         document.getElementById('playerAContainer').classList.add('active');
         document.getElementById('playerBContainer').classList.add('hidden');
+
+        // 楽曲情報の表示位置を初期化時に適用
+        this.applyTrackInfoPosition();
 
         // デフォルト動画を自動再生（クエリで渡された場合のみ）
         if (this.defaultVideoId) {
@@ -584,13 +605,14 @@ class VJPlayer {
     processCommand(command) {
         const cmd = command.cmd;
         const videoId = command.videoId;
+        const trackInfo = command.trackInfo || null;
 
         switch (cmd) {
             case 'PRELOAD':
-                this.handlePreload(videoId);
+                this.handlePreload(videoId, trackInfo);
                 break;
             case 'PLAY':
-                this.handlePlay(videoId);
+                this.handlePlay(videoId, trackInfo);
                 break;
             case 'REWIND':
                 this.handleRewind(parseFloat(videoId) || 10);
@@ -598,19 +620,26 @@ class VJPlayer {
             case 'FORWARD':
                 this.handleForward(parseFloat(videoId) || 10);
                 break;
+            case 'SET_CONFIG':
+                this.handleSetConfig(videoId);
+                break;
             default:
                 console.log('Unknown command:', cmd);
         }
     }
 
     // プリロード処理
-    handlePreload(videoId) {
+    handlePreload(videoId, trackInfo) {
         if (!videoId || videoId === this.nextVideoId) {
             return;
         }
 
         console.log(`Preloading video: ${videoId}`);
         this.nextVideoId = videoId;
+        // 楽曲情報を次の動画用に保持
+        if (trackInfo) {
+            this.nextTrackInfo = trackInfo;
+        }
 
         // 状態フィードバックを送信
         this.sendFeedback('preloading', videoId);
@@ -655,12 +684,16 @@ class VJPlayer {
     }
 
     // 再生処理
-    handlePlay(videoId) {
+    handlePlay(videoId, trackInfo) {
         if (!videoId) {
             return;
         }
 
         console.log(`Playing video: ${videoId}`);
+        // 楽曲情報を次の動画用に保持
+        if (trackInfo) {
+            this.nextTrackInfo = trackInfo;
+        }
         console.log(`Current state: isReady[${this.nextPlayer}]=${this.isReady[this.nextPlayer]}, nextVideoId=${this.nextVideoId}`);
 
         if (this.isReady[this.nextPlayer] && this.nextVideoId === videoId) {
@@ -894,6 +927,11 @@ class VJPlayer {
         // 状態フィードバックを送信
         this.sendFeedback('playing', videoId);
 
+        // 楽曲情報を更新（次の動画の情報を現在に移す）
+        this.currentTrackInfo = this.nextTrackInfo;
+        this.nextTrackInfo = null;
+        this.updateTrackInfoOverlay();
+
         console.log(`Switch complete. Current player: ${this.currentPlayer}`);
     }
 
@@ -930,6 +968,104 @@ class VJPlayer {
         } catch (error) {
             console.error('Feedback error:', error.message);
             console.log('Feedback URL:', this.feedbackUrl);
+        }
+    }
+
+    // SET_CONFIGコマンドの処理
+    handleSetConfig(configJson) {
+        try {
+            const config = JSON.parse(configJson);
+            console.log('Received SET_CONFIG:', config);
+
+            if (config.trackInfoPosition !== undefined) {
+                this.trackInfoPosition = config.trackInfoPosition;
+                this.applyTrackInfoPosition();
+                console.log(`Track info position updated to: ${this.trackInfoPosition}`);
+            }
+        } catch (e) {
+            console.error('Error parsing SET_CONFIG:', e);
+        }
+    }
+
+    // 楽曲情報オーバーレイの表示を更新
+    updateTrackInfoOverlay() {
+        const overlay = document.getElementById('trackInfoOverlay');
+        const titleEl = document.getElementById('trackInfoTitle');
+        const artistEl = document.getElementById('trackInfoArtist');
+        const commentEl = document.getElementById('trackInfoComment');
+
+        if (!overlay || !titleEl || !artistEl || !commentEl) {
+            console.warn('Track info overlay elements not found');
+            return;
+        }
+
+        // 表示位置が「表示しない」の場合は非表示
+        if (this.trackInfoPosition === 'none') {
+            overlay.classList.remove('visible');
+            overlay.classList.add('hidden');
+            return;
+        }
+
+        const info = this.currentTrackInfo;
+
+        // 楽曲情報がない場合（検索ボックスからの検索等）は非表示
+        if (!info || (!info.title && !info.artist && !info.comment)) {
+            overlay.classList.remove('visible');
+            return;
+        }
+
+        // 各行にテキストを設定（空の場合はCSSで非表示になる）
+        titleEl.textContent = info.title || '';
+        artistEl.textContent = info.artist || '';
+        commentEl.textContent = info.comment || '';
+
+        // 表示位置を適用
+        this.applyTrackInfoPosition();
+
+        // hiddenクラスを除去してvisibleにする
+        overlay.classList.remove('hidden');
+        // 少し遅延してフェードイン（DOMの更新を確実に反映させるため）
+        requestAnimationFrame(() => {
+            overlay.classList.add('visible');
+        });
+
+        console.log(`Track info displayed: ${info.title} / ${info.artist} / ${info.comment}`);
+    }
+
+    // 楽曲情報の表示位置を適用
+    applyTrackInfoPosition() {
+        const overlay = document.getElementById('trackInfoOverlay');
+        if (!overlay) return;
+
+        // 既存の位置クラスをすべて除去
+        overlay.classList.remove(
+            'track-info-top-right',
+            'track-info-top-left',
+            'track-info-bottom-right',
+            'track-info-bottom-left',
+            'hidden'
+        );
+
+        // 位置に応じたクラスを追加
+        switch (this.trackInfoPosition) {
+            case 'top-right':
+                overlay.classList.add('track-info-top-right');
+                break;
+            case 'top-left':
+                overlay.classList.add('track-info-top-left');
+                break;
+            case 'bottom-right':
+                overlay.classList.add('track-info-bottom-right');
+                break;
+            case 'bottom-left':
+                overlay.classList.add('track-info-bottom-left');
+                break;
+            case 'none':
+                overlay.classList.add('hidden');
+                overlay.classList.remove('visible');
+                break;
+            default:
+                overlay.classList.add('track-info-top-right');
         }
     }
 

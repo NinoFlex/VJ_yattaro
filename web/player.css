@@ -194,3 +194,65 @@ html, body {
 .loading-indicator.show {
     display: block;
 }
+
+/* 楽曲情報オーバーレイ */
+.track-info-overlay {
+    position: fixed;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 12px 18px;
+    border-radius: 6px;
+    font-family: 'Meiryo UI', 'Yu Gothic UI', 'Segoe UI', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 50vw;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.track-info-overlay.visible {
+    opacity: 1;
+}
+
+.track-info-overlay.hidden {
+    display: none !important;
+}
+
+/* 楽曲情報の各行 */
+.track-info-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-info-line:empty {
+    display: none;
+}
+
+/* 表示位置: 右上 */
+.track-info-top-right {
+    top: 20px;
+    right: 20px;
+}
+
+/* 表示位置: 左上 */
+.track-info-top-left {
+    top: 20px;
+    left: 20px;
+}
+
+/* 表示位置: 右下 */
+.track-info-bottom-right {
+    bottom: 20px;
+    right: 20px;
+}
+
+/* 表示位置: 左下 */
+.track-info-bottom-left {
+    bottom: 20px;
+    left: 20px;
+}

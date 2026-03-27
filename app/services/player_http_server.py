@@ -313,26 +313,41 @@ class PlayerHttpServer:
         if not self.is_running:
             return
         
+        self.is_running = False
+        
         try:
             if self.server:
-                self.server.shutdown()
-                self.server.server_close()
+                # shutdown()がブロックする場合があるため別スレッドで実行
+                shutdown_thread = threading.Thread(target=self._shutdown_server, daemon=True)
+                shutdown_thread.start()
+                shutdown_thread.join(timeout=2)  # 最大2秒待機
+                
+                if shutdown_thread.is_alive():
+                    print("PlayerHttpServer: Shutdown timed out, forcing close")
+                    try:
+                        self.server.server_close()
+                    except Exception:
+                        pass
             
-            if self.server_thread and self.server_thread.is_alive():
-                self.server_thread.join(timeout=5)
-            
-            self.is_running = False
             print("PlayerHttpServer: Server stopped")
             
         except Exception as e:
             print(f"PlayerHttpServer: Error stopping server: {e}")
+    
+    def _shutdown_server(self):
+        """サーバーのシャットダウン処理（別スレッドで実行）"""
+        try:
+            self.server.shutdown()
+            self.server.server_close()
+        except Exception as e:
+            print(f"PlayerHttpServer: Error in shutdown thread: {e}")
     
     def set_state_callback(self, callback):
         """状態フィードバック用のコールバックを設定"""
         PlayerCommandHandler.state_callback = callback
         print("PlayerHttpServer: State callback set")
     
-    def send_command(self, cmd, video_id=""):
+    def send_command(self, cmd, video_id="", track_info=None):
         """コマンドをキューに追加"""
         try:
             command = {
@@ -340,6 +355,9 @@ class PlayerHttpServer:
                 "videoId": video_id,
                 "timestamp": time.time()
             }
+            # 楽曲情報がある場合はコマンドに追加
+            if track_info:
+                command["trackInfo"] = track_info
             
             with PlayerCommandHandler.queue_lock:
                 PlayerCommandHandler.command_queue.append(command)

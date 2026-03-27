@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
                                QLabel, QLineEdit, QPushButton, QTabWidget, 
-                               QCheckBox, QSpinBox, QGroupBox, QWidget, QApplication, QFileDialog)
+                               QCheckBox, QSpinBox, QGroupBox, QWidget, QApplication, QFileDialog, QComboBox)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QClipboard, QKeyEvent
 
@@ -148,6 +148,7 @@ class SettingsDialog(QDialog):
         self._init_rekordbox_tab()
         self._init_hotkey_tab()
         self._init_youtube_tab()
+        self._init_player_tab()
         
         # 既存設定の読み込み
         self._load_current_settings()
@@ -183,6 +184,17 @@ class SettingsDialog(QDialog):
         self.hotkey_forward_edit.setText(self.config_service.get("hotkey_forward", "ctrl+:"))
         self.youtube_api_key_edit.setText(self.config_service.get("youtube_api_key", ""))
         self.youtube_search_template_edit.setText(self.config_service.get("youtube_search_template", "%tracktitle% %comment%"))
+        
+        # プレイヤータブの設定値を読み込み
+        position = self.config_service.get("player_track_info_position", "top-right")
+        position_map = {
+            "top-right": 0,
+            "top-left": 1,
+            "bottom-right": 2,
+            "bottom-left": 3,
+            "none": 4
+        }
+        self.track_info_position_combo.setCurrentIndex(position_map.get(position, 0))
 
     def _init_general_tab(self):
         """「全般」タブの構築"""
@@ -221,35 +233,6 @@ class SettingsDialog(QDialog):
         
         # 初期URLを設定
         self._update_player_url()
-
-        # 巻き戻し・早送り設定
-        seek_group = QGroupBox("巻き戻し・早送り")
-        seek_layout = QVBoxLayout(seek_group)
-
-        # 巻き戻し秒数
-        rewind_row = QHBoxLayout()
-        rewind_row.addWidget(QLabel("巻き戻し秒数:"))
-        self.rewind_seconds_spin = QSpinBox()
-        self.rewind_seconds_spin.setRange(1, 60)
-        self.rewind_seconds_spin.setSuffix(" 秒")
-        self.rewind_seconds_spin.setValue(2)
-        rewind_row.addWidget(self.rewind_seconds_spin)
-        rewind_row.addStretch()
-
-        # 早送り秒数
-        forward_row = QHBoxLayout()
-        forward_row.addWidget(QLabel("早送り秒数:"))
-        self.forward_seconds_spin = QSpinBox()
-        self.forward_seconds_spin.setRange(1, 60)
-        self.forward_seconds_spin.setSuffix(" 秒")
-        self.forward_seconds_spin.setValue(2)
-        forward_row.addWidget(self.forward_seconds_spin)
-        forward_row.addStretch()
-
-        seek_layout.addLayout(rewind_row)
-        seek_layout.addLayout(forward_row)
-
-        layout.addRow(seek_group)
 
         # ウィンドウ配置モード
         window_group = QGroupBox("ウィンドウ配置モード")
@@ -523,6 +506,69 @@ class SettingsDialog(QDialog):
         
         self.tabs.addTab(tab, "YouTube")
     
+    def _init_player_tab(self):
+        """「プレイヤー」タブの構築"""
+        tab = QWidget()
+        layout = QFormLayout(tab)
+        
+        # 説明ラベル
+        info_label = QLabel("プレイヤー画面の表示に関する設定を行います。")
+        info_label.setStyleSheet("color: #666; font-size: 10px; margin-bottom: 10px;")
+        layout.addRow("", info_label)
+        
+        # 楽曲情報の表示位置
+        track_info_group = QGroupBox("楽曲情報表示")
+        track_info_layout = QFormLayout(track_info_group)
+        
+        self.track_info_position_combo = QComboBox()
+        self.track_info_position_combo.addItems([
+            "右上",    # top-right
+            "左上",    # top-left
+            "右下",    # bottom-right
+            "左下",    # bottom-left
+            "表示しない"  # none
+        ])
+        track_info_layout.addRow("楽曲情報の表示位置:", self.track_info_position_combo)
+        
+        # 説明
+        desc_label = QLabel("※ 右カラムのリストから検索した場合に、\n　曲名・アーティスト名・コメントをプレイヤーに表示します。")
+        desc_label.setStyleSheet("color: #666; font-size: 10px;")
+        desc_label.setWordWrap(True)
+        track_info_layout.addRow("", desc_label)
+        
+        layout.addRow(track_info_group)
+        
+        # 巻き戻し・早送り設定
+        seek_group = QGroupBox("巻き戻し・早送り")
+        seek_layout = QVBoxLayout(seek_group)
+
+        # 巻き戻し秒数
+        rewind_row = QHBoxLayout()
+        rewind_row.addWidget(QLabel("巻き戻し秒数:"))
+        self.rewind_seconds_spin = QSpinBox()
+        self.rewind_seconds_spin.setRange(1, 60)
+        self.rewind_seconds_spin.setSuffix(" 秒")
+        self.rewind_seconds_spin.setValue(2)
+        rewind_row.addWidget(self.rewind_seconds_spin)
+        rewind_row.addStretch()
+
+        # 早送り秒数
+        forward_row = QHBoxLayout()
+        forward_row.addWidget(QLabel("早送り秒数:"))
+        self.forward_seconds_spin = QSpinBox()
+        self.forward_seconds_spin.setRange(1, 60)
+        self.forward_seconds_spin.setSuffix(" 秒")
+        self.forward_seconds_spin.setValue(2)
+        forward_row.addWidget(self.forward_seconds_spin)
+        forward_row.addStretch()
+
+        seek_layout.addLayout(rewind_row)
+        seek_layout.addLayout(forward_row)
+
+        layout.addRow(seek_group)
+        
+        self.tabs.addTab(tab, "プレイヤー")
+    
     def _toggle_api_key_visibility(self):
         """APIキーの表示/非表示を切り替える"""
         if self.toggle_key_btn.isChecked():
@@ -622,7 +668,8 @@ class SettingsDialog(QDialog):
             "hotkey_forward": hotkey_forward,
             "youtube_api_key": youtube_api_key,
             "youtube_search_template": youtube_search_template,
-            "enable_logging": enable_logging
+            "enable_logging": enable_logging,
+            "player_track_info_position": self._get_track_info_position_value()
         })
         
         # 設定画面を閉じる際にホットキーを再登録
@@ -659,3 +706,9 @@ class SettingsDialog(QDialog):
             print("SettingsDialog: Hotkeys restored")
         except Exception as e:
             print(f"SettingsDialog: Error restoring hotkeys: {e}")
+    
+    def _get_track_info_position_value(self):
+        """コンボボックスの選択値を設定用の文字列に変換"""
+        index = self.track_info_position_combo.currentIndex()
+        values = ["top-right", "top-left", "bottom-right", "bottom-left", "none"]
+        return values[index] if 0 <= index < len(values) else "top-right"
