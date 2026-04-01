@@ -286,6 +286,22 @@ class MainWindow(QMainWindow):
         self.hotkey_service.rewind_triggered.connect(self.rewind_video)
         self.hotkey_service.forward_triggered.connect(self.forward_video)
         
+        # MIDIサービスの初期化
+        from app.services.midi_service import MidiService
+        self.midi_service = MidiService()
+        self.reload_midi_config()
+        
+        # MIDIのシグナルを接続
+        self.midi_service.move_up_triggered.connect(self.move_selection_up)
+        self.midi_service.move_down_triggered.connect(self.move_selection_down)
+        self.midi_service.move_left_triggered.connect(self.move_youtube_selection_left)
+        self.midi_service.move_right_triggered.connect(self.move_youtube_selection_right)
+        self.midi_service.preload_triggered.connect(self.preload_current_video)
+        self.midi_service.play_triggered.connect(self.play_current_video)
+        self.midi_service.search_triggered.connect(self.search_selected_track)
+        self.midi_service.rewind_triggered.connect(self.rewind_video)
+        self.midi_service.forward_triggered.connect(self.forward_video)
+        
         # 右テーブルのダブルクリックシグナルを接続
         self.right_table.doubleClicked.connect(self.on_table_double_click)
         
@@ -419,6 +435,7 @@ class MainWindow(QMainWindow):
 
             self.watcher.reload_settings()
             self.reload_hotkeys()  # ホットキーを再登録
+            self.reload_midi_config() # MIDI設定を再登録
             self.apply_window_placement_mode()  # ウィンドウ配置モードを反映
             self._restart_player_server_if_needed()  # プレイヤーサーバー設定を反映
             self._send_player_config()  # プレイヤー設定を送信
@@ -762,6 +779,32 @@ class MainWindow(QMainWindow):
                 print("UI: Hotkeys reloaded successfully after retry")
             except Exception as e2:
                 print(f"UI: Failed to reload hotkeys after retry: {e2}")
+
+    def reload_midi_config(self):
+        """設定からMIDIコンフィグを読み込んで再適用する"""
+        try:
+            device_name = self.config_service.get("midi_port_name", "")
+            mappings = {}
+            
+            def add_map(action, key):
+                val = int(self.config_service.get(key, -1))
+                if val >= 0:
+                    mappings[val] = action
+                    
+            add_map("move_up", "midi_move_up")
+            add_map("move_down", "midi_move_down")
+            add_map("move_left", "midi_move_left")
+            add_map("move_right", "midi_move_right")
+            add_map("preload", "midi_preload")
+            add_map("play", "midi_play")
+            add_map("search", "midi_search")
+            add_map("rewind", "midi_rewind")
+            add_map("forward", "midi_forward")
+            
+            self.midi_service.set_config(device_name, mappings)
+            print(f"UI: MIDI config reloaded - Device: {device_name}")
+        except Exception as e:
+            print(f"UI: Error reloading MIDI config: {e}")
     
     def preload_current_video(self):
         """現在選択中のYouTube動画をプリロード（Ctrl+Enter）"""
@@ -1260,8 +1303,8 @@ class MainWindow(QMainWindow):
                 print("UI: Force stopped search thread")
             
             # UIコンポーネントのデータをクリア
-            if hasattr(self, 'left_pane') and self.left_pane.model:
-                self.left_pane.model.clear_videos()
+            if hasattr(self, 'left_pane'):
+                self.left_pane.clear_results()
                 print("UI: Cleared YouTube list for memory cleanup")
             
             # ガベージコレクションを複数回実行
@@ -1569,6 +1612,11 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'hotkey_service'):
                 self.hotkey_service.stop()
                 print("UI: Hotkey service stopped")
+            
+            # MIDIサービスの停止
+            if hasattr(self, 'midi_service'):
+                self.midi_service.stop()
+                print("UI: Midi service stopped")
             
             # 履歴監視サービスの停止
             if hasattr(self, 'watcher'):

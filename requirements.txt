@@ -16,3 +16,4 @@ sqlcipher3-wheels==0.5.7
 typing_extensions==4.15.0
 keyboard==0.13.5
 requests==2.31.0
+pygame==2.6.1

@@ -130,8 +130,10 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         from app.services.config_service import ConfigService
         from app.services.hotkey_service import HotkeyService
+        from app.services.midi_service import MidiService
         self.config_service = ConfigService()
         self.hotkey_service = HotkeyService()
+        self.midi_service = MidiService()
         
         self.setWindowTitle("詳細設定")
         self.resize(500, 300)
@@ -147,6 +149,7 @@ class SettingsDialog(QDialog):
         self._init_general_tab()
         self._init_rekordbox_tab()
         self._init_hotkey_tab()
+        self._init_midi_tab()
         self._init_youtube_tab()
         self._init_player_tab()
         
@@ -158,7 +161,10 @@ class SettingsDialog(QDialog):
         
         # 設定画面が開いている間はホットキーを無効化
         self.hotkey_service.unregister_all()
-        print("SettingsDialog: Hotkeys disabled while settings dialog is open")
+        # MIDIもトリガーが発火しないよう一時的にマッピングを空に（Learn用にデバイス受信は維持）
+        device_name = self.config_service.get("midi_port_name", "")
+        self.midi_service.set_config(device_name, {})
+        print("SettingsDialog: Hotkeys and MIDI triggers disabled while settings dialog is open")
 
     def _load_current_settings(self):
         """現在の設定値をUIに反映させる"""
@@ -182,6 +188,24 @@ class SettingsDialog(QDialog):
         self.hotkey_search_edit.setText(self.config_service.get("hotkey_search", "ctrl+shift+enter"))
         self.hotkey_rewind_edit.setText(self.config_service.get("hotkey_rewind", "ctrl+;"))
         self.hotkey_forward_edit.setText(self.config_service.get("hotkey_forward", "ctrl+:"))
+        
+        self.midi_up_edit.setText(str(self.config_service.get("midi_move_up", -1)))
+        self.midi_down_edit.setText(str(self.config_service.get("midi_move_down", -1)))
+        self.midi_left_edit.setText(str(self.config_service.get("midi_move_left", -1)))
+        self.midi_right_edit.setText(str(self.config_service.get("midi_move_right", -1)))
+        self.midi_preload_edit.setText(str(self.config_service.get("midi_preload", -1)))
+        self.midi_play_edit.setText(str(self.config_service.get("midi_play", -1)))
+        self.midi_search_edit.setText(str(self.config_service.get("midi_search", -1)))
+        self.midi_rewind_edit.setText(str(self.config_service.get("midi_rewind", -1)))
+        self.midi_forward_edit.setText(str(self.config_service.get("midi_forward", -1)))
+        
+        port_name = self.config_service.get("midi_port_name", "")
+        idx = self.midi_device_combo.findText(port_name)
+        if idx >= 0:
+            self.midi_device_combo.setCurrentIndex(idx)
+        else:
+            self.midi_device_combo.setCurrentIndex(0)
+            
         self.youtube_api_key_edit.setText(self.config_service.get("youtube_api_key", ""))
         self.youtube_search_template_edit.setText(self.config_service.get("youtube_search_template", "%tracktitle% %comment%"))
         
@@ -448,6 +472,116 @@ class SettingsDialog(QDialog):
         layout.addRow("", help_label)
         
         self.tabs.addTab(tab, "ホットキー")
+
+    def _init_midi_tab(self):
+        """「MIDI」タブの構築"""
+        tab = QWidget()
+        layout = QFormLayout(tab)
+        
+        # デバイス選択
+        self.midi_device_combo = QComboBox()
+        self.midi_device_combo.addItem("(なし)")
+        devices = self.midi_service.get_input_devices()
+        for idx, name in devices:
+            self.midi_device_combo.addItem(name)
+        
+        refresh_btn = QPushButton("更新")
+        refresh_btn.setFixedWidth(60)
+        refresh_btn.clicked.connect(self._refresh_midi_devices)
+        
+        device_layout = QHBoxLayout()
+        device_layout.addWidget(self.midi_device_combo)
+        device_layout.addWidget(refresh_btn)
+        
+        layout.addRow("MIDI入力デバイス:", device_layout)
+        
+        info_label = QLabel("MIDIパッド等を操作して、各アクションに割り当てるノート番号を設定できます。\n「Learn」ボタンを押してからMIDIパッドを叩いてください。")
+        info_label.setStyleSheet("color: #666; font-size: 10px; margin-bottom: 10px;")
+        layout.addRow("", info_label)
+        
+        # 学習中のターゲットを保持する変数
+        self._current_midi_learning_edit = None
+        self.midi_service.raw_note_received.connect(self._on_raw_midi_note)
+        
+        def create_midi_row(label, attr_name):
+            edit = QLineEdit()
+            edit.setReadOnly(True)
+            edit.setPlaceholderText("-1")
+            edit.setMaximumWidth(60)
+            setattr(self, attr_name, edit)
+            
+            learn_btn = QPushButton("Learn")
+            learn_btn.setFixedWidth(60)
+            learn_btn.setCheckable(True)
+            
+            clear_btn = QPushButton("クリア")
+            clear_btn.setFixedWidth(60)
+            clear_btn.clicked.connect(lambda: edit.setText("-1"))
+            
+            # Learnのクリック時の処理
+            def on_learn_clicked(checked, btn=learn_btn, e=edit):
+                if checked:
+                    # 他の学習中を解除
+                    if self._current_midi_learning_edit and self._current_midi_learning_edit != btn:
+                        self._current_midi_learning_edit.setChecked(False)
+                        self._current_midi_learning_edit.setText("Learn")
+                    self._current_midi_learning_edit = btn
+                    btn.setText("待機中...")
+                else:
+                    if self._current_midi_learning_edit == btn:
+                        self._current_midi_learning_edit = None
+                    btn.setText("Learn")
+                    
+            learn_btn.clicked.connect(on_learn_clicked)
+            # btnオブジェクトへの参照をQObjectに持たせる（コールバック用）
+            setattr(edit, "_learn_btn", learn_btn)
+            
+            row = QHBoxLayout()
+            row.addWidget(edit)
+            row.addWidget(learn_btn)
+            row.addWidget(clear_btn)
+            row.addStretch()
+            layout.addRow(label, row)
+        
+        create_midi_row("選択行を上に移動:", "midi_up_edit")
+        create_midi_row("選択行を下に移動:", "midi_down_edit")
+        create_midi_row("YouTube動画を左に移動:", "midi_left_edit")
+        create_midi_row("YouTube動画を右に移動:", "midi_right_edit")
+        create_midi_row("YouTube動画をプリロード:", "midi_preload_edit")
+        create_midi_row("YouTube動画を再生:", "midi_play_edit")
+        create_midi_row("選択曲でYouTube検索:", "midi_search_edit")
+        create_midi_row("巻き戻し:", "midi_rewind_edit")
+        create_midi_row("早送り:", "midi_forward_edit")
+
+        # デバイス変更時に接続し直す処理
+        self.midi_device_combo.currentTextChanged.connect(
+            lambda txt: self.midi_service.set_config(txt if txt != "(なし)" else "", {})
+        )
+        
+        self.tabs.addTab(tab, "MIDI")
+
+    def _refresh_midi_devices(self):
+        curr = self.midi_device_combo.currentText()
+        self.midi_device_combo.clear()
+        self.midi_device_combo.addItem("(なし)")
+        for idx, name in self.midi_service.get_input_devices():
+            self.midi_device_combo.addItem(name)
+        idx = self.midi_device_combo.findText(curr)
+        self.midi_device_combo.setCurrentIndex(max(0, idx))
+
+    def _on_raw_midi_note(self, note):
+        if self._current_midi_learning_edit:
+            btn = self._current_midi_learning_edit
+            # 親を探すハックより、_learn_btnで逆引き
+            for attr in dir(self):
+                if attr.startswith("midi_") and attr.endswith("_edit"):
+                    edit = getattr(self, attr)
+                    if hasattr(edit, "_learn_btn") and getattr(edit, "_learn_btn") == btn:
+                        edit.setText(str(note))
+                        btn.setChecked(False)
+                        btn.setText("Learn")
+                        self._current_midi_learning_edit = None
+                        break
     
     def _init_youtube_tab(self):
         """「YouTube」タブの構築"""
@@ -638,6 +772,22 @@ class SettingsDialog(QDialog):
         youtube_api_key = self.youtube_api_key_edit.text()
         youtube_search_template = self.youtube_search_template_edit.text()
         enable_logging = self.enable_logging_checkbox.isChecked()
+        
+        # MIDI設定の取得
+        midi_port_name = self.midi_device_combo.currentText()
+        if midi_port_name == "(なし)": midi_port_name = ""
+        def try_int_text(txt):
+            try: return int(txt)
+            except: return -1
+        midi_move_up = try_int_text(self.midi_up_edit.text())
+        midi_move_down = try_int_text(self.midi_down_edit.text())
+        midi_move_left = try_int_text(self.midi_left_edit.text())
+        midi_move_right = try_int_text(self.midi_right_edit.text())
+        midi_preload = try_int_text(self.midi_preload_edit.text())
+        midi_play = try_int_text(self.midi_play_edit.text())
+        midi_search = try_int_text(self.midi_search_edit.text())
+        midi_rewind = try_int_text(self.midi_rewind_edit.text())
+        midi_forward = try_int_text(self.midi_forward_edit.text())
             
         print(f"Settings: Saving DB Path: {db_path}, Interval: {interval}")
         print(f"Settings: Saving Hotkeys - Up: {hotkey_up}, Down: {hotkey_down}, Left: {hotkey_left}, Right: {hotkey_right}")
@@ -669,21 +819,53 @@ class SettingsDialog(QDialog):
             "youtube_api_key": youtube_api_key,
             "youtube_search_template": youtube_search_template,
             "enable_logging": enable_logging,
-            "player_track_info_position": self._get_track_info_position_value()
+            "player_track_info_position": self._get_track_info_position_value(),
+            "midi_port_name": midi_port_name,
+            "midi_move_up": midi_move_up,
+            "midi_move_down": midi_move_down,
+            "midi_move_left": midi_move_left,
+            "midi_move_right": midi_move_right,
+            "midi_preload": midi_preload,
+            "midi_play": midi_play,
+            "midi_search": midi_search,
+            "midi_rewind": midi_rewind,
+            "midi_forward": midi_forward
         })
         
-        # 設定画面を閉じる際にホットキーを再登録
+        # 設定画面を閉じる際に再登録
         self._restore_hotkeys()
+        self._restore_midi_config()
         
         super().accept()
-
+    
     def reject(self):
         """キャンセルボタンが押された時の処理"""
-        # 設定画面を閉じる際にホットキーを再登録
+        # 設定画面を閉じる際に再登録
         self._restore_hotkeys()
-        print("SettingsDialog: Restored hotkeys on cancel")
+        self._restore_midi_config()
+        print("SettingsDialog: Restored hotkeys and MIDI on cancel")
         super().reject()
-
+        
+    def _restore_midi_config(self):
+        try:
+            device_name = self.config_service.get("midi_port_name", "")
+            mappings = {}
+            def add_map(action, key):
+                val = int(self.config_service.get(key, -1))
+                if val >= 0: mappings[val] = action
+            add_map("move_up", "midi_move_up")
+            add_map("move_down", "midi_move_down")
+            add_map("move_left", "midi_move_left")
+            add_map("move_right", "midi_move_right")
+            add_map("preload", "midi_preload")
+            add_map("play", "midi_play")
+            add_map("search", "midi_search")
+            add_map("rewind", "midi_rewind")
+            add_map("forward", "midi_forward")
+            self.midi_service.set_config(device_name, mappings)
+        except Exception as e:
+            print(f"Error restoring midi data: {e}")
+            
     def _restore_hotkeys(self):
         """ホットキーを再登録する"""
         try:

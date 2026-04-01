@@ -50,7 +50,17 @@ class ConfigService:
             "player_port": 8080,
             "youtube_api_key": "",
             "youtube_search_template": "%tracktitle% %comment%",
-            "enable_logging": True
+            "enable_logging": True,
+            "midi_port_name": "",
+            "midi_move_up": -1,
+            "midi_move_down": -1,
+            "midi_move_left": -1,
+            "midi_move_right": -1,
+            "midi_preload": -1,
+            "midi_play": -1,
+            "midi_search": -1,
+            "midi_rewind": -1,
+            "midi_forward": -1
         }
 
 
