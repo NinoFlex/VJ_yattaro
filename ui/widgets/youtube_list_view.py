@@ -47,15 +47,6 @@ class YouTubeListModel(QAbstractListModel):
                 index = self.index(i, 0)
                 self.dataChanged.emit(index, index)
                 print(f"YouTubeListModel: Updated thumbnail for video {video_id} at index {i}")
-                
-                # 選択状態を維持（親ビューから選択状態を取得）
-                parent_view = self.parent()
-                if parent_view and hasattr(parent_view, 'currentIndex'):
-                    current_index = parent_view.currentIndex()
-                    if current_index.isValid() and current_index.row() == i:
-                        # 選択を維持するために再設定
-                        parent_view.setCurrentIndex(current_index)
-                        print(f"YouTubeListModel: Maintained selection for video {video_id} at index {i}")
                 break
     
     def get_video_at(self, index):

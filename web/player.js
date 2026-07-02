@@ -194,7 +194,7 @@ class VJPlayer {
         try {
             const params = new URLSearchParams(window.location.search);
             const pos = params.get('trackInfoPosition');
-            const valid = ['top-right', 'top-left', 'bottom-right', 'bottom-left', 'none'];
+            const valid = ['top-right', 'top-left', 'bottom-right', 'bottom-left', 'scroll', 'none'];
             return pos && valid.includes(pos.trim()) ? pos.trim() : null;
         } catch (e) {
             console.warn('Failed to parse trackInfoPosition from query:', e);
@@ -990,6 +990,8 @@ class VJPlayer {
     // 楽曲情報オーバーレイの表示を更新
     updateTrackInfoOverlay() {
         const overlay = document.getElementById('trackInfoOverlay');
+        const scrollContainer = document.getElementById('trackInfoScroll');
+        const scrollText = document.getElementById('scrollText');
         const titleEl = document.getElementById('trackInfoTitle');
         const artistEl = document.getElementById('trackInfoArtist');
         const commentEl = document.getElementById('trackInfoComment');
@@ -1003,6 +1005,10 @@ class VJPlayer {
         if (this.trackInfoPosition === 'none') {
             overlay.classList.remove('visible');
             overlay.classList.add('hidden');
+            if (scrollContainer) {
+                scrollContainer.classList.remove('visible');
+                scrollContainer.classList.add('hidden');
+            }
             return;
         }
 
@@ -1011,23 +1017,53 @@ class VJPlayer {
         // 楽曲情報がない場合（検索ボックスからの検索等）は非表示
         if (!info || (!info.title && !info.artist && !info.comment)) {
             overlay.classList.remove('visible');
+            if (scrollContainer) {
+                scrollContainer.classList.remove('visible');
+            }
             return;
         }
-
-        // 各行にテキストを設定（空の場合はCSSで非表示になる）
-        titleEl.textContent = info.title || '';
-        artistEl.textContent = info.artist || '';
-        commentEl.textContent = info.comment || '';
 
         // 表示位置を適用
         this.applyTrackInfoPosition();
 
-        // hiddenクラスを除去してvisibleにする
-        overlay.classList.remove('hidden');
-        // 少し遅延してフェードイン（DOMの更新を確実に反映させるため）
-        requestAnimationFrame(() => {
-            overlay.classList.add('visible');
-        });
+        if (this.trackInfoPosition === 'scroll') {
+            if (scrollContainer && scrollText) {
+                // テキストの構築
+                const parts = [];
+                if (info.title) parts.push(info.title);
+                if (info.artist) parts.push(info.artist);
+                if (info.comment) parts.push(info.comment);
+                
+                const fullText = parts.join('  -  ');
+                scrollText.textContent = fullText;
+
+                // アニメーションのリセット
+                const prevAnim = scrollContainer.querySelector('.scroll-container');
+                if (prevAnim) {
+                    prevAnim.style.animation = 'none';
+                    // reflow
+                    prevAnim.offsetHeight;
+                    prevAnim.style.animation = 'track-marquee 25s linear infinite';
+                }
+
+                scrollContainer.classList.remove('hidden');
+                requestAnimationFrame(() => {
+                    scrollContainer.classList.add('visible');
+                });
+            }
+        } else {
+            // 各行にテキストを設定（空の場合はCSSで非表示になる）
+            titleEl.textContent = info.title || '';
+            artistEl.textContent = info.artist || '';
+            commentEl.textContent = info.comment || '';
+
+            // hiddenクラスを除去してvisibleにする
+            overlay.classList.remove('hidden');
+            // 少し遅延してフェードイン（DOMの更新を確実に反映させるため）
+            requestAnimationFrame(() => {
+                overlay.classList.add('visible');
+            });
+        }
 
         console.log(`Track info displayed: ${info.title} / ${info.artist} / ${info.comment}`);
     }
@@ -1035,6 +1071,7 @@ class VJPlayer {
     // 楽曲情報の表示位置を適用
     applyTrackInfoPosition() {
         const overlay = document.getElementById('trackInfoOverlay');
+        const scrollContainer = document.getElementById('trackInfoScroll');
         if (!overlay) return;
 
         // 既存の位置クラスをすべて除去
@@ -1046,26 +1083,43 @@ class VJPlayer {
             'hidden'
         );
 
+        if (scrollContainer) {
+            scrollContainer.classList.remove('hidden');
+        }
+
         // 位置に応じたクラスを追加
         switch (this.trackInfoPosition) {
             case 'top-right':
                 overlay.classList.add('track-info-top-right');
+                if (scrollContainer) scrollContainer.classList.add('hidden');
                 break;
             case 'top-left':
                 overlay.classList.add('track-info-top-left');
+                if (scrollContainer) scrollContainer.classList.add('hidden');
                 break;
             case 'bottom-right':
                 overlay.classList.add('track-info-bottom-right');
+                if (scrollContainer) scrollContainer.classList.add('hidden');
                 break;
             case 'bottom-left':
                 overlay.classList.add('track-info-bottom-left');
+                if (scrollContainer) scrollContainer.classList.add('hidden');
+                break;
+            case 'scroll':
+                overlay.classList.add('hidden');
+                if (scrollContainer) {
+                    scrollContainer.classList.remove('hidden');
+                }
                 break;
             case 'none':
                 overlay.classList.add('hidden');
+                if (scrollContainer) scrollContainer.classList.add('hidden');
                 overlay.classList.remove('visible');
+                if (scrollContainer) scrollContainer.classList.remove('visible');
                 break;
             default:
                 overlay.classList.add('track-info-top-right');
+                if (scrollContainer) scrollContainer.classList.add('hidden');
         }
     }
 

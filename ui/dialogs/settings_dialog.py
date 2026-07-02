@@ -211,14 +211,32 @@ class SettingsDialog(QDialog):
         
         # プレイヤータブの設定値を読み込み
         position = self.config_service.get("player_track_info_position", "top-right")
-        position_map = {
-            "top-right": 0,
-            "top-left": 1,
-            "bottom-right": 2,
-            "bottom-left": 3,
-            "none": 4
-        }
-        self.track_info_position_combo.setCurrentIndex(position_map.get(position, 0))
+        
+        self.rb_fixed.blockSignals(True)
+        self.rb_scroll.blockSignals(True)
+        self.rb_none.blockSignals(True)
+        
+        if position == "none":
+            self.rb_none.setChecked(True)
+            self.track_info_position_combo.setEnabled(False)
+        elif position == "scroll":
+            self.rb_scroll.setChecked(True)
+            self.track_info_position_combo.setEnabled(False)
+        else:
+            self.rb_fixed.setChecked(True)
+            self.track_info_position_combo.setEnabled(True)
+            position_map = {
+                "top-right": 0,
+                "top-left": 1,
+                "bottom-right": 2,
+                "bottom-left": 3
+            }
+            self.track_info_position_combo.setCurrentIndex(position_map.get(position, 0))
+            
+        self.rb_fixed.blockSignals(False)
+        self.rb_scroll.blockSignals(False)
+        self.rb_none.blockSignals(False)
+
 
     def _init_general_tab(self):
         """「全般」タブの構築"""
@@ -652,25 +670,53 @@ class SettingsDialog(QDialog):
         
         # 楽曲情報の表示位置
         track_info_group = QGroupBox("楽曲情報表示")
-        track_info_layout = QFormLayout(track_info_group)
+        track_info_layout = QVBoxLayout(track_info_group)
         
+        from PySide6.QtWidgets import QRadioButton, QButtonGroup
+        self.track_info_style_group = QButtonGroup(self)
+        
+        self.rb_fixed = QRadioButton("四隅に固定表示")
+        self.rb_scroll = QRadioButton("画面下部を横スクロールで表示")
+        self.rb_none = QRadioButton("表示しない")
+        
+        self.track_info_style_group.addButton(self.rb_fixed)
+        self.track_info_style_group.addButton(self.rb_scroll)
+        self.track_info_style_group.addButton(self.rb_none)
+        
+        # 四隅表示の位置選択用コンボボックス
+        fixed_layout = QHBoxLayout()
         self.track_info_position_combo = QComboBox()
         self.track_info_position_combo.addItems([
             "右上",    # top-right
             "左上",    # top-left
             "右下",    # bottom-right
-            "左下",    # bottom-left
-            "表示しない"  # none
+            "左下"     # bottom-left
         ])
-        track_info_layout.addRow("楽曲情報の表示位置:", self.track_info_position_combo)
+        fixed_layout.addWidget(self.rb_fixed)
+        fixed_layout.addWidget(self.track_info_position_combo)
+        fixed_layout.addStretch()
+        
+        track_info_layout.addLayout(fixed_layout)
+        track_info_layout.addWidget(self.rb_scroll)
+        track_info_layout.addWidget(self.rb_none)
+        
+        # ラジオボタンの切り替えトグルイベント
+        def on_style_toggled():
+            # 固定表示が選択されている場合のみコンボボックスを有効化
+            self.track_info_position_combo.setEnabled(self.rb_fixed.isChecked())
+            
+        self.rb_fixed.toggled.connect(on_style_toggled)
+        self.rb_scroll.toggled.connect(on_style_toggled)
+        self.rb_none.toggled.connect(on_style_toggled)
         
         # 説明
         desc_label = QLabel("※ 右カラムのリストから検索した場合に、\n　曲名・アーティスト名・コメントをプレイヤーに表示します。")
-        desc_label.setStyleSheet("color: #666; font-size: 10px;")
+        desc_label.setStyleSheet("color: #666; font-size: 10px; margin-top: 5px;")
         desc_label.setWordWrap(True)
-        track_info_layout.addRow("", desc_label)
+        track_info_layout.addWidget(desc_label)
         
         layout.addRow(track_info_group)
+
         
         # 巻き戻し・早送り設定
         seek_group = QGroupBox("巻き戻し・早送り")
@@ -890,7 +936,13 @@ class SettingsDialog(QDialog):
             print(f"SettingsDialog: Error restoring hotkeys: {e}")
     
     def _get_track_info_position_value(self):
-        """コンボボックスの選択値を設定用の文字列に変換"""
-        index = self.track_info_position_combo.currentIndex()
-        values = ["top-right", "top-left", "bottom-right", "bottom-left", "none"]
-        return values[index] if 0 <= index < len(values) else "top-right"
+        """設定用の文字列に変換"""
+        if self.rb_none.isChecked():
+            return "none"
+        elif self.rb_scroll.isChecked():
+            return "scroll"
+        else:
+            index = self.track_info_position_combo.currentIndex()
+            values = ["top-right", "top-left", "bottom-right", "bottom-left"]
+            return values[index] if 0 <= index < len(values) else "top-right"
+

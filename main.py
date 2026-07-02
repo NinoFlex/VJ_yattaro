@@ -5,6 +5,34 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
     QFrame, QPushButton, QLabel, QLineEdit
 )
+
+
+class ImeAwareLineEdit(QLineEdit):
+    """IME入力（日本語変換など）に対応した検索ボックス。
+    
+    IMEで文字を変換中（組み立て中）にEnterキーを押しても
+    検索が誤発動しないよう、returnPressedを自前で制御する。
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._composing = False  # IME組み立て中フラグ
+
+    def inputMethodEvent(self, event):
+        """IMEイベントを受け取り、組み立て中かどうかを追跡する"""
+        # preeditString が空でなければIMEで変換候補を選択中
+        self._composing = bool(event.preeditString())
+        super().inputMethodEvent(event)
+
+    def keyPressEvent(self, event):
+        """Enterキー押下時にIME組み立て中なら検索を発動しない"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if self._composing:
+                # IME確定のEnterは通常処理に流すだけ（returnPressedは出さない）
+                super().keyPressEvent(event)
+                return
+        super().keyPressEvent(event)
+
+
 from ui.widgets.right_table_view import RightTableView, RightTableModel
 
 class TitleBar(QWidget):
@@ -207,9 +235,8 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(5)
         
-        # YouTube検索ボックス
-        from PySide6.QtWidgets import QLineEdit
-        self.youtube_search_box = QLineEdit()
+        # YouTube検索ボックス（IME対応版）
+        self.youtube_search_box = ImeAwareLineEdit()
         self.youtube_search_box.setPlaceholderText("YouTube検索 (Enterで実行)")
         self.youtube_search_box.setStyleSheet("""
             QLineEdit {
@@ -224,7 +251,6 @@ class MainWindow(QMainWindow):
             }
         """)
         self.youtube_search_box.returnPressed.connect(self.search_youtube_from_box)
-        self.youtube_search_box.installEventFilter(self)
         right_layout.addWidget(self.youtube_search_box)
         
         # 右テーブル
@@ -1669,12 +1695,6 @@ class MainWindow(QMainWindow):
                 if hasattr(self, 'hotkey_service'):
                     QTimer.singleShot(100, self.hotkey_service._reregister_hotkeys)
 
-        if event.type() == QEvent.FocusIn:
-            # 検索ボックス以外にフォーカスが移ったら検索ボックスのフォーカスを外す
-            if obj != self.youtube_search_box and hasattr(self, 'youtube_search_box') and self.youtube_search_box.hasFocus():
-                self.youtube_search_box.clearFocus()
-                print("UI: Cleared search box focus due to focus change")
-        
         return super().eventFilter(obj, event)
 
 def main():

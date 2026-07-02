@@ -1,7 +1,7 @@
 import re
 import requests
 from typing import Dict, Optional, List
-from PySide6.QtCore import QObject, Signal, QThread
+from PySide6.QtCore import QObject, Signal, QThread, Qt
 from PySide6.QtGui import QPixmap
 import json
 from urllib.parse import urlencode
@@ -249,17 +249,18 @@ class AsyncThumbnailManager(QObject):
         
         self.loaded_video_ids.add(video_id)
         self.current_loader = ThumbnailLoader(video_id, thumbnail_url)
-        self.current_loader.thumbnail_loaded.connect(self._on_thumbnail_loaded)
+        # スレッド終了時に自動破棄されるように接続
+        self.current_loader.finished.connect(self.current_loader.deleteLater)
+        # スレッド間通信のため明示的に QueuedConnection を設定（メインスレッドで安全に受信）
+        self.current_loader.thumbnail_loaded.connect(self._on_thumbnail_loaded, type=Qt.QueuedConnection)
         self.current_loader.start()
     
-    def _on_thumbnail_loaded(self, video_id: str, thumbnail: QPixmap):
+    def _on_thumbnail_loaded(self, video_id: str, thumbnail):
         """サムネイル読み込み完了時のコールバック"""
         self.thumbnail_ready.emit(video_id, thumbnail)
         
-        # 現在のローダーをクリーンアップ
-        if self.current_loader:
-            self.current_loader.deleteLater()
-            self.current_loader = None
+        # 参照をクリア（finishedシグナルによって自動的にdeleteLaterが実行されるため安全）
+        self.current_loader = None
         
         # 次のサムネイルを読み込み
         self._load_next_thumbnail()
