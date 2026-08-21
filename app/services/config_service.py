@@ -50,8 +50,11 @@ class ConfigService:
             "player_port": 8080,
             "youtube_api_key": "",
             "youtube_search_template": "%tracktitle% %comment%",
+            "auto_play_top_result": False,
             "enable_logging": True,
             "shazam_input_device": None,
+            "shazam_language": "ja-JP",
+            "shazam_endpoint_country": "JP",
             "midi_port_name": "",
             "midi_move_up": -1,
             "midi_move_down": -1,
@@ -74,6 +77,15 @@ class ConfigService:
                 with open(self._config_file, "r", encoding="utf-8") as f:
                     file_config = json.load(f)
                     self.config.update(file_config)
+
+                # Legacy migration: Japanese language tag is ja-JP, not jp-JP.
+                # Older builds stored jp-JP, which can make Shazam return
+                # romanized metadata instead of Japanese localized metadata.
+                shazam_language = str(self.config.get("shazam_language", "") or "").strip()
+                if shazam_language.lower() == "jp-jp":
+                    self.config["shazam_language"] = "ja-JP"
+                    self.save_config({"shazam_language": "ja-JP"})
+                    print("ConfigService: Migrated Shazam locale jp-JP -> ja-JP")
             except Exception as e:
                 print(f"ConfigService: Error loading config file: {e}")
         else:

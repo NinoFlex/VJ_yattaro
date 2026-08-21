@@ -1,10 +1,11 @@
 import sys
 import webbrowser
-from PySide6.QtCore import Qt, QTimer, QEvent
+from PySide6.QtCore import Qt, QTimer, QEvent, QRectF, QSize
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
-    QFrame, QPushButton, QLabel, QLineEdit
+    QFrame, QPushButton, QLabel, QLineEdit, QAbstractButton
 )
+from PySide6.QtGui import QColor, QPainter, QPen
 
 
 class ImeAwareLineEdit(QLineEdit):
@@ -34,6 +35,85 @@ class ImeAwareLineEdit(QLineEdit):
 
 
 from ui.widgets.right_table_view import RightTableView, RightTableModel
+
+
+class SourceToggleSwitch(QAbstractButton):
+    """Rekordbox / Shazam 用のカスタムトグルスイッチ。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(118, 30)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setToolTip("入力ソース: Rekordbox")
+
+        self._track_off = QColor("#2e2e2e")
+        self._track_off_border = QColor("#1f1f1f")
+        self._track_on = QColor("#0d5ea8")
+        self._track_on_border = QColor("#084a85")
+        self._thumb = QColor("#f7f7f7")
+        self._thumb_border = QColor("#d4d4d4")
+        self._shadow = QColor(0, 0, 0, 45)
+        self._text = QColor("#ffffff")
+
+    def sizeHint(self):
+        return QSize(118, 30)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def paintEvent(self, event):
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        radius = rect.height() / 2
+        checked = self.isChecked()
+
+        track_color = self._track_on if checked else self._track_off
+        border_color = self._track_on_border if checked else self._track_off_border
+
+        painter.setPen(QPen(border_color, 1))
+        painter.setBrush(track_color)
+        painter.drawRoundedRect(QRectF(rect), radius, radius)
+
+        margin = 3
+        thumb_size = rect.height() - margin * 2
+        if checked:
+            thumb_x = rect.right() - margin - thumb_size
+            text_rect = rect.adjusted(10, 0, -thumb_size - 10, 0)
+            label = "Shazam"
+        else:
+            thumb_x = rect.left() + margin
+            text_rect = rect.adjusted(thumb_size + 10, 0, -10, 0)
+            label = "Rekordbox"
+
+        shadow_rect = QRectF(thumb_x, rect.top() + margin + 1, thumb_size, thumb_size)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self._shadow)
+        painter.drawEllipse(shadow_rect)
+
+        thumb_rect = QRectF(thumb_x, rect.top() + margin, thumb_size, thumb_size)
+        painter.setPen(QPen(self._thumb_border, 1))
+        painter.setBrush(self._thumb)
+        painter.drawEllipse(thumb_rect)
+
+        painter.setPen(self._text)
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSize(9)
+        painter.setFont(font)
+        painter.drawText(text_rect, Qt.AlignCenter, label)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.toggle()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
 
 class TitleBar(QWidget):
     """
@@ -92,24 +172,25 @@ class TitleBar(QWidget):
                 background-color: #f8f8f8;
                 border-color: #999;
             }
-            #source_toggle {
+            #autoplay_button {
                 font-size: 11px;
                 font-weight: bold;
-                background-color: #eeeeee;
-                border: 1px solid #bbb;
-                border-radius: 9px;
-                margin: 5px 8px;
-                padding: 0 12px;
-                min-width: 82px;
+                background-color: #ffffff;
+                border: 1px solid #999;
+                border-radius: 4px;
+                margin: 4px 4px;
+                padding: 0 9px;
                 color: #444;
+                min-width: 86px;
             }
-            #source_toggle:checked {
-                background-color: #4CAF50;
-                border-color: #43A047;
+            #autoplay_button:hover {
+                background-color: #f5f5f5;
+                border-color: #666;
+            }
+            #autoplay_button:checked {
+                background-color: #1f6fb2;
+                border-color: #15598f;
                 color: white;
-            }
-            #source_toggle:hover {
-                border-color: #888;
             }
         """)
 
@@ -142,13 +223,20 @@ class TitleBar(QWidget):
         layout.addWidget(self.title_label)
 
         # Rekordbox / Shazam の入力ソース切替トグル
-        self.source_toggle = QPushButton("Rekordbox")
+        self.source_toggle = SourceToggleSwitch(self)
         self.source_toggle.setObjectName("source_toggle")
-        self.source_toggle.setCheckable(True)
         self.source_toggle.setChecked(False)
-        self.source_toggle.setToolTip("入力ソース: Rekordbox")
         self.source_toggle.toggled.connect(self._on_source_toggled)
         layout.addWidget(self.source_toggle)
+
+        # 検索結果1位を自動再生するトグルボタン
+        self.autoplay_button = QPushButton("自動再生 OFF")
+        self.autoplay_button.setObjectName("autoplay_button")
+        self.autoplay_button.setCheckable(True)
+        self.autoplay_button.setChecked(False)
+        self.autoplay_button.setToolTip("検索後に検索結果1位の動画を自動再生します")
+        self.autoplay_button.toggled.connect(self._on_autoplay_toggled)
+        layout.addWidget(self.autoplay_button)
         
         layout.addStretch()
 
@@ -165,9 +253,29 @@ class TitleBar(QWidget):
 
     def _on_source_toggled(self, checked):
         mode = "shazam" if checked else "rekordbox"
-        self.source_toggle.setText("Shazam" if checked else "Rekordbox")
         self.source_toggle.setToolTip(f"入力ソース: {'Shazam' if checked else 'Rekordbox'}")
+        self.source_toggle.update()
         self._main_window.set_source_mode(mode)
+
+    def _on_autoplay_toggled(self, checked):
+        self.autoplay_button.setText("自動再生 ON" if checked else "自動再生 OFF")
+        self.autoplay_button.setToolTip(
+            "検索後に検索結果1位の動画を自動再生します" if checked
+            else "自動再生はオフです"
+        )
+        self._main_window.set_auto_play_enabled(checked)
+
+    def set_auto_play_checked(self, checked):
+        """設定読み込み時など、外部から自動再生ボタンの状態を同期する。"""
+        checked = bool(checked)
+        self.autoplay_button.blockSignals(True)
+        self.autoplay_button.setChecked(checked)
+        self.autoplay_button.setText("自動再生 ON" if checked else "自動再生 OFF")
+        self.autoplay_button.setToolTip(
+            "検索後に検索結果1位の動画を自動再生します" if checked
+            else "自動再生はオフです"
+        )
+        self.autoplay_button.blockSignals(False)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -301,6 +409,8 @@ class MainWindow(QMainWindow):
         # 設定サービスの初期化
         from app.services.config_service import ConfigService
         self.config_service = ConfigService()
+        self.auto_play_top_result = bool(self.config_service.get("auto_play_top_result", False))
+        self.title_bar.set_auto_play_checked(self.auto_play_top_result)
         
         # ログレベルを設定
         self._configure_logging()
@@ -419,8 +529,8 @@ class MainWindow(QMainWindow):
         # タイトルバーとその中の操作ボタン
         self.title_bar.installEventFilter(self)
         for btn in [self.title_bar.settings_button, self.title_bar.rewind_button, 
-                   self.title_bar.forward_button, self.title_bar.source_toggle, self.title_bar.min_button, 
-                   self.title_bar.close_button]:
+                   self.title_bar.forward_button, self.title_bar.source_toggle, self.title_bar.autoplay_button,
+                   self.title_bar.min_button, self.title_bar.close_button]:
             btn.installEventFilter(self)
             
         # 検索ボックス
@@ -523,6 +633,13 @@ class MainWindow(QMainWindow):
         else:
             print("UI: Settings dialog cancelled.")
 
+    def set_auto_play_enabled(self, enabled):
+        """検索結果1位の自動再生を切り替え、設定を保存する。"""
+        self.auto_play_top_result = bool(enabled)
+        if hasattr(self, "config_service"):
+            self.config_service.save_config({"auto_play_top_result": self.auto_play_top_result})
+        print(f"UI: Auto-play top search result -> {'ON' if self.auto_play_top_result else 'OFF'}")
+
     def set_source_mode(self, mode):
         """タイトルバーのトグルに合わせて入力ソースと右カラムを切り替える。"""
         if mode not in ("rekordbox", "shazam"):
@@ -538,7 +655,7 @@ class MainWindow(QMainWindow):
                 toggle.blockSignals(True)
                 toggle.setChecked(should_check)
                 toggle.blockSignals(False)
-            toggle.setText("Shazam" if should_check else "Rekordbox")
+            toggle.update()
 
         # 初期化途中にトグルが操作された場合は、サービス生成後に通常動作へ入る。
         if not hasattr(self, "right_table") or not hasattr(self, "watcher"):
@@ -1248,6 +1365,29 @@ class MainWindow(QMainWindow):
         info(f"Executing pending search: {track_title}", "UI")
         self.search_youtube(track_title, artist, comment, from_list=from_list)
 
+    def _auto_play_top_video(self, video):
+        """検索結果1位を既存のPRELOAD -> ready -> PLAY経路で自動再生する。"""
+        if not getattr(self, "auto_play_top_result", False):
+            return
+        if not video:
+            return
+
+        video_id = video.get("video_id", "")
+        title = video.get("title", "")
+        if not video_id:
+            print("UI: Auto-play skipped - top search result has no video ID")
+            return
+        if not hasattr(self, "player_server") or not self.player_server:
+            print("UI: Auto-play skipped - player server not available")
+            return
+
+        # 既存の手動再生と同じ経路を使う。readyフィードバック後にPLAYされる。
+        self.preloaded_video_id = video_id
+        self.pending_play_video_id = video_id
+        self.player_server.send_command("PRELOAD", video_id, track_info=self._current_track_info)
+        self._update_youtube_video_state("preloading", video_id)
+        print(f"UI: Auto-play queued top search result: {title} ({video_id})")
+
     def on_youtube_search_completed(self, videos):
         """YouTube検索完了時のコールバック"""
         from app.utils.logger import info, debug
@@ -1284,6 +1424,10 @@ class MainWindow(QMainWindow):
         # 左ペインに即時表示
         self.left_pane.set_search_results(processed_videos)
         info(f"Found {len(videos)} YouTube videos (showing {initial_display_count} immediately)", "UI")
+
+        # 自動再生ONなら検索結果1位を既存のPRELOAD -> ready -> PLAY経路へ送る
+        if initial_videos:
+            self._auto_play_top_video(initial_videos[0])
         
         # 最初の動画を選択状態にする（遅延実行で確実に設定）
         if processed_videos:

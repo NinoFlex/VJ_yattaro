@@ -1,8 +1,9 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
                                QLabel, QLineEdit, QPushButton, QTabWidget, 
-                               QCheckBox, QSpinBox, QGroupBox, QWidget, QApplication, QFileDialog, QComboBox)
+                               QCheckBox, QSpinBox, QGroupBox, QWidget, QApplication, QFileDialog, QComboBox,
+                               QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox)
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QClipboard, QKeyEvent
+from PySide6.QtGui import QClipboard, QKeyEvent, QColor
 
 class HotkeyEdit(QLineEdit):
     """
@@ -131,12 +132,17 @@ class SettingsDialog(QDialog):
         from app.services.config_service import ConfigService
         from app.services.hotkey_service import HotkeyService
         from app.services.midi_service import MidiService
+        from app.services.youtube_api_key_store import YouTubeApiKeyStore
         self.config_service = ConfigService()
         self.hotkey_service = HotkeyService()
         self.midi_service = MidiService()
+        self.youtube_api_key_store = YouTubeApiKeyStore(self.config_service)
+        self.youtube_api_keys = []
+        self.youtube_active_key_index = -1
+        self._youtube_keys_visible = False
         
         self.setWindowTitle("詳細設定")
-        self.resize(500, 300)
+        self.resize(620, 520)
         
         # メインレイアウト
         self.layout = QVBoxLayout(self)
@@ -181,6 +187,21 @@ class SettingsDialog(QDialog):
             except (TypeError, ValueError):
                 shazam_index = -1
         self.shazam_input_device_combo.setCurrentIndex(shazam_index if shazam_index >= 0 else 0)
+
+        shazam_language = str(self.config_service.get("shazam_language", "ja-JP") or "ja-JP")
+        language_index = self.shazam_language_combo.findText(shazam_language)
+        if language_index >= 0:
+            self.shazam_language_combo.setCurrentIndex(language_index)
+        else:
+            self.shazam_language_combo.setEditText(shazam_language)
+
+        shazam_country = str(self.config_service.get("shazam_endpoint_country", "JP") or "JP").upper()
+        country_index = self.shazam_country_combo.findText(shazam_country)
+        if country_index >= 0:
+            self.shazam_country_combo.setCurrentIndex(country_index)
+        else:
+            self.shazam_country_combo.setEditText(shazam_country)
+
         self.always_on_top_checkbox.setChecked(bool(self.config_service.get("always_on_top", False)))
         self.bring_to_front_on_hotkey_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_hotkey", True)))
         self.bring_to_front_on_search_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_search", False)))
@@ -216,7 +237,8 @@ class SettingsDialog(QDialog):
         else:
             self.midi_device_combo.setCurrentIndex(0)
             
-        self.youtube_api_key_edit.setText(self.config_service.get("youtube_api_key", ""))
+        self.youtube_api_keys, self.youtube_active_key_index = self.youtube_api_key_store.load()
+        self._refresh_youtube_api_key_table()
         self.youtube_search_template_edit.setText(self.config_service.get("youtube_search_template", "%tracktitle% %comment%"))
         
         # プレイヤータブの設定値を読み込み
@@ -408,15 +430,39 @@ class SettingsDialog(QDialog):
         device_layout.addWidget(refresh_button)
         layout.addRow("使用するマイク:", device_layout)
 
+        self.shazam_device_status_label = QLabel("")
+        self.shazam_device_status_label.setWordWrap(True)
+        self.shazam_device_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addRow("", self.shazam_device_status_label)
+
+        self.shazam_language_combo = QComboBox()
+        self.shazam_language_combo.setEditable(True)
+        self.shazam_language_combo.addItems(["ja-JP", "en-US", "en-GB"])
+        layout.addRow("取得言語:", self.shazam_language_combo)
+
+        self.shazam_country_combo = QComboBox()
+        self.shazam_country_combo.setEditable(True)
+        self.shazam_country_combo.addItems(["JP", "US", "GB"])
+        layout.addRow("国/地域:", self.shazam_country_combo)
+
+        locale_help = QLabel(
+            "日本語の曲名・アーティスト名を優先する場合は「ja-JP / JP」を指定します。\n"
+            "Shazam側に日本語表記がない曲は、英字表記のまま返る場合があります。"
+        )
+        locale_help.setWordWrap(True)
+        locale_help.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addRow("", locale_help)
+
         info_label = QLabel(
-            "16 kHz / mono / int16 で常時取り込み、最新8秒をリングバッファに保持します。\n"
-            "3秒ごとに最新6秒をShazam判定し、同じ曲の連続結果は履歴へ追加しません。"
+            "mono / int16 で常時取り込み、可能なら16 kHzを使用します。\n"
+            "16 kHz非対応のマイクはネイティブ周波数で取得し、判定時だけ16 kHzへ変換します。\n"
+            "最新8秒を保持し、3秒ごとに最新6秒をShazam判定します。"
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet("color: #666; font-size: 10px;")
         layout.addRow("", info_label)
 
-        history_label = QLabel("Shazam履歴は最大50件。shazam_history.log に保存します。")
+        history_label = QLabel("Shazam履歴は最大50件。shazam_history.json に保存します。")
         history_label.setStyleSheet("color: #666; font-size: 10px;")
         layout.addRow("", history_label)
 
@@ -437,11 +483,22 @@ class SettingsDialog(QDialog):
             for device_index, display_name in devices:
                 self.shazam_input_device_combo.addItem(display_name, device_index)
             if error:
-                self.shazam_input_device_combo.setToolTip(f"マイク一覧の取得に失敗: {error}")
+                message = f"入力デバイス一覧の取得に失敗: {error}"
+                self.shazam_input_device_combo.setToolTip(message)
+                if hasattr(self, "shazam_device_status_label"):
+                    self.shazam_device_status_label.setText(message)
+                    self.shazam_device_status_label.setStyleSheet("color: #b00020; font-size: 10px;")
             else:
                 self.shazam_input_device_combo.setToolTip("")
+                if hasattr(self, "shazam_device_status_label"):
+                    self.shazam_device_status_label.setText(f"入力デバイスを {len(devices)} 件検出しました。WindowsではWASAPIを優先表示します。")
+                    self.shazam_device_status_label.setStyleSheet("color: #666; font-size: 10px;")
         except Exception as e:
-            self.shazam_input_device_combo.setToolTip(f"マイク一覧の取得に失敗: {e}")
+            message = f"入力デバイス一覧の取得に失敗: {e}"
+            self.shazam_input_device_combo.setToolTip(message)
+            if hasattr(self, "shazam_device_status_label"):
+                self.shazam_device_status_label.setText(message)
+                self.shazam_device_status_label.setStyleSheet("color: #b00020; font-size: 10px;")
 
         idx = self.shazam_input_device_combo.findData(current_data)
         if idx >= 0:
@@ -669,59 +726,181 @@ class SettingsDialog(QDialog):
         """「YouTube」タブの構築"""
         tab = QWidget()
         layout = QFormLayout(tab)
-        
-        # APIキー入力
+
+        # APIキー追加欄
+        key_add_layout = QHBoxLayout()
         self.youtube_api_key_edit = QLineEdit()
-        self.youtube_api_key_edit.setPlaceholderText("AIzaSy...（APIキーを入力）")
-        self.youtube_api_key_edit.setEchoMode(QLineEdit.Password)  # パスワード形式で表示
-        layout.addRow("YouTube APIキー:", self.youtube_api_key_edit)
-        
-        # 表示/非表示ボタン
-        key_layout = QHBoxLayout()
-        key_layout.addWidget(self.youtube_api_key_edit)
-        
+        self.youtube_api_key_edit.setPlaceholderText("AIzaSy...（APIキーを追加）")
+        self.youtube_api_key_edit.setEchoMode(QLineEdit.Password)
+        self.youtube_api_key_edit.returnPressed.connect(self._add_youtube_api_key)
+        key_add_layout.addWidget(self.youtube_api_key_edit, 1)
+
+        self.add_youtube_key_btn = QPushButton("追加")
+        self.add_youtube_key_btn.setFixedWidth(60)
+        self.add_youtube_key_btn.clicked.connect(self._add_youtube_api_key)
+        key_add_layout.addWidget(self.add_youtube_key_btn)
+
         self.toggle_key_btn = QPushButton("表示")
         self.toggle_key_btn.setFixedWidth(60)
         self.toggle_key_btn.setCheckable(True)
         self.toggle_key_btn.clicked.connect(self._toggle_api_key_visibility)
-        key_layout.addWidget(self.toggle_key_btn)
-        
-        layout.addRow("", key_layout)
-        
-        # 説明ラベル
-        info_label = QLabel("YouTube Data API v3 の設定を行います。\nAPIキーは Google Cloud Console で取得してください。")
+        key_add_layout.addWidget(self.toggle_key_btn)
+        layout.addRow("APIキー追加:", key_add_layout)
+
+        # 最大10件のAPIキー一覧。削除時は再描画して常に1から上詰めする。
+        self.youtube_api_key_table = QTableWidget(0, 3)
+        self.youtube_api_key_table.setHorizontalHeaderLabels(["No.", "APIキー", "状態"])
+        self.youtube_api_key_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.youtube_api_key_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.youtube_api_key_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.youtube_api_key_table.setAlternatingRowColors(False)
+        self.youtube_api_key_table.verticalHeader().setVisible(False)
+        self.youtube_api_key_table.setMinimumHeight(180)
+        header = self.youtube_api_key_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        layout.addRow("APIキー一覧:", self.youtube_api_key_table)
+
+        key_action_layout = QHBoxLayout()
+        self.use_youtube_key_btn = QPushButton("選択したキーを使用")
+        self.use_youtube_key_btn.clicked.connect(self._set_selected_youtube_api_key_active)
+        key_action_layout.addWidget(self.use_youtube_key_btn)
+
+        self.delete_youtube_key_btn = QPushButton("選択したキーを削除")
+        self.delete_youtube_key_btn.clicked.connect(self._delete_selected_youtube_api_key)
+        key_action_layout.addWidget(self.delete_youtube_key_btn)
+        key_action_layout.addStretch()
+        layout.addRow("", key_action_layout)
+
+        self.youtube_key_count_label = QLabel("")
+        self.youtube_key_count_label.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addRow("", self.youtube_key_count_label)
+
+        info_label = QLabel(
+            "YouTube Data API v3 のAPIキーを最大10件まで保存できます。\n"
+            "青色の行が現在使用中です。削除すると残りのキーは上から詰めて1〜10で再番号付けします。"
+        )
         info_label.setStyleSheet("color: #666; font-size: 10px; margin-bottom: 10px;")
         info_label.setWordWrap(True)
         layout.addRow("", info_label)
 
-        # ヘルプリンク
         help_label = QLabel('<a href="https://console.cloud.google.com/apis/credentials">Google Cloud Console でAPIキーを取得</a>')
         help_label.setStyleSheet("color: #1976d2; font-size: 10px;")
         help_label.setOpenExternalLinks(True)
         layout.addRow("", help_label)
-        
-        # 注釈
-        note_label = QLabel("※ APIキーは安全に保管してください。")
+
+        note_label = QLabel("※ APIキーは exe と同じフォルダの youtube_api_keys.json に保存します。")
         note_label.setStyleSheet("color: #666; font-size: 10px;")
         layout.addRow("", note_label)
-        
-        # 検索テンプレート入力
+
         self.youtube_search_template_edit = QLineEdit()
         self.youtube_search_template_edit.setPlaceholderText("例: %artist% %tracktitle% official video")
         layout.addRow("検索テンプレート:", self.youtube_search_template_edit)
 
-        # 変数一覧
         variables_label = QLabel("• %tracktitle% - トラックタイトル\n• %artist% - アーティスト名\n• %comment% - コメント")
         variables_label.setStyleSheet("color: #333; font-size: 9px; margin-left: 10px; margin-bottom: 10px;")
         layout.addRow("", variables_label)
 
-        # テンプレート例
         examples_label = QLabel("例：\n• %artist% %tracktitle%\n• %tracktitle% official video\n• %artist% - %tracktitle% live")
         examples_label.setStyleSheet("color: #666; font-size: 9px; margin-top: 5px;")
         layout.addRow("", examples_label)
-        
+
         self.tabs.addTab(tab, "YouTube")
-    
+
+    @staticmethod
+    def _masked_youtube_api_key(key):
+        key = str(key or "")
+        if len(key) <= 10:
+            return "*" * len(key)
+        return f"{key[:4]}{'*' * max(6, len(key) - 8)}{key[-4:]}"
+
+    def _refresh_youtube_api_key_table(self, select_row=None):
+        if not hasattr(self, "youtube_api_key_table"):
+            return
+
+        table = self.youtube_api_key_table
+        table.setRowCount(len(self.youtube_api_keys))
+
+        active_bg = QColor("#d7ebff")
+        active_fg = QColor("#0b3558")
+        normal_bg = QColor("#ffffff")
+
+        for row, key in enumerate(self.youtube_api_keys):
+            display_key = key if self._youtube_keys_visible else self._masked_youtube_api_key(key)
+            values = [str(row + 1), display_key, "使用中" if row == self.youtube_active_key_index else ""]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setBackground(active_bg if row == self.youtube_active_key_index else normal_bg)
+                if row == self.youtube_active_key_index:
+                    item.setForeground(active_fg)
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                if col in (0, 2):
+                    item.setTextAlignment(Qt.AlignCenter)
+                table.setItem(row, col, item)
+
+        if hasattr(self, "youtube_key_count_label"):
+            active_no = self.youtube_active_key_index + 1 if self.youtube_active_key_index >= 0 else "なし"
+            self.youtube_key_count_label.setText(
+                f"登録数: {len(self.youtube_api_keys)}/10    使用中: {active_no}"
+            )
+
+        if self.youtube_api_keys:
+            if select_row is None:
+                select_row = self.youtube_active_key_index
+            if select_row is not None and 0 <= select_row < len(self.youtube_api_keys):
+                table.selectRow(select_row)
+
+    def _add_youtube_api_key(self):
+        key = self.youtube_api_key_edit.text().strip()
+        if not key:
+            return
+        if len(self.youtube_api_keys) >= 10:
+            QMessageBox.warning(self, "YouTube APIキー", "APIキーは最大10件までです。")
+            return
+        if key in self.youtube_api_keys:
+            row = self.youtube_api_keys.index(key)
+            self._refresh_youtube_api_key_table(row)
+            QMessageBox.information(self, "YouTube APIキー", "同じAPIキーは既に登録されています。")
+            return
+
+        self.youtube_api_keys.append(key)
+        if self.youtube_active_key_index < 0:
+            self.youtube_active_key_index = 0
+        self.youtube_api_key_edit.clear()
+        self._refresh_youtube_api_key_table(len(self.youtube_api_keys) - 1)
+
+    def _delete_selected_youtube_api_key(self):
+        row = self.youtube_api_key_table.currentRow()
+        if row < 0 or row >= len(self.youtube_api_keys):
+            return
+
+        old_active = self.youtube_active_key_index
+        del self.youtube_api_keys[row]
+
+        if not self.youtube_api_keys:
+            self.youtube_active_key_index = -1
+            next_row = None
+        elif row < old_active:
+            self.youtube_active_key_index = old_active - 1
+            next_row = min(row, len(self.youtube_api_keys) - 1)
+        elif row == old_active:
+            self.youtube_active_key_index = min(row, len(self.youtube_api_keys) - 1)
+            next_row = self.youtube_active_key_index
+        else:
+            next_row = min(row, len(self.youtube_api_keys) - 1)
+
+        self._refresh_youtube_api_key_table(next_row)
+
+    def _set_selected_youtube_api_key_active(self):
+        row = self.youtube_api_key_table.currentRow()
+        if row < 0 or row >= len(self.youtube_api_keys):
+            return
+        self.youtube_active_key_index = row
+        self._refresh_youtube_api_key_table(row)
+
     def _init_player_tab(self):
         """「プレイヤー」タブの構築"""
         tab = QWidget()
@@ -814,13 +993,15 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(tab, "プレイヤー")
     
     def _toggle_api_key_visibility(self):
-        """APIキーの表示/非表示を切り替える"""
-        if self.toggle_key_btn.isChecked():
+        """追加欄とAPIキー一覧の表示/非表示を切り替える。"""
+        self._youtube_keys_visible = self.toggle_key_btn.isChecked()
+        if self._youtube_keys_visible:
             self.youtube_api_key_edit.setEchoMode(QLineEdit.Normal)
             self.toggle_key_btn.setText("非表示")
         else:
             self.youtube_api_key_edit.setEchoMode(QLineEdit.Password)
             self.toggle_key_btn.setText("表示")
+        self._refresh_youtube_api_key_table(self.youtube_api_key_table.currentRow())
 
     def _init_button_box(self):
         """下部のボタン（適用・キャンセル）の構築"""
@@ -879,10 +1060,15 @@ class SettingsDialog(QDialog):
         hotkey_search = self.hotkey_search_edit.text()
         hotkey_rewind = self.hotkey_rewind_edit.text()
         hotkey_forward = self.hotkey_forward_edit.text()
-        youtube_api_key = self.youtube_api_key_edit.text()
+        youtube_api_keys = list(self.youtube_api_keys)
+        youtube_active_key_index = self.youtube_active_key_index
         youtube_search_template = self.youtube_search_template_edit.text()
         enable_logging = self.enable_logging_checkbox.isChecked()
         shazam_input_device = self.shazam_input_device_combo.currentData()
+        shazam_language = self.shazam_language_combo.currentText().strip() or "ja-JP"
+        if shazam_language.lower() == "jp-jp":
+            shazam_language = "ja-JP"
+        shazam_endpoint_country = self.shazam_country_combo.currentText().strip().upper() or "JP"
         
         # MIDI設定の取得
         midi_port_name = self.midi_device_combo.currentText()
@@ -905,9 +1091,20 @@ class SettingsDialog(QDialog):
         print(f"Settings: Saving YouTube Hotkeys - Preload: {hotkey_preload}, Play: {hotkey_play}, Search: {hotkey_search}, Rewind: {hotkey_rewind}, Forward: {hotkey_forward}")
         print(f"Settings: Saving Window Placement - AlwaysOnTop: {always_on_top}, HotkeyFront: {bring_to_front_on_hotkey}, SearchFront: {bring_to_front_on_search}, DelayS: {bring_to_back_delay_s}")
         print(f"Settings: Saving Seek Settings - Rewind: {rewind_seconds}s, Forward: {forward_seconds}s")
-        print(f"Settings: Saving YouTube API Key: {'*' * len(youtube_api_key) if youtube_api_key else '(empty)'}")
+        print(
+            f"Settings: Saving YouTube API Keys: {len(youtube_api_keys)} key(s), "
+            f"active={youtube_active_key_index + 1 if youtube_active_key_index >= 0 else 'none'}"
+        )
         print(f"Settings: Saving YouTube Search Template: {youtube_search_template}")
-        
+
+        if not self.youtube_api_key_store.save(youtube_api_keys, youtube_active_key_index):
+            QMessageBox.critical(
+                self,
+                "YouTube APIキー",
+                "youtube_api_keys.json の保存に失敗しました。設定を適用できません。"
+            )
+            return
+
         self.config_service.save_config({
             "db_path": db_path,
             "interval_s": interval,
@@ -927,10 +1124,13 @@ class SettingsDialog(QDialog):
             "hotkey_search": hotkey_search,
             "hotkey_rewind": hotkey_rewind,
             "hotkey_forward": hotkey_forward,
-            "youtube_api_key": youtube_api_key,
+            # 旧1キー設定は互換用に空で残し、実キーはyoutube_api_keys.jsonへ保存する。
+            "youtube_api_key": "",
             "youtube_search_template": youtube_search_template,
             "enable_logging": enable_logging,
             "shazam_input_device": shazam_input_device,
+            "shazam_language": shazam_language,
+            "shazam_endpoint_country": shazam_endpoint_country,
             "player_track_info_position": self._get_track_info_position_value(),
             "midi_port_name": midi_port_name,
             "midi_move_up": midi_move_up,

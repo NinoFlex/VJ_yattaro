@@ -25,19 +25,30 @@ if errorlevel 1 exit /b 1
 if errorlevel 1 exit /b 1
 
 echo 3. Building with PyInstaller
-%PY% -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --collect-all shazamio --collect-all shazamio_core --collect-all sounddevice main.py
+%PY% -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --collect-all shazamio --collect-all shazamio_core --collect-all aiohttp_retry --collect-all sounddevice --collect-all _sounddevice_data main.py
 if errorlevel 1 exit /b 1
 
-echo 4. Copying config file
+echo 4. Verifying Shazam runtime dependencies
+%PY% -c "import aiohttp_retry, shazamio, shazamio_core; print('Shazam runtime imports OK')"
+if errorlevel 1 exit /b 1
+
+echo 5. Verifying PortAudio bundle
+if not exist dist\VJ_yattaro\_internal\_sounddevice_data\portaudio-binaries\libportaudio64bit.dll (
+    echo [ERROR] PortAudio DLL was not bundled.
+    echo Expected: dist\VJ_yattaro\_internal\_sounddevice_data\portaudio-binaries\libportaudio64bit.dll
+    exit /b 1
+)
+
+echo 6. Copying config file
 copy /Y config.json dist\VJ_yattaro\ >nul
 
-echo 5. Copying web folder
+echo 7. Copying web folder
 xcopy web dist\VJ_yattaro\web /E /I /Y >nul
 
-echo 6. Creating Shazam history log
-if not exist dist\VJ_yattaro\shazam_history.log type nul > dist\VJ_yattaro\shazam_history.log
+echo 8. Creating Shazam history JSON
+if not exist dist\VJ_yattaro\shazam_history.json echo []> dist\VJ_yattaro\shazam_history.json
 
-echo 7. Build completed
+echo 9. Build completed
 echo Folder: dist\VJ_yattaro\
 echo Executable: VJ_yattaro.exe
 echo.
@@ -45,7 +56,7 @@ echo Distribution folder contains:
 echo - VJ_yattaro.exe (main executable)
 echo - web/ (YouTube player folder)
 echo - config.json (configuration file)
-echo - shazam_history.log (Shazam history, max 50 entries at runtime)
+echo - shazam_history.json (Shazam history, max 50 entries at runtime)
 echo - _internal/ (internal libraries folder)
 echo.
 pause

@@ -20,7 +20,7 @@ py -3.12 -m pip install pyinstaller
 - 依存ライブラリのインストール
 - PyInstallerによるフォルダ形式ビルド
 - `config.json` / `web` の配置
-- `shazam_history.log` の生成
+- `shazam_history.json` の生成
 
 ```bat
 build.bat
@@ -29,10 +29,10 @@ build.bat
 手動で実行する場合:
 
 ```powershell
-py -3.12 -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --collect-all shazamio --collect-all shazamio_core --collect-all sounddevice main.py
+py -3.12 -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --collect-all shazamio --collect-all shazamio_core --collect-all aiohttp_retry --collect-all sounddevice --collect-all _sounddevice_data main.py
 Copy-Item config.json dist\VJ_yattaro\
 Copy-Item -Recurse -Force web dist\VJ_yattaro\web
-New-Item -ItemType File -Force dist\VJ_yattaro\shazam_history.log
+[System.IO.File]::WriteAllText("dist\VJ_yattaro\shazam_history.json", "[]")
 ```
 
 ## ビルド後のファイル構成
@@ -43,13 +43,19 @@ dist/VJ_yattaro/
 ├── web/
 ├── _internal/
 ├── config.json
-└── shazam_history.log
+└── shazam_history.json
 ```
 
-`shazam_history.log` は実行時にも存在確認され、EXEと同じフォルダに保存されます。履歴は最大50件で、最新の認識がファイル末尾になる時系列形式です。
+`shazam_history.json` は実行時にも存在確認され、EXEと同じフォルダに保存されます。履歴は最大50件で、JSON配列として保存され、最新の認識が先頭になります。
 
-```text
-2026-08-21 14:41:05 | Artist | Track Title
+```json
+[
+  {
+    "timestamp": "2026-08-21 14:41:05",
+    "title": "Track Title",
+    "artist": "Artist"
+  }
+]
 ```
 
 ## Shazam機能の動作
@@ -57,7 +63,7 @@ dist/VJ_yattaro/
 - タイトルバーの `Rekordbox` / `Shazam` トグルで入力ソースを切り替えます。
 - Rekordboxモードでは従来のDB履歴監視を使用します。
 - ShazamモードではRekordbox監視を停止し、設定画面のShazamタブで選んだマイクを使用します。
-- マイクは `16 kHz / mono / int16` で取得します。
+- マイクは `mono / int16` で取得し、16 kHz対応なら16 kHzを使用します。非対応ならデバイスのネイティブ周波数（主に44.1/48 kHz）で取得し、Shazam判定直前に16 kHzへ軽量変換します。
 - 最新8秒のみリングバッファに保持します。
 - 3秒ごとに最新6秒をShazamへ送ります。
 - Shazam通信中は次の認識要求を捨て、処理を蓄積しません。
@@ -67,6 +73,27 @@ dist/VJ_yattaro/
 ## 注意事項
 
 1. Shazam認識にはインターネット接続が必要です。
-2. 選択したマイクが16 kHz / mono / int16入力に対応していない場合は、Shazamモード開始時にエラーになります。その場合は別の入力デバイスまたは「システム既定」を選択してください。
+2. 選択したマイクが16 kHzに対応しない場合は、デバイス既定のサンプルレートへ自動フォールバックします。
 3. PyInstaller製EXEはアンチウイルスで誤検知される場合があります。
 4. `config.json` には既存の個別設定が含まれるため、配布時の取り扱いに注意してください。
+
+
+## Shazam入力デバイスが表示されない場合
+
+まず、ビルドに使用したPython 3.12環境でPortAudioがWindowsの入力デバイスを列挙できるか確認します。
+
+```powershell
+py -3.12 -m sounddevice
+```
+
+入力デバイスがここに表示される場合、Python/PortAudio側の列挙は正常です。
+修正版ではWindowsのHost APIを個別に走査し、1台のデバイス照会失敗で一覧全体が空にならないようにしています。
+また、設定画面のShazamタブに検出件数または具体的なエラーを表示します。
+
+EXEビルド後は次のDLLが存在することも確認してください。`build.bat` は自動確認します。
+
+```text
+dist\VJ_yattaro\_internal\_sounddevice_data\portaudio-binaries\libportaudio64bit.dll
+```
+
+`py -3.12 -m sounddevice` 自体で入力デバイスが出ない場合は、Windowsの「設定 > プライバシーとセキュリティ > マイク」でデスクトップアプリのマイクアクセスが許可されているか、デバイスマネージャー上で対象マイクが有効かを確認してください。

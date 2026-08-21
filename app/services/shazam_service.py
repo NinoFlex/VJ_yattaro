@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import queue
 import sys
 import threading
@@ -37,7 +38,8 @@ class ShazamService(QObject):
         from app.services.config_service import ConfigService
 
         self.config = ConfigService()
-        self._ring = np.zeros(self.SAMPLE_RATE * self.RING_SECONDS, dtype=np.int16)
+        self._capture_sample_rate = self.SAMPLE_RATE
+        self._ring = np.zeros(self._capture_sample_rate * self.RING_SECONDS, dtype=np.int16)
         self._ring_lock = threading.Lock()
         self._write_pos = 0
         self._samples_available = 0
@@ -62,30 +64,128 @@ class ShazamService(QObject):
 
     @classmethod
     def list_input_devices(cls):
-        """Return [(device_index, display_name), ...] for input-capable devices."""
+        """Return [(device_index, display_name), ...] for input-capable devices.
+
+        PortAudio exposes the same Windows endpoint through several host APIs
+        (MME/DirectSound/WASAPI/WDM-KS).  Query devices one-by-one from each
+        host API so that one broken endpoint does not make the whole list fail,
+        then de-duplicate Windows devices while preferring WASAPI.
+        """
         try:
+            import platform
             import sounddevice as sd
 
-            devices = sd.query_devices()
-            result = []
-            for index, device in enumerate(devices):
-                if int(device.get("max_input_channels", 0)) > 0:
-                    name = str(device.get("name", f"Device {index}"))
-                    hostapi_index = int(device.get("hostapi", -1))
-                    hostapi_name = ""
+            try:
+                hostapis = tuple(sd.query_hostapis())
+            except Exception as e:
+                return [], f"PortAudio host API query failed: {e}"
+
+            default_input = -1
+            try:
+                default_input = int(sd.default.device[0])
+            except Exception:
+                pass
+
+            candidates = []
+            query_errors = []
+            seen_ids = set()
+
+            # query_hostapis() gives us device IDs without forcing a query of
+            # every device.  Query each endpoint separately and skip only the
+            # endpoint that fails.
+            for hostapi_index, hostapi in enumerate(hostapis):
+                hostapi_name = str(hostapi.get("name", f"Host API {hostapi_index}"))
+                for device_index in hostapi.get("devices", []):
                     try:
-                        hostapis = sd.query_hostapis()
-                        if 0 <= hostapi_index < len(hostapis):
-                            hostapi_name = str(hostapis[hostapi_index].get("name", ""))
-                    except Exception:
-                        pass
-                    display = f"{index}: {name}"
-                    if hostapi_name:
-                        display += f" [{hostapi_name}]"
-                    result.append((index, display))
-            return result, ""
+                        device_index = int(device_index)
+                    except (TypeError, ValueError):
+                        continue
+                    if device_index in seen_ids:
+                        continue
+                    seen_ids.add(device_index)
+
+                    try:
+                        device = sd.query_devices(device_index)
+                        max_inputs = int(device.get("max_input_channels", 0))
+                        if max_inputs <= 0:
+                            continue
+                        name = str(device.get("name", f"Device {device_index}")).strip()
+                        if not name:
+                            name = f"Device {device_index}"
+                        candidates.append({
+                            "index": device_index,
+                            "name": name,
+                            "hostapi": hostapi_name,
+                            "default": device_index == default_input,
+                        })
+                    except Exception as e:
+                        query_errors.append(f"#{device_index} [{hostapi_name}]: {e}")
+
+            if platform.system() == "Windows":
+                # Prefer user-facing Windows endpoints and avoid showing the
+                # same microphone four times.  WDM-KS is kept as the final
+                # fallback because it is a low-level API and often duplicates
+                # WASAPI/MME devices.
+                def host_priority(name):
+                    name = name.lower()
+                    if "wasapi" in name:
+                        return 0
+                    if "mme" in name:
+                        return 1
+                    if "directsound" in name:
+                        return 2
+                    if "asio" in name:
+                        return 3
+                    if "wdm" in name or "ks" in name:
+                        return 4
+                    return 5
+
+                def normalize_name(name):
+                    # PortAudio's MME device names can be truncated, therefore
+                    # only de-duplicate exact normalized names.  Different names
+                    # remain visible so a device is never hidden accidentally.
+                    return " ".join(name.casefold().split())
+
+                candidates.sort(key=lambda x: (host_priority(x["hostapi"]), x["index"]))
+                unique = []
+                seen_names = set()
+                for item in candidates:
+                    key = normalize_name(item["name"])
+                    if key in seen_names:
+                        continue
+                    seen_names.add(key)
+                    unique.append(item)
+                candidates = unique
+            else:
+                candidates.sort(key=lambda x: x["index"])
+
+            result = []
+            for item in candidates:
+                display = f'{item["name"]} [{item["hostapi"]}]'
+                if item["default"]:
+                    display += " (既定)"
+                result.append((item["index"], display))
+
+            if result:
+                # Partial endpoint failures should not hide the usable list.
+                # Keep the UI clean; details are still printed for diagnostics.
+                if query_errors:
+                    print("ShazamService: Some audio devices could not be queried:")
+                    for error in query_errors:
+                        print(f"  {error}")
+                return result, ""
+
+            detail = "入力可能なPortAudioデバイスが見つかりません。"
+            if query_errors:
+                detail += " " + " / ".join(query_errors[:3])
+            try:
+                pa_version = sd.get_portaudio_version()
+                detail += f" / PortAudio: {pa_version}"
+            except Exception:
+                pass
+            return [], detail
         except Exception as e:
-            return [], str(e)
+            return [], f"sounddevice/PortAudio initialization failed: {e}"
 
     def get_history(self):
         return list(self._history)
@@ -100,28 +200,25 @@ class ShazamService(QObject):
         try:
             import sounddevice as sd
 
+            self._check_shazam_runtime_dependencies()
+
             device = self.config.get("shazam_input_device", None)
             if device in ("", -1):
                 device = None
             elif device is not None:
                 device = int(device)
 
-            sd.check_input_settings(
-                device=device,
-                channels=self.CHANNELS,
-                dtype=self.DTYPE,
-                samplerate=self.SAMPLE_RATE,
-            )
+            capture_rate = self._select_capture_sample_rate(sd, device)
+            self._configure_capture_buffer(capture_rate)
 
             # Only load/start the Shazam worker after the selected microphone has
             # passed validation. This keeps a failed Shazam start as lightweight as possible.
             self._ensure_worker_thread()
-            self._reset_ring()
             self._generation += 1
             self._recognition_busy = False
             self._stream = sd.InputStream(
                 device=device,
-                samplerate=self.SAMPLE_RATE,
+                samplerate=capture_rate,
                 channels=self.CHANNELS,
                 dtype=self.DTYPE,
                 callback=self._audio_callback,
@@ -131,7 +228,10 @@ class ShazamService(QObject):
             self._active = True
             self._recognize_timer.start()
             self.status_changed.emit("Shazam: microphone capture started")
-            print(f"ShazamService: Started (device={device}, 16kHz/mono/int16)")
+            print(
+                f"ShazamService: Started (device={device}, "
+                f"capture={capture_rate}Hz/mono/int16, shazam={self.SAMPLE_RATE}Hz)"
+            )
             return True
         except Exception as e:
             self._active = False
@@ -155,7 +255,7 @@ class ShazamService(QObject):
         print("ShazamService: Stopped")
 
     def reload_settings(self):
-        """Apply microphone selection immediately when Shazam mode is active."""
+        """Apply microphone and Shazam locale settings while Shazam mode is active."""
         was_active = self._active
         if was_active:
             self.stop()
@@ -207,6 +307,69 @@ class ShazamService(QObject):
             self._write_pos = (self._write_pos + count) % ring_size
             self._samples_available = min(ring_size, self._samples_available + count)
 
+    @staticmethod
+    def _check_shazam_runtime_dependencies():
+        """Fail immediately with a readable error when the frozen build is incomplete."""
+        required = ("aiohttp_retry", "shazamio", "shazamio_core")
+        missing = []
+        for module_name in required:
+            try:
+                __import__(module_name)
+            except ModuleNotFoundError as e:
+                missing.append(e.name or module_name)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load {module_name}: {e}") from e
+        if missing:
+            names = ", ".join(dict.fromkeys(missing))
+            raise RuntimeError(f"Missing Shazam runtime dependency: {names}")
+
+    @classmethod
+    def _select_capture_sample_rate(cls, sd, device):
+        """Pick a sample rate accepted by the selected PortAudio input device.
+
+        16 kHz is preferred to keep the capture buffer small. Some Windows host APIs
+        (especially WDM-KS/WASAPI endpoints) only accept their native 44.1/48 kHz
+        rate, so fall back to the device default and resample only the 6-second
+        recognition snapshot.
+        """
+        rates = [cls.SAMPLE_RATE]
+        try:
+            info = sd.query_devices(device, "input") if device is not None else sd.query_devices(kind="input")
+            default_rate = int(round(float(info.get("default_samplerate", 0) or 0)))
+            if default_rate > 0 and default_rate not in rates:
+                rates.append(default_rate)
+        except Exception:
+            pass
+
+        for fallback in (48000, 44100, 32000):
+            if fallback not in rates:
+                rates.append(fallback)
+
+        errors = []
+        for rate in rates:
+            try:
+                sd.check_input_settings(
+                    device=device,
+                    channels=cls.CHANNELS,
+                    dtype=cls.DTYPE,
+                    samplerate=rate,
+                )
+                return int(rate)
+            except Exception as e:
+                errors.append(f"{rate}Hz: {e}")
+
+        raise RuntimeError("No supported input sample rate. " + " / ".join(errors))
+
+    def _configure_capture_buffer(self, sample_rate):
+        self._capture_sample_rate = int(sample_rate)
+        with self._ring_lock:
+            self._ring = np.zeros(
+                self._capture_sample_rate * self.RING_SECONDS,
+                dtype=np.int16,
+            )
+            self._write_pos = 0
+            self._samples_available = 0
+
     def _reset_ring(self):
         with self._ring_lock:
             self._ring.fill(0)
@@ -214,7 +377,7 @@ class ShazamService(QObject):
             self._samples_available = 0
 
     def _snapshot_latest(self, seconds):
-        sample_count = int(self.SAMPLE_RATE * seconds)
+        sample_count = int(self._capture_sample_rate * seconds)
         with self._ring_lock:
             if self._samples_available < sample_count:
                 return None
@@ -234,6 +397,7 @@ class ShazamService(QObject):
         if samples is None:
             return
 
+        samples = self._resample_to_shazam_rate(samples, self._capture_sample_rate)
         audio_bytes = self._pcm_to_wav_bytes(samples)
         generation = self._generation
         try:
@@ -247,25 +411,14 @@ class ShazamService(QObject):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         shazam = None
-        shazam_error = ""
+        shazam_profile = None
+        runtime_error = ""
 
         try:
             from aiohttp_retry import ExponentialRetry
             from shazamio import HTTPClient, Shazam
-
-            # Keep retries bounded. A long 429/5xx retry chain would hurt realtime behavior.
-            shazam = Shazam(
-                http_client=HTTPClient(
-                    retry_options=ExponentialRetry(
-                        attempts=3,
-                        max_timeout=5,
-                        statuses={429, 500, 502, 503, 504},
-                    )
-                ),
-                segment_duration_seconds=self.RECOGNITION_SECONDS,
-            )
         except Exception as e:
-            shazam_error = f"Shazam initialization failed: {e}"
+            runtime_error = f"Shazam initialization failed: {e}"
 
         while True:
             item = self._work_queue.get()
@@ -275,17 +428,54 @@ class ShazamService(QObject):
             generation, audio_bytes = item
             title = ""
             artist = ""
-            error_text = shazam_error
+            error_text = runtime_error
 
-            if shazam is not None:
-                try:
-                    result = loop.run_until_complete(shazam.recognize(audio_bytes))
-                    track = result.get("track") if isinstance(result, dict) else None
-                    if isinstance(track, dict):
-                        title = str(track.get("title") or "").strip()
-                        artist = str(track.get("subtitle") or "").strip()
-                except Exception as e:
-                    error_text = str(e)
+            if not runtime_error:
+                language = str(self.config.get("shazam_language", "ja-JP") or "ja-JP").strip()
+                # Backward compatibility with older builds that used the invalid
+                # Japanese tag "jp-JP". BCP 47 uses "ja" for Japanese.
+                if language.lower() == "jp-jp":
+                    language = "ja-JP"
+                endpoint_country = str(
+                    self.config.get("shazam_endpoint_country", "JP") or "JP"
+                ).strip().upper()
+                profile = (language, endpoint_country)
+
+                if shazam is None or profile != shazam_profile:
+                    try:
+                        # Keep retries bounded. A long 429/5xx retry chain would hurt realtime behavior.
+                        shazam = Shazam(
+                            language=language,
+                            endpoint_country=endpoint_country,
+                            http_client=HTTPClient(
+                                retry_options=ExponentialRetry(
+                                    attempts=3,
+                                    max_timeout=5,
+                                    statuses={429, 500, 502, 503, 504},
+                                )
+                            ),
+                            segment_duration_seconds=self.RECOGNITION_SECONDS,
+                        )
+                        shazam_profile = profile
+                        error_text = ""
+                        print(
+                            "ShazamService: Recognition locale -> "
+                            f"language={language}, country={endpoint_country}"
+                        )
+                    except Exception as e:
+                        shazam = None
+                        shazam_profile = None
+                        error_text = f"Shazam initialization failed: {e}"
+
+                if shazam is not None:
+                    try:
+                        result = loop.run_until_complete(shazam.recognize(audio_bytes))
+                        track = result.get("track") if isinstance(result, dict) else None
+                        if isinstance(track, dict):
+                            title = str(track.get("title") or "").strip()
+                            artist = str(track.get("subtitle") or "").strip()
+                    except Exception as e:
+                        error_text = str(e)
 
             self._recognition_finished.emit(generation, title, artist, error_text)
 
@@ -346,6 +536,26 @@ class ShazamService(QObject):
             pass
 
     @classmethod
+    def _resample_to_shazam_rate(cls, samples, source_rate):
+        source_rate = int(source_rate)
+        if source_rate == cls.SAMPLE_RATE:
+            return samples.astype(np.int16, copy=False)
+        if len(samples) == 0:
+            return samples.astype(np.int16, copy=False)
+
+        # Fast path for exact integer ratios such as the common 48 kHz -> 16 kHz case.
+        if source_rate % cls.SAMPLE_RATE == 0:
+            step = source_rate // cls.SAMPLE_RATE
+            return samples[::step].astype(np.int16, copy=False)
+
+        # Generic lightweight linear resampling for 44.1 kHz and other native rates.
+        target_len = max(1, int(round(len(samples) * cls.SAMPLE_RATE / source_rate)))
+        source_pos = np.arange(len(samples), dtype=np.float64)
+        target_pos = np.linspace(0, len(samples) - 1, target_len, dtype=np.float64)
+        converted = np.interp(target_pos, source_pos, samples.astype(np.float64, copy=False))
+        return np.clip(converted, -32768, 32767).astype(np.int16)
+
+    @classmethod
     def _pcm_to_wav_bytes(cls, samples):
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav:
@@ -362,12 +572,15 @@ class ShazamService(QObject):
         return Path(__file__).resolve().parents[2]
 
     def _get_history_path(self):
-        return self._get_base_dir() / "shazam_history.log"
+        return self._get_base_dir() / "shazam_history.json"
 
     def _ensure_history_file(self):
         try:
             self._history_path.parent.mkdir(parents=True, exist_ok=True)
-            self._history_path.touch(exist_ok=True)
+            if not self._history_path.exists():
+                with open(self._history_path, "w", encoding="utf-8") as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+                    f.write("\n")
         except Exception as e:
             print(f"ShazamService: Failed to create history file: {e}")
 
@@ -379,16 +592,19 @@ class ShazamService(QObject):
         entries = []
         try:
             with open(self._history_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()[-self.HISTORY_LIMIT:]
+                data = json.load(f)
 
-            for raw_line in reversed(lines):
-                line = raw_line.rstrip("\r\n")
-                if not line:
+            if not isinstance(data, list):
+                raise ValueError("history root must be a JSON array")
+
+            for item in data[:self.HISTORY_LIMIT]:
+                if not isinstance(item, dict):
                     continue
-                parts = line.split(" | ", 2)
-                if len(parts) != 3:
+                timestamp = self._clean_field(item.get("timestamp", ""))
+                title = self._clean_field(item.get("title", ""))
+                artist = self._clean_field(item.get("artist", ""))
+                if not timestamp or not title or not artist:
                     continue
-                timestamp, artist, title = parts
                 entries.append((timestamp, title, artist))
         except Exception as e:
             print(f"ShazamService: Failed to load history: {e}")
@@ -396,11 +612,16 @@ class ShazamService(QObject):
 
     def _save_history(self):
         try:
+            payload = []
+            for timestamp, title, artist in self._history[:self.HISTORY_LIMIT]:
+                payload.append({
+                    "timestamp": self._clean_field(timestamp),
+                    "title": self._clean_field(title),
+                    "artist": self._clean_field(artist),
+                })
+
             with open(self._history_path, "w", encoding="utf-8", newline="\n") as f:
-                # File is chronological so the latest recognition is visible at the tail.
-                for timestamp, title, artist in reversed(self._history[:self.HISTORY_LIMIT]):
-                    safe_artist = self._clean_field(artist)
-                    safe_title = self._clean_field(title)
-                    f.write(f"{timestamp} | {safe_artist} | {safe_title}\n")
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.write("\n")
         except Exception as e:
             print(f"ShazamService: Failed to save history: {e}")
