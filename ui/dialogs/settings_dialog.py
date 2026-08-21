@@ -148,6 +148,7 @@ class SettingsDialog(QDialog):
         # 各タブの構築
         self._init_general_tab()
         self._init_rekordbox_tab()
+        self._init_shazam_tab()
         self._init_hotkey_tab()
         self._init_midi_tab()
         self._init_youtube_tab()
@@ -171,6 +172,15 @@ class SettingsDialog(QDialog):
         self.db_path_edit.setText(self.config_service.get("db_path", ""))
         self.interval_edit.setText(str(self.config_service.get("interval_s", 10)))
         self.player_port_spin.setValue(int(self.config_service.get("player_port", 8080)))
+
+        shazam_device = self.config_service.get("shazam_input_device", None)
+        shazam_index = self.shazam_input_device_combo.findData(shazam_device)
+        if shazam_index < 0 and shazam_device is not None:
+            try:
+                shazam_index = self.shazam_input_device_combo.findData(int(shazam_device))
+            except (TypeError, ValueError):
+                shazam_index = -1
+        self.shazam_input_device_combo.setCurrentIndex(shazam_index if shazam_index >= 0 else 0)
         self.always_on_top_checkbox.setChecked(bool(self.config_service.get("always_on_top", False)))
         self.bring_to_front_on_hotkey_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_hotkey", True)))
         self.bring_to_front_on_search_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_search", False)))
@@ -382,7 +392,61 @@ class SettingsDialog(QDialog):
         layout.addRow("", help_label)
         
         self.tabs.addTab(tab, "Rekordbox")
-    
+
+    def _init_shazam_tab(self):
+        """「Shazam」タブの構築"""
+        tab = QWidget()
+        layout = QFormLayout(tab)
+
+        self.shazam_input_device_combo = QComboBox()
+        refresh_button = QPushButton("再取得")
+        refresh_button.setFixedWidth(80)
+        refresh_button.clicked.connect(self._refresh_shazam_devices)
+
+        device_layout = QHBoxLayout()
+        device_layout.addWidget(self.shazam_input_device_combo, 1)
+        device_layout.addWidget(refresh_button)
+        layout.addRow("使用するマイク:", device_layout)
+
+        info_label = QLabel(
+            "16 kHz / mono / int16 で常時取り込み、最新8秒をリングバッファに保持します。\n"
+            "3秒ごとに最新6秒をShazam判定し、同じ曲の連続結果は履歴へ追加しません。"
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addRow("", info_label)
+
+        history_label = QLabel("Shazam履歴は最大50件。shazam_history.log に保存します。")
+        history_label.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addRow("", history_label)
+
+        self._refresh_shazam_devices()
+        self.tabs.addTab(tab, "Shazam")
+
+    def _refresh_shazam_devices(self):
+        current_data = None
+        if hasattr(self, "shazam_input_device_combo") and self.shazam_input_device_combo.count() > 0:
+            current_data = self.shazam_input_device_combo.currentData()
+
+        self.shazam_input_device_combo.clear()
+        self.shazam_input_device_combo.addItem("(システム既定)", None)
+
+        try:
+            from app.services.shazam_service import ShazamService
+            devices, error = ShazamService.list_input_devices()
+            for device_index, display_name in devices:
+                self.shazam_input_device_combo.addItem(display_name, device_index)
+            if error:
+                self.shazam_input_device_combo.setToolTip(f"マイク一覧の取得に失敗: {error}")
+            else:
+                self.shazam_input_device_combo.setToolTip("")
+        except Exception as e:
+            self.shazam_input_device_combo.setToolTip(f"マイク一覧の取得に失敗: {e}")
+
+        idx = self.shazam_input_device_combo.findData(current_data)
+        if idx >= 0:
+            self.shazam_input_device_combo.setCurrentIndex(idx)
+
     def _init_hotkey_tab(self):
         """「ホットキー」タブの構築"""
         tab = QWidget()
@@ -818,6 +882,7 @@ class SettingsDialog(QDialog):
         youtube_api_key = self.youtube_api_key_edit.text()
         youtube_search_template = self.youtube_search_template_edit.text()
         enable_logging = self.enable_logging_checkbox.isChecked()
+        shazam_input_device = self.shazam_input_device_combo.currentData()
         
         # MIDI設定の取得
         midi_port_name = self.midi_device_combo.currentText()
@@ -865,6 +930,7 @@ class SettingsDialog(QDialog):
             "youtube_api_key": youtube_api_key,
             "youtube_search_template": youtube_search_template,
             "enable_logging": enable_logging,
+            "shazam_input_device": shazam_input_device,
             "player_track_info_position": self._get_track_info_position_value(),
             "midi_port_name": midi_port_name,
             "midi_move_up": midi_move_up,

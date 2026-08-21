@@ -3,34 +3,32 @@ from PySide6.QtWidgets import QTableView, QHeaderView
 
 
 class RightTableModel(QAbstractTableModel):
-    """
-    右ペインの履歴や情報を表示するためのデータモデル
-    """
-    def __init__(self, data=None):
+    """Generic right-pane table model used by Rekordbox and Shazam history."""
+
+    def __init__(self, data=None, headers=None, max_rows=10):
         super().__init__()
-        # 最大10行の制約があるため、初期データも制限
-        self._data = data or []
-        self._headers = ["トラックタイトル", "アーティスト", "コメント"]
+        self._max_rows = max(1, int(max_rows))
+        self._data = list(data or [])[:self._max_rows]
+        self._headers = headers or ["トラックタイトル", "アーティスト", "コメント"]
 
     def rowCount(self, parent=QModelIndex()):
         return len(self._data)
 
     def columnCount(self, parent=QModelIndex()):
-        return 3
+        return len(self._headers)
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
-        
+
         if role == Qt.DisplayRole:
             row = index.row()
             col = index.column()
-            # データの構造に合わせて取得 (例: tuple or dict)
             item = self._data[row]
             if isinstance(item, (list, tuple)) and col < len(item):
                 return item[col]
             return ""
-        
+
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -40,40 +38,29 @@ class RightTableModel(QAbstractTableModel):
         return None
 
     def update_data(self, new_data):
-        """
-        データを更新し、最大10件に制限する
-        """
         self.beginResetModel()
-        self._data = new_data[:10]
+        self._data = list(new_data or [])[:self._max_rows]
         self.endResetModel()
 
 
 class RightTableView(QTableView):
-    """
-    右ペインのカスタムテーブルビュー
-    """
+    """Right-pane custom table view."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        
-        # 基本設定
+
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.verticalHeader().setVisible(False)
-        self.setSelectionBehavior(QTableView.SelectRows)  # 行単位の選択を設定
-        self.setSelectionMode(QTableView.SingleSelection) # 単一選択
-        self.setEditTriggers(QTableView.NoEditTriggers)   # 直接の編集を無効化
+        self.setSelectionBehavior(QTableView.SelectRows)
+        self.setSelectionMode(QTableView.SingleSelection)
+        self.setEditTriggers(QTableView.NoEditTriggers)
         self.setAlternatingRowColors(True)
-        self.setShowGrid(False)  # グリッドを非表示にして「行」の一体感を出す
-        
-        # ヘッダーの選択強調をオフにする
+        self.setShowGrid(False)
         self.horizontalHeader().setHighlightSections(False)
-        
-        # 行の高さをクリックしやすいサイズに設定
         self.verticalHeader().setDefaultSectionSize(32)
-        
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
-        # 行全体の選択・ホバーを自然に見せるためのスタイル
+
         self.setStyleSheet("""
             QTableView {
                 background-color: white;
@@ -82,7 +69,7 @@ class RightTableView(QTableView):
                 selection-color: black;
                 border: 1px solid #ddd;
                 border-radius: 4px;
-                outline: none; /* フォーカスの点線（focus rect）を表示させない */
+                outline: none;
             }
             QTableView::item {
                 padding: 5px;
@@ -92,17 +79,14 @@ class RightTableView(QTableView):
                 color: black;
             }
         """)
-        
+
     def setModel(self, model):
         super().setModel(model)
-        # データがある場合、デフォルトで最初の行を選択
         if model.rowCount() > 0:
             self.selectRow(0)
-    
+
     def keyPressEvent(self, event):
-        """キーイベント処理"""
-        if (event.key() == Qt.Key_Up or event.key() == Qt.Key_Down):
-            # 上下矢印キーで選択移動（修飾キーなしの場合のみ）
+        if event.key() in (Qt.Key_Up, Qt.Key_Down):
             if not (event.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier | Qt.AltModifier)):
                 current_row = self.currentIndex().row()
                 if event.key() == Qt.Key_Up and current_row > 0:
@@ -113,6 +97,5 @@ class RightTableView(QTableView):
                     print(f"RightTableView: Moved selection from {current_row} to {current_row+1} (arrow key)")
                 return
         else:
-            # その他のキーは無視してグローバルホットキーに委譲
             event.ignore()
             super().keyPressEvent(event)

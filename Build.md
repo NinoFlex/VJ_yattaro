@@ -2,123 +2,71 @@
 
 ## 前提条件
 
-### 必要なライブラリのインストール
-```bash
-pip install PySide6 requests pyrekordbox pyinstaller
+Shazam機能を含むWindows版は **64-bit Python 3.12** でビルドしてください。
+`shazamio 0.8.1` が利用する `shazamio-core 1.1.2` は、Windows向けCPython 3.13 wheelが提供されていないためです。
+
+必要ライブラリは `requirements.txt` に含めています。
+
+```powershell
+py -3.12 -m pip install -r requirements.txt
+py -3.12 -m pip install pyinstaller
 ```
 
-## ビルドコマンド
+## 推奨ビルド
 
-py -m pip install -r requirements.txt; py -m pip install pyinstaller; Remove-Item -Recurse -Force build,dist -ErrorAction SilentlyContinue; py -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" main.py; Copy-Item config.json dist\VJ_yattaro\; Copy-Item -Recurse web dist\VJ_yattaro\web; Get-ChildItem dist\VJ_yattaro\
+通常は `build.bat` を実行してください。以下を自動で行います。
 
-### 基本ビルド（単一exeファイル）
-```bash
-pyinstaller --onefile --windowed --name="VJ_yattaro" main.py
+- Python 3.12の確認
+- 依存ライブラリのインストール
+- PyInstallerによるフォルダ形式ビルド
+- `config.json` / `web` の配置
+- `shazam_history.log` の生成
+
+```bat
+build.bat
 ```
 
-### 推奨ビルド（フォルダ形式 - 起動が高速）
-```bash
-pyinstaller --windowed --name="VJ_yattaro" --add-data="web;web" main.py
+手動で実行する場合:
+
+```powershell
+py -3.12 -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --collect-all shazamio --collect-all shazamio_core --collect-all sounddevice main.py
+Copy-Item config.json dist\VJ_yattaro\
+Copy-Item -Recurse -Force web dist\VJ_yattaro\web
+New-Item -ItemType File -Force dist\VJ_yattaro\shazam_history.log
 ```
-
-### 完全ビルド（アイコン設定付き）
-```bash
-pyinstaller --windowed --name="VJ_yattaro" --add-data="web;web" --icon=icon.ico main.py
-```
-
-## ビルドオプション説明
-
-- `--onefile`: 単一exeファイルにまとめる（起動が遅くなる）
-- `--windowed`: コンソールウィンドウを非表示
-- `--name="VJ_yattaro"`: 出力ファイル名
-- `--add-data="web;web"`: webフォルダをexeに含める
-- `--icon=icon.ico`: アイコンファイル設定（任意）
 
 ## ビルド後のファイル構成
 
-### フォルダ形式の場合
-```
+```text
 dist/VJ_yattaro/
-├── VJ_yattaro.exe          # メイン実行ファイル
-├── web/                     # webフォルダ（自動コピー）
-├── _internal/               # 内部ライブラリ
-└── config.json             # 設定ファイル（手動配置）
+├── VJ_yattaro.exe
+├── web/
+├── _internal/
+├── config.json
+└── shazam_history.log
 ```
 
-### 単一exeの場合
-```
-dist/
-├── VJ_yattaro.exe          # メイン実行ファイル
-└── web/                    # webフォルダ（手動配置）
-```
+`shazam_history.log` は実行時にも存在確認され、EXEと同じフォルダに保存されます。履歴は最大50件で、最新の認識がファイル末尾になる時系列形式です。
 
-## 配置手順
-
-### 1. ビルド実行
-```bash
-# 推奨：フォルダ形式でビルド
-pyinstaller --windowed --name="VJ_yattaro" --add-data="web;web" main.py
+```text
+2026-08-21 14:41:05 | Artist | Track Title
 ```
 
-### 2. ファイル配置
-```bash
-# ビルド結果のフォルダに移動
-cd dist/VJ_yattaro/
+## Shazam機能の動作
 
-# config.jsonをコピー（既存の設定ファイルを利用）
-copy ..\..\config.json .
-
-# webフォルダの確認（自動でコピーされているはず）
-# もしコピーされていない場合は手動でコピー
-# copy ..\..\web . /E
-```
-
-### 3. 実行確認
-```bash
-# exeを実行して動作確認
-VJ_yattaro.exe
-```
-
-## 自動配置バッチファイル
-
-### build.bat（Windows用）
-```batch
-@echo off
-echo VJ_yattaro Exeビルド開始...
-
-echo 1. クリーンアップ
-if exist build rmdir /s /q build
-if exist dist rmdir /s /q dist
-
-echo 2. PyInstallerでビルド
-pyinstaller --windowed --name="VJ_yattaro" --add-data="web;web" main.py
-
-echo 3. 設定ファイルをコピー
-copy config.json dist\VJ_yattaro\
-
-echo 4. ビルド完了
-echo フォルダ: dist\VJ_yattaro\
-echo 実行ファイル: VJ_yattaro.exe
-pause
-```
+- タイトルバーの `Rekordbox` / `Shazam` トグルで入力ソースを切り替えます。
+- Rekordboxモードでは従来のDB履歴監視を使用します。
+- ShazamモードではRekordbox監視を停止し、設定画面のShazamタブで選んだマイクを使用します。
+- マイクは `16 kHz / mono / int16` で取得します。
+- 最新8秒のみリングバッファに保持します。
+- 3秒ごとに最新6秒をShazamへ送ります。
+- Shazam通信中は次の認識要求を捨て、処理を蓄積しません。
+- 前回と同じ `曲名 + アーティスト名` は履歴へ追加しません。
+- Shazam結果から使用するフィールドは曲名 (`track.title`) とアーティスト名 (`track.subtitle`) のみです。
 
 ## 注意事項
 
-1. **webフォルダ**: YouTubeプレイヤーのHTML/JSファイルが必須
-2. **config.json**: APIキーなどの個別設定を含むため別途配置
-3. **アンチウイルス**: PyInstaller製exeは誤検知される場合あり
-4. **初回起動**: ライブラリ展開のため時間がかかる場合あり
-
-## トラブルシューティング
-
-### webフォルダが見つからないエラー
-- `--add-data="web;web"`オプションを確認
-- 手動でwebフォルダをexeと同じ階層に配置
-
-### config.jsonが見つからないエラー
-- exeと同じ階層にconfig.jsonを配置
-- 初回起動時に設定ダイアログが表示される場合は正常
-
-### 起動が遅い場合
-- `--onefile`を外してフォルダ形式でビルド
-- SSDでの実行を推奨
+1. Shazam認識にはインターネット接続が必要です。
+2. 選択したマイクが16 kHz / mono / int16入力に対応していない場合は、Shazamモード開始時にエラーになります。その場合は別の入力デバイスまたは「システム既定」を選択してください。
+3. PyInstaller製EXEはアンチウイルスで誤検知される場合があります。
+4. `config.json` には既存の個別設定が含まれるため、配布時の取り扱いに注意してください。

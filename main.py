@@ -92,6 +92,25 @@ class TitleBar(QWidget):
                 background-color: #f8f8f8;
                 border-color: #999;
             }
+            #source_toggle {
+                font-size: 11px;
+                font-weight: bold;
+                background-color: #eeeeee;
+                border: 1px solid #bbb;
+                border-radius: 9px;
+                margin: 5px 8px;
+                padding: 0 12px;
+                min-width: 82px;
+                color: #444;
+            }
+            #source_toggle:checked {
+                background-color: #4CAF50;
+                border-color: #43A047;
+                color: white;
+            }
+            #source_toggle:hover {
+                border-color: #888;
+            }
         """)
 
         layout = QHBoxLayout(self)
@@ -121,6 +140,15 @@ class TitleBar(QWidget):
         self.title_label.setStyleSheet("font-weight: bold; color: #666; margin-left: 5px;")
         self.title_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         layout.addWidget(self.title_label)
+
+        # Rekordbox / Shazam の入力ソース切替トグル
+        self.source_toggle = QPushButton("Rekordbox")
+        self.source_toggle.setObjectName("source_toggle")
+        self.source_toggle.setCheckable(True)
+        self.source_toggle.setChecked(False)
+        self.source_toggle.setToolTip("入力ソース: Rekordbox")
+        self.source_toggle.toggled.connect(self._on_source_toggled)
+        layout.addWidget(self.source_toggle)
         
         layout.addStretch()
 
@@ -134,6 +162,12 @@ class TitleBar(QWidget):
         self.close_button.setObjectName("close_button")
         self.close_button.clicked.connect(self._main_window.close)
         layout.addWidget(self.close_button)
+
+    def _on_source_toggled(self, checked):
+        mode = "shazam" if checked else "rekordbox"
+        self.source_toggle.setText("Shazam" if checked else "Rekordbox")
+        self.source_toggle.setToolTip(f"入力ソース: {'Shazam' if checked else 'Rekordbox'}")
+        self._main_window.set_source_mode(mode)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -162,6 +196,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("VJ_yattaro")
         self.resize(1920, 240)
+        self.source_mode = "rekordbox"
         
         # 前面化状態管理
         self._is_bringing_to_front = False
@@ -276,12 +311,30 @@ class MainWindow(QMainWindow):
         
         # 初期データの取得とモデル設定
         initial_history = self.watcher.service.get_latest_history(limit=10)
-        self.table_model = RightTableModel(initial_history)
+        self.rekordbox_table_model = RightTableModel(
+            initial_history,
+            headers=["トラックタイトル", "アーティスト", "コメント"],
+            max_rows=10,
+        )
+
+        from app.services.shazam_service import ShazamService
+        self.shazam_service = ShazamService(self)
+        self.shazam_table_model = RightTableModel(
+            self.shazam_service.get_history(),
+            headers=["認識時刻", "トラックタイトル", "アーティスト"],
+            max_rows=50,
+        )
+
+        self.table_model = self.rekordbox_table_model
         self.right_table.setModel(self.table_model)
         
         # 信号の接続
         self.watcher.updated.connect(self.on_history_updated)
         self.watcher.new_track_detected.connect(self.on_new_track_detected)
+        self.shazam_service.history_updated.connect(self.on_shazam_history_updated)
+        self.shazam_service.new_track_detected.connect(self.on_shazam_new_track_detected)
+        self.shazam_service.status_changed.connect(self.on_shazam_status_changed)
+        self.shazam_service.error_occurred.connect(lambda message: print(f"UI: {message}"))
         self.watcher.start()
         
         # ホットキーサービスの初期化
@@ -366,7 +419,7 @@ class MainWindow(QMainWindow):
         # タイトルバーとその中の操作ボタン
         self.title_bar.installEventFilter(self)
         for btn in [self.title_bar.settings_button, self.title_bar.rewind_button, 
-                   self.title_bar.forward_button, self.title_bar.min_button, 
+                   self.title_bar.forward_button, self.title_bar.source_toggle, self.title_bar.min_button, 
                    self.title_bar.close_button]:
             btn.installEventFilter(self)
             
@@ -460,6 +513,8 @@ class MainWindow(QMainWindow):
             configure_logging(enabled=enable_logging, redirect=True)
 
             self.watcher.reload_settings()
+            if hasattr(self, "shazam_service"):
+                self.shazam_service.reload_settings()
             self.reload_hotkeys()  # ホットキーを再登録
             self.reload_midi_config() # MIDI設定を再登録
             self.apply_window_placement_mode()  # ウィンドウ配置モードを反映
@@ -467,6 +522,64 @@ class MainWindow(QMainWindow):
             self._send_player_config()  # プレイヤー設定を送信
         else:
             print("UI: Settings dialog cancelled.")
+
+    def set_source_mode(self, mode):
+        """タイトルバーのトグルに合わせて入力ソースと右カラムを切り替える。"""
+        if mode not in ("rekordbox", "shazam"):
+            return
+
+        self.source_mode = mode
+
+        # タイトルバー側の状態も同期（外部から呼ばれた場合を含む）。
+        if hasattr(self, "title_bar") and hasattr(self.title_bar, "source_toggle"):
+            toggle = self.title_bar.source_toggle
+            should_check = mode == "shazam"
+            if toggle.isChecked() != should_check:
+                toggle.blockSignals(True)
+                toggle.setChecked(should_check)
+                toggle.blockSignals(False)
+            toggle.setText("Shazam" if should_check else "Rekordbox")
+
+        # 初期化途中にトグルが操作された場合は、サービス生成後に通常動作へ入る。
+        if not hasattr(self, "right_table") or not hasattr(self, "watcher"):
+            return
+
+        if mode == "shazam":
+            self.watcher.stop()
+            if hasattr(self, "shazam_table_model"):
+                self.table_model = self.shazam_table_model
+                self.right_table.setModel(self.table_model)
+            self.youtube_search_box.setPlaceholderText("YouTube検索 / Shazam履歴から選択")
+            if hasattr(self, "shazam_service"):
+                self.shazam_service.start()
+            print("UI: Source mode -> Shazam")
+        else:
+            if hasattr(self, "shazam_service"):
+                self.shazam_service.stop()
+            if hasattr(self, "rekordbox_table_model"):
+                self.table_model = self.rekordbox_table_model
+                self.right_table.setModel(self.table_model)
+            self.youtube_search_box.setPlaceholderText("YouTube検索 (Enterで実行)")
+            self.watcher.start()
+            print("UI: Source mode -> Rekordbox")
+
+    def _get_track_search_fields(self, row):
+        if row < 0 or row >= self.table_model.rowCount():
+            return None
+        if row >= len(self.table_model._data):
+            return None
+
+        track_info = self.table_model._data[row]
+        if self.source_mode == "shazam":
+            # Shazam model: (timestamp, title, artist). Timestamp is display/log metadata only.
+            if len(track_info) < 3:
+                return None
+            return track_info[1] or "", track_info[2] or "", ""
+
+        # Rekordbox model: (title, artist, comment)
+        if len(track_info) < 3:
+            return None
+        return track_info[0] or "", track_info[1] or "", track_info[2] or ""
 
     def _restart_player_server_if_needed(self):
         """player_port が変更されていたらプレイヤーサーバーを再起動する"""
@@ -506,20 +619,20 @@ class MainWindow(QMainWindow):
                 print("UI: Window placement mode -> not always on top")
 
     def on_history_updated(self, new_history):
-        """Watcherから新しい履歴データを受け取った時の処理"""
-        # 現在の選択行（インデックス）を退避
+        """Watcherから新しいRekordbox履歴データを受け取った時の処理"""
+        self.rekordbox_table_model.update_data(new_history)
+
+        # Shazam表示中はRekordboxの更新でUIや自動検索を動かさない。
+        if self.source_mode != "rekordbox":
+            return
+
         selection_model = self.right_table.selectionModel()
         if not selection_model:
             return
 
         current_indexes = selection_model.selectedRows()
         current_row = current_indexes[0].row() if current_indexes else -1
-
-        # モデルのデータを更新
-        self.table_model.update_data(new_history)
-
-        # 選択状態を再適用
-        if current_row != -1:
+        if current_row != -1 and current_row < self.rekordbox_table_model.rowCount():
             self.right_table.selectRow(current_row)
         
         # 元々の表から更新されていた場合、一番上の項目で自動で検索を実行
@@ -547,10 +660,33 @@ class MainWindow(QMainWindow):
                 print(f"UI: Initial top track set: {self._last_top_track}")
 
     def on_new_track_detected(self, track):
-        """新しい曲が検出された時の処理"""
-        # 最上段（最新曲）を選択
+        """Rekordboxで新しい曲が検出された時の処理"""
+        if self.source_mode != "rekordbox":
+            return
         self.right_table.selectRow(0)
-        print(f"UI: New track detected! Auto-selected row 0.")
+        print("UI: New Rekordbox track detected! Auto-selected row 0.")
+
+    def on_shazam_history_updated(self, new_history):
+        """Shazam履歴を最大50件で右カラムへ反映する。"""
+        self.shazam_table_model.update_data(new_history)
+        if self.source_mode == "shazam" and self.shazam_table_model.rowCount() > 0:
+            self.right_table.selectRow(0)
+
+    def on_shazam_new_track_detected(self, entry):
+        """Shazamで曲が変わった時、既存のYouTube検索フローへ渡す。"""
+        if self.source_mode != "shazam" or len(entry) < 3:
+            return
+
+        timestamp, track_title, artist = entry[0], entry[1], entry[2]
+        self.right_table.selectRow(0)
+        if self.youtube_search_box.text().strip():
+            self.youtube_search_box.clear()
+        print(f"UI: Shazam detected {artist} - {track_title} at {timestamp}")
+        self.search_youtube(track_title or "", artist or "", "", from_list=True)
+
+    def on_shazam_status_changed(self, status):
+        if hasattr(self, "title_bar") and hasattr(self.title_bar, "source_toggle"):
+            self.title_bar.source_toggle.setToolTip(status)
     
     def move_selection_up(self):
         """選択行を1つ上に移動する（右ペイン専用）"""
@@ -972,67 +1108,35 @@ class MainWindow(QMainWindow):
         """右テーブルがダブルクリックされた時の処理"""
         if not index.isValid():
             return
-        
-        # 選択された行のデータを取得
-        row = index.row()
-        if row >= self.table_model.rowCount():
+
+        fields = self._get_track_search_fields(index.row())
+        if not fields:
             return
-        
-        # 履歴データを取得
-        history_data = self.table_model._data
-        if row >= len(history_data):
-            return
-        
-        track_info = history_data[row]
-        if len(track_info) >= 3:
-            track_title = track_info[0] or ""
-            artist = track_info[1] or ""
-            comment = track_info[2] or ""
-            
-            print(f"UI: Double clicked on track: {track_title} by {artist}")
-            
-            # YouTube検索を実行
-            self.search_youtube(track_title, artist, comment, from_list=True)
-    
+
+        track_title, artist, comment = fields
+        print(f"UI: Double clicked on track: {track_title} by {artist}")
+        self.search_youtube(track_title, artist, comment, from_list=True)
+
     def search_selected_track(self):
-        """右ペインで選択中の楽曲でYouTube検索する（Ctrl+Shift+Enter）"""
-        # 設定に応じてウィンドウを最前面に表示
+        """右ペインで選択中の楽曲でYouTube検索する。"""
         if self.config_service.get("bring_to_front_on_hotkey", True):
             self._bring_to_front()
-        
-        # 選択中の行を取得
+
         selection_model = self.right_table.selectionModel()
-        selected_indexes = selection_model.selectedRows()
-        
+        selected_indexes = selection_model.selectedRows() if selection_model else []
         if not selected_indexes:
             print("UI: No track selected for search")
             return
-        
-        # 最初の選択行を取得
-        row = selected_indexes[0].row()
-        if row >= self.table_model.rowCount():
-            print("UI: Selected row is out of bounds")
-            return
-        
-        # 履歴データを取得
-        history_data = self.table_model._data
-        if row >= len(history_data):
-            print("UI: Selected row index exceeds data length")
-            return
-        
-        track_info = history_data[row]
-        if len(track_info) >= 3:
-            track_title = track_info[0] or ""
-            artist = track_info[1] or ""
-            comment = track_info[2] or ""
-            
-            print(f"UI: Searching YouTube for selected track: {track_title} by {artist}")
-            
-            # YouTube検索を実行
-            self.search_youtube(track_title, artist, comment, from_list=True)
-        else:
+
+        fields = self._get_track_search_fields(selected_indexes[0].row())
+        if not fields:
             print("UI: Invalid track data for search")
-    
+            return
+
+        track_title, artist, comment = fields
+        print(f"UI: Searching YouTube for selected track: {track_title} by {artist}")
+        self.search_youtube(track_title, artist, comment, from_list=True)
+
     def search_youtube(self, track_title, artist, comment, from_list=False):
         """YouTubeで動画を検索。
         
@@ -1648,6 +1752,11 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'watcher'):
                 self.watcher.stop()
                 print("UI: History watcher stopped")
+
+            # Shazamサービスの停止
+            if hasattr(self, 'shazam_service'):
+                self.shazam_service.shutdown()
+                print("UI: Shazam service stopped")
             
             # プレイヤーサーバーの停止
             if hasattr(self, 'player_server'):

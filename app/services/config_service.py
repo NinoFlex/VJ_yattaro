@@ -51,6 +51,7 @@ class ConfigService:
             "youtube_api_key": "",
             "youtube_search_template": "%tracktitle% %comment%",
             "enable_logging": True,
+            "shazam_input_device": None,
             "midi_port_name": "",
             "midi_move_up": -1,
             "midi_move_down": -1,
