@@ -81,6 +81,7 @@ class VJPlayer {
                 events: {
                     onReady: (event) => this.onPlayerReady('A', event),
                     onStateChange: (event) => this.onPlayerStateChange('A', event),
+                    onApiChange: (event) => this.onPlayerApiChange('A', event),
                     onError: (event) => this.onPlayerError('A', event)
                 }
             });
@@ -106,6 +107,7 @@ class VJPlayer {
                 events: {
                     onReady: (event) => this.onPlayerReady('B', event),
                     onStateChange: (event) => this.onPlayerStateChange('B', event),
+                    onApiChange: (event) => this.onPlayerApiChange('B', event),
                     onError: (event) => this.onPlayerError('B', event)
                 }
             });
@@ -205,11 +207,45 @@ class VJPlayer {
     onPlayerReady(playerId, event) {
         console.log(`Player ${playerId} is ready`);
         this.isReady[playerId] = true;
+        this.forceCaptionsOff(playerId);
 
         // 両方のプレイヤーが準備完了したら
         if (this.isReady.A && this.isReady.B) {
             console.log('Both players are ready');
             this.setupInitialStates();
+        }
+    }
+
+    onPlayerApiChange(playerId, event) {
+        // 字幕モジュールは動画ロード後に遅れて追加されることがあるため、
+        // API構成が変わったタイミングでも字幕OFFを再適用する。
+        this.forceCaptionsOff(playerId);
+    }
+
+    forceCaptionsOff(playerId) {
+        const player = this.players[playerId];
+        if (!player) {
+            return;
+        }
+
+        try {
+            // 旧IFrame API互換処理。現在も動作する環境では、選択中の字幕トラックを解除する。
+            if (typeof player.setOption === 'function') {
+                player.setOption('captions', 'track', {});
+            }
+        } catch (e) {
+            // captionsモジュール未ロード時などは無視する。
+        }
+
+        try {
+            // cc_load_policy=0 はユーザー設定に従うだけなので、
+            // 利用可能な環境では字幕モジュール自体もアンロードしてOFFを優先する。
+            if (typeof player.unloadModule === 'function') {
+                player.unloadModule('captions');
+                player.unloadModule('cc');
+            }
+        } catch (e) {
+            // YouTube側の実装差異で失敗しても再生には影響させない。
         }
     }
 
@@ -270,6 +306,10 @@ class VJPlayer {
         // isReady状態の更新
         if (state === YT.PlayerState.CUED || state === YT.PlayerState.PLAYING) {
             this.isReady[playerId] = true;
+            this.forceCaptionsOff(playerId);
+            // 字幕が少し遅れて有効化されるケースの保険。
+            setTimeout(() => this.forceCaptionsOff(playerId), 250);
+            setTimeout(() => this.forceCaptionsOff(playerId), 1000);
             console.log(`Player ${playerId} is now ready (state: ${state})`);
         } else if (state === YT.PlayerState.UNSTARTED || state === YT.PlayerState.BUFFERING) {
             this.isReady[playerId] = false;
@@ -399,7 +439,7 @@ class VJPlayer {
             // iframe を作成して直接埋め込む
             const iframe = document.createElement('iframe');
             const origin = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
-            const src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&mute=1&playsinline=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
+            const src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
             iframe.setAttribute('src', src);
             iframe.setAttribute('frameborder', '0');
             iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
@@ -488,7 +528,7 @@ class VJPlayer {
                     }
 
                     if (vid) {
-                        const baseParams = `autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
+                        const baseParams = `autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
                         const extras = extraParams.length ? `&${extraParams.join('&')}` : '';
                         const src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}?${baseParams}${extras}`;
                         candidates.push({ src });
@@ -499,9 +539,9 @@ class VJPlayer {
             }
 
             // デフォルト候補
-            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
-            candidates.push({ src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
-            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(window.location.href)}` });
+            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
+            candidates.push({ src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
+            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(window.location.href)}` });
 
             const applySrc = (srcUrl) => {
                 if (iframe) {
@@ -525,7 +565,7 @@ class VJPlayer {
             if (iframe && iframe.src && iframe.src.indexOf(`/embed/${encodeURIComponent(videoId)}`) !== -1) {
                 if (autoplay) {
                     // 強制的に src を差し替えて autoplay を適用
-                    const primary = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
+                    const primary = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
                     iframe.src = primary;
                 }
                 container.dataset.embedFallback = '1';

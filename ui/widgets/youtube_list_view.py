@@ -99,14 +99,35 @@ class YouTubeListView(QListView):
         self.setMinimumHeight(180)  # 高さを維持
         self.setMaximumHeight(180)  # 高さを固定
         
-        # スタイルシートのエラーを修正
-        self.setStyleSheet("""
-            QListView {
-                background-color: #fafafa; 
-                border: 1px solid #ddd; 
+        self._theme = "light"
+        self._border_color = None
+        self.apply_theme(self._theme)
+
+    def apply_theme(self, theme):
+        from ui.theme import colors, normalize_theme
+        self._theme = normalize_theme(theme)
+        c = colors(self._theme)
+        border_color = self._border_color or c['border_soft']
+        self.setStyleSheet(f"""
+            QListView {{
+                background-color: {c['youtube_list']};
+                color: {c['text']};
+                border: 2px solid {border_color};
                 border-radius: 4px;
-            }
+                outline: none;
+            }}
+            QListView::item {{
+                border: none;
+                padding: 0px;
+                margin: 0px;
+            }}
         """)
+        if hasattr(self, 'delegate') and self.delegate:
+            self.delegate.apply_theme(self._theme)
+
+    def set_border_color(self, border_color):
+        self._border_color = str(border_color or '') or None
+        self.apply_theme(self._theme)
     
     def set_search_results(self, videos):
         """検索結果を設定"""

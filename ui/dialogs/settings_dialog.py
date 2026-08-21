@@ -134,6 +134,8 @@ class SettingsDialog(QDialog):
         from app.services.midi_service import MidiService
         from app.services.youtube_api_key_store import YouTubeApiKeyStore
         self.config_service = ConfigService()
+        from ui.theme import normalize_theme
+        self.ui_theme = normalize_theme(self.config_service.get("ui_theme", "dark"))
         self.hotkey_service = HotkeyService()
         self.midi_service = MidiService()
         self.youtube_api_key_store = YouTubeApiKeyStore(self.config_service)
@@ -173,11 +175,23 @@ class SettingsDialog(QDialog):
         self.midi_service.set_config(device_name, {})
         print("SettingsDialog: Hotkeys and MIDI triggers disabled while settings dialog is open")
 
+    def _theme_color(self, name):
+        from ui.theme import colors
+        return colors(self.ui_theme)[name]
+
+    def _muted_style(self, extra=""):
+        return f"color: {self._theme_color('muted')}; {extra}"
+
+    def _error_style(self, extra=""):
+        return f"color: {self._theme_color('error')}; {extra}"
+
     def _load_current_settings(self):
         """現在の設定値をUIに反映させる"""
         self.db_path_edit.setText(self.config_service.get("db_path", ""))
         self.interval_edit.setText(str(self.config_service.get("interval_s", 10)))
         self.player_port_spin.setValue(int(self.config_service.get("player_port", 8080)))
+        theme_index = self.theme_combo.findData(self.ui_theme)
+        self.theme_combo.setCurrentIndex(theme_index if theme_index >= 0 else 0)
 
         shazam_device = self.config_service.get("shazam_input_device", None)
         shazam_index = self.shazam_input_device_combo.findData(shazam_device)
@@ -201,6 +215,12 @@ class SettingsDialog(QDialog):
             self.shazam_country_combo.setCurrentIndex(country_index)
         else:
             self.shazam_country_combo.setEditText(shazam_country)
+
+        try:
+            shazam_recording_seconds = int(self.config_service.get("shazam_recording_seconds", 6))
+        except (TypeError, ValueError):
+            shazam_recording_seconds = 6
+        self.shazam_recording_seconds_spin.setValue(max(5, min(20, shazam_recording_seconds)))
 
         self.always_on_top_checkbox.setChecked(bool(self.config_service.get("always_on_top", False)))
         self.bring_to_front_on_hotkey_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_hotkey", True)))
@@ -275,6 +295,12 @@ class SettingsDialog(QDialog):
         tab = QWidget()
         layout = QFormLayout(tab)
         
+        # UIテーマ
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItem("ダーク", "dark")
+        self.theme_combo.addItem("ライト", "light")
+        layout.addRow("UIテーマ:", self.theme_combo)
+
         # 更新間隔
         self.interval_edit = QLineEdit()
         layout.addRow("更新間隔 (秒):", self.interval_edit)
@@ -292,7 +318,7 @@ class SettingsDialog(QDialog):
         url_layout = QVBoxLayout()
         self.player_url_label = QLabel()
         self.player_url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.player_url_label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 5px; border: 1px solid #ccc; }")
+        self.player_url_label.setStyleSheet(f"QLabel {{ background-color: {self._theme_color('panel_alt')}; color: {self._theme_color('text')}; padding: 5px; border: 1px solid {self._theme_color('border')}; }}")
         
         copy_button = QPushButton("コピー")
         copy_button.clicked.connect(self._copy_player_url)
@@ -410,7 +436,7 @@ class SettingsDialog(QDialog):
         
         # 注釈
         help_label = QLabel("※ master.db は通常 PIONEER/Master フォルダ内にあります。")
-        help_label.setStyleSheet("color: #666; font-size: 10px;")
+        help_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", help_label)
         
         self.tabs.addTab(tab, "Rekordbox")
@@ -432,7 +458,7 @@ class SettingsDialog(QDialog):
 
         self.shazam_device_status_label = QLabel("")
         self.shazam_device_status_label.setWordWrap(True)
-        self.shazam_device_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.shazam_device_status_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", self.shazam_device_status_label)
 
         self.shazam_language_combo = QComboBox()
@@ -450,20 +476,29 @@ class SettingsDialog(QDialog):
             "Shazam側に日本語表記がない曲は、英字表記のまま返る場合があります。"
         )
         locale_help.setWordWrap(True)
-        locale_help.setStyleSheet("color: #666; font-size: 10px;")
+        locale_help.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", locale_help)
+
+        self.shazam_recording_seconds_spin = QSpinBox()
+        self.shazam_recording_seconds_spin.setRange(5, 20)
+        self.shazam_recording_seconds_spin.setSuffix(" 秒")
+        self.shazam_recording_seconds_spin.setValue(6)
+        self.shazam_recording_seconds_spin.setToolTip(
+            "Shazamへ送る直近の音声時間を5〜20秒で指定します。"
+        )
+        layout.addRow("録音時間:", self.shazam_recording_seconds_spin)
 
         info_label = QLabel(
             "mono / int16 で常時取り込み、可能なら16 kHzを使用します。\n"
             "16 kHz非対応のマイクはネイティブ周波数で取得し、判定時だけ16 kHzへ変換します。\n"
-            "最新8秒を保持し、3秒ごとに最新6秒をShazam判定します。"
+            "指定した5〜20秒分を保持し、3秒ごとに最新の録音区間をShazam判定します。"
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #666; font-size: 10px;")
+        info_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", info_label)
 
         history_label = QLabel("Shazam履歴は最大50件。shazam_history.json に保存します。")
-        history_label.setStyleSheet("color: #666; font-size: 10px;")
+        history_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", history_label)
 
         self._refresh_shazam_devices()
@@ -487,18 +522,18 @@ class SettingsDialog(QDialog):
                 self.shazam_input_device_combo.setToolTip(message)
                 if hasattr(self, "shazam_device_status_label"):
                     self.shazam_device_status_label.setText(message)
-                    self.shazam_device_status_label.setStyleSheet("color: #b00020; font-size: 10px;")
+                    self.shazam_device_status_label.setStyleSheet(self._error_style("font-size: 10px;"))
             else:
                 self.shazam_input_device_combo.setToolTip("")
                 if hasattr(self, "shazam_device_status_label"):
                     self.shazam_device_status_label.setText(f"入力デバイスを {len(devices)} 件検出しました。WindowsではWASAPIを優先表示します。")
-                    self.shazam_device_status_label.setStyleSheet("color: #666; font-size: 10px;")
+                    self.shazam_device_status_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         except Exception as e:
             message = f"入力デバイス一覧の取得に失敗: {e}"
             self.shazam_input_device_combo.setToolTip(message)
             if hasattr(self, "shazam_device_status_label"):
                 self.shazam_device_status_label.setText(message)
-                self.shazam_device_status_label.setStyleSheet("color: #b00020; font-size: 10px;")
+                self.shazam_device_status_label.setStyleSheet(self._error_style("font-size: 10px;"))
 
         idx = self.shazam_input_device_combo.findData(current_data)
         if idx >= 0:
@@ -511,7 +546,7 @@ class SettingsDialog(QDialog):
         
         # 説明ラベル
         info_label = QLabel("グローバルホットキーを設定します。\nアプリがバックグラウンドでも動作します。")
-        info_label.setStyleSheet("color: #666; font-size: 10px; margin-bottom: 10px;")
+        info_label.setStyleSheet(self._muted_style("font-size: 10px; margin-bottom: 10px;"))
         layout.addRow("", info_label)
         
         # 上に移動するホットキー
@@ -606,7 +641,7 @@ class SettingsDialog(QDialog):
         
         # 注釈
         help_label = QLabel("※ Escキーでもクリアできます。\n※ 左右キーはYouTubeリストの動画選択に使用します。\n※ プリロード/再生はYouTube動画の操作に使用します。\n※ 検索は右ペインの選択曲でYouTube検索します。")
-        help_label.setStyleSheet("color: #666; font-size: 10px;")
+        help_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         help_label.setWordWrap(True)
         layout.addRow("", help_label)
         
@@ -635,7 +670,7 @@ class SettingsDialog(QDialog):
         layout.addRow("MIDI入力デバイス:", device_layout)
         
         info_label = QLabel("MIDIパッド等を操作して、各アクションに割り当てるノート番号を設定できます。\n「Learn」ボタンを押してからMIDIパッドを叩いてください。")
-        info_label.setStyleSheet("color: #666; font-size: 10px; margin-bottom: 10px;")
+        info_label.setStyleSheet(self._muted_style("font-size: 10px; margin-bottom: 10px;"))
         layout.addRow("", info_label)
         
         # 学習中のターゲットを保持する変数
@@ -774,24 +809,24 @@ class SettingsDialog(QDialog):
         layout.addRow("", key_action_layout)
 
         self.youtube_key_count_label = QLabel("")
-        self.youtube_key_count_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.youtube_key_count_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", self.youtube_key_count_label)
 
         info_label = QLabel(
             "YouTube Data API v3 のAPIキーを最大10件まで保存できます。\n"
             "青色の行が現在使用中です。削除すると残りのキーは上から詰めて1〜10で再番号付けします。"
         )
-        info_label.setStyleSheet("color: #666; font-size: 10px; margin-bottom: 10px;")
+        info_label.setStyleSheet(self._muted_style("font-size: 10px; margin-bottom: 10px;"))
         info_label.setWordWrap(True)
         layout.addRow("", info_label)
 
         help_label = QLabel('<a href="https://console.cloud.google.com/apis/credentials">Google Cloud Console でAPIキーを取得</a>')
-        help_label.setStyleSheet("color: #1976d2; font-size: 10px;")
+        help_label.setStyleSheet(f"color: {self._theme_color('link')}; font-size: 10px;")
         help_label.setOpenExternalLinks(True)
         layout.addRow("", help_label)
 
-        note_label = QLabel("※ APIキーは exe と同じフォルダの youtube_api_keys.json に保存します。")
-        note_label.setStyleSheet("color: #666; font-size: 10px;")
+        note_label = QLabel("※ APIキーは config.json 内に保存します。")
+        note_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", note_label)
 
         self.youtube_search_template_edit = QLineEdit()
@@ -799,11 +834,11 @@ class SettingsDialog(QDialog):
         layout.addRow("検索テンプレート:", self.youtube_search_template_edit)
 
         variables_label = QLabel("• %tracktitle% - トラックタイトル\n• %artist% - アーティスト名\n• %comment% - コメント")
-        variables_label.setStyleSheet("color: #333; font-size: 9px; margin-left: 10px; margin-bottom: 10px;")
+        variables_label.setStyleSheet(f"color: {self._theme_color('text')}; font-size: 9px; margin-left: 10px; margin-bottom: 10px;")
         layout.addRow("", variables_label)
 
         examples_label = QLabel("例：\n• %artist% %tracktitle%\n• %tracktitle% official video\n• %artist% - %tracktitle% live")
-        examples_label.setStyleSheet("color: #666; font-size: 9px; margin-top: 5px;")
+        examples_label.setStyleSheet(self._muted_style("font-size: 9px; margin-top: 5px;"))
         layout.addRow("", examples_label)
 
         self.tabs.addTab(tab, "YouTube")
@@ -822,9 +857,10 @@ class SettingsDialog(QDialog):
         table = self.youtube_api_key_table
         table.setRowCount(len(self.youtube_api_keys))
 
-        active_bg = QColor("#d7ebff")
-        active_fg = QColor("#0b3558")
-        normal_bg = QColor("#ffffff")
+        active_bg = QColor(self._theme_color("youtube_active"))
+        active_fg = QColor(self._theme_color("youtube_active_text"))
+        normal_bg = QColor(self._theme_color("panel"))
+        normal_fg = QColor(self._theme_color("text"))
 
         for row, key in enumerate(self.youtube_api_keys):
             display_key = key if self._youtube_keys_visible else self._masked_youtube_api_key(key)
@@ -832,8 +868,8 @@ class SettingsDialog(QDialog):
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setBackground(active_bg if row == self.youtube_active_key_index else normal_bg)
+                item.setForeground(active_fg if row == self.youtube_active_key_index else normal_fg)
                 if row == self.youtube_active_key_index:
-                    item.setForeground(active_fg)
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
@@ -908,7 +944,7 @@ class SettingsDialog(QDialog):
         
         # 説明ラベル
         info_label = QLabel("プレイヤー画面の表示に関する設定を行います。")
-        info_label.setStyleSheet("color: #666; font-size: 10px; margin-bottom: 10px;")
+        info_label.setStyleSheet(self._muted_style("font-size: 10px; margin-bottom: 10px;"))
         layout.addRow("", info_label)
         
         # 楽曲情報の表示位置
@@ -954,7 +990,7 @@ class SettingsDialog(QDialog):
         
         # 説明
         desc_label = QLabel("※ 右カラムのリストから検索した場合に、\n　曲名・アーティスト名・コメントをプレイヤーに表示します。")
-        desc_label.setStyleSheet("color: #666; font-size: 10px; margin-top: 5px;")
+        desc_label.setStyleSheet(self._muted_style("font-size: 10px; margin-top: 5px;"))
         desc_label.setWordWrap(True)
         track_info_layout.addWidget(desc_label)
         
@@ -1043,6 +1079,7 @@ class SettingsDialog(QDialog):
             interval = 10
 
         player_port = int(self.player_port_spin.value())
+        ui_theme = self.theme_combo.currentData() or "dark"
 
         always_on_top = self.always_on_top_checkbox.isChecked()
         bring_to_front_on_hotkey = self.bring_to_front_on_hotkey_checkbox.isChecked()
@@ -1069,6 +1106,7 @@ class SettingsDialog(QDialog):
         if shazam_language.lower() == "jp-jp":
             shazam_language = "ja-JP"
         shazam_endpoint_country = self.shazam_country_combo.currentText().strip().upper() or "JP"
+        shazam_recording_seconds = max(5, min(20, int(self.shazam_recording_seconds_spin.value())))
         
         # MIDI設定の取得
         midi_port_name = self.midi_device_combo.currentText()
@@ -1096,12 +1134,13 @@ class SettingsDialog(QDialog):
             f"active={youtube_active_key_index + 1 if youtube_active_key_index >= 0 else 'none'}"
         )
         print(f"Settings: Saving YouTube Search Template: {youtube_search_template}")
+        print(f"Settings: Saving Shazam recording duration: {shazam_recording_seconds}s")
 
         if not self.youtube_api_key_store.save(youtube_api_keys, youtube_active_key_index):
             QMessageBox.critical(
                 self,
                 "YouTube APIキー",
-                "youtube_api_keys.json の保存に失敗しました。設定を適用できません。"
+                "config.json へのAPIキー保存に失敗しました。設定を適用できません。"
             )
             return
 
@@ -1109,6 +1148,7 @@ class SettingsDialog(QDialog):
             "db_path": db_path,
             "interval_s": interval,
             "player_port": player_port,
+            "ui_theme": ui_theme,
             "always_on_top": always_on_top,
             "bring_to_front_on_hotkey": bring_to_front_on_hotkey,
             "bring_to_front_on_search": bring_to_front_on_search,
@@ -1124,13 +1164,12 @@ class SettingsDialog(QDialog):
             "hotkey_search": hotkey_search,
             "hotkey_rewind": hotkey_rewind,
             "hotkey_forward": hotkey_forward,
-            # 旧1キー設定は互換用に空で残し、実キーはyoutube_api_keys.jsonへ保存する。
-            "youtube_api_key": "",
             "youtube_search_template": youtube_search_template,
             "enable_logging": enable_logging,
             "shazam_input_device": shazam_input_device,
             "shazam_language": shazam_language,
             "shazam_endpoint_country": shazam_endpoint_country,
+            "shazam_recording_seconds": shazam_recording_seconds,
             "player_track_info_position": self._get_track_info_position_value(),
             "midi_port_name": midi_port_name,
             "midi_move_up": midi_move_up,

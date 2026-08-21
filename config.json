@@ -9,7 +9,10 @@
     "always_on_top": false,
     "bring_to_back_delay_s": 3,
     "player_port": 8080,
-    "youtube_api_key": "AIzaSyDtJBZXg7ZW7j1Jpk4F2_bHaPb6uVKZMWE",
+    "youtube_api_keys": {
+        "active_index": -1,
+        "keys": []
+    },
     "youtube_search_template": "%tracktitle% %comment%",
     "enable_logging": true,
     "midi_port_name": "LPD8 mk2",
@@ -32,5 +35,6 @@
     "hotkey_forward": "ctrl+:",
     "player_track_info_position": "scroll",
     "shazam_input_device": null,
-    "auto_play_top_result": false
+    "auto_play_top_result": false,
+    "ui_theme": "dark"
 }

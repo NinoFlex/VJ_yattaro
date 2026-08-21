@@ -15,6 +15,14 @@ class YouTubeItemDelegate(QStyledItemDelegate):
         self.preloaded_state = None  # preloading/ready
         self.preloaded_video_id = None
         self.playing_video_id = None
+        self._theme = "light"
+
+    def apply_theme(self, theme):
+        from ui.theme import normalize_theme
+        self._theme = normalize_theme(theme)
+        parent_widget = self.parent()
+        if parent_widget:
+            parent_widget.viewport().update()
     
     def set_video_state(self, state, video_id=None):
         """現在の動画状態を設定"""
@@ -53,14 +61,14 @@ class YouTubeItemDelegate(QStyledItemDelegate):
         if not data:
             return
         
-        # 背景を描画
-        if option.state & QStyle.State_Selected:
-            # 選択状態：白背景
-            painter.fillRect(option.rect, QBrush(Qt.white))
-        elif option.state & QStyle.State_MouseOver:
-            painter.fillRect(option.rect, QColor(240, 240, 240))
+        from ui.theme import colors
+        c = colors(self._theme)
+
+        # 背景を描画。サムネイル未取得時や余白もテーマに合わせる。
+        if option.state & QStyle.State_MouseOver:
+            painter.fillRect(option.rect, QColor(c['youtube_item_hover']))
         else:
-            painter.fillRect(option.rect, QBrush(Qt.white))
+            painter.fillRect(option.rect, QColor(c['youtube_item']))
         
         # サムネイル領域（アイテム全体を使用）
         thumbnail_rect = QRect(
@@ -82,8 +90,8 @@ class YouTubeItemDelegate(QStyledItemDelegate):
             painter.drawPixmap(thumbnail_rect, scaled_pixmap)
         else:
             # サムネイルがない場合のプレースホルダー
-            painter.fillRect(thumbnail_rect, QColor(230, 230, 230))
-            painter.setPen(QColor(150, 150, 150))
+            painter.fillRect(thumbnail_rect, QColor(c['no_image']))
+            painter.setPen(QColor(c['no_image_text']))
             font = QFont()
             font.setPointSize(8)
             painter.setFont(font)

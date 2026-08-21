@@ -1,20 +1,27 @@
 # -*- mode: python ; coding: utf-8 -*-
-
 from PyInstaller.utils.hooks import collect_all
 
-shazam_datas, shazam_binaries, shazam_hiddenimports = collect_all('shazamio')
-core_datas, core_binaries, core_hiddenimports = collect_all('shazamio_core')
-sd_datas, sd_binaries, sd_hiddenimports = collect_all('sounddevice')
-sddata_datas, sddata_binaries, sddata_hiddenimports = collect_all('_sounddevice_data')
-retry_datas, retry_binaries, retry_hiddenimports = collect_all('aiohttp_retry')
+datas = [('web', 'web')]
+binaries = []
+hiddenimports = []
+tmp_ret = collect_all('shazamio')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('shazamio_core')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('aiohttp_retry')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('sounddevice')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('_sounddevice_data')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=shazam_binaries + core_binaries + sd_binaries + sddata_binaries + retry_binaries,
-    datas=[('web', 'web')] + shazam_datas + core_datas + sd_datas + sddata_datas + retry_datas,
-    hiddenimports=shazam_hiddenimports + core_hiddenimports + sd_hiddenimports + sddata_hiddenimports + retry_hiddenimports,
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

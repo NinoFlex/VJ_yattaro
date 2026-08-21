@@ -28,8 +28,9 @@ class ShazamService(QObject):
     SAMPLE_RATE = 16000
     CHANNELS = 1
     DTYPE = "int16"
-    RING_SECONDS = 8
-    RECOGNITION_SECONDS = 6
+    MIN_RECORDING_SECONDS = 5
+    MAX_RECORDING_SECONDS = 20
+    DEFAULT_RECORDING_SECONDS = 6
     RECOGNITION_INTERVAL_MS = 3000
     HISTORY_LIMIT = 50
 
@@ -39,7 +40,11 @@ class ShazamService(QObject):
 
         self.config = ConfigService()
         self._capture_sample_rate = self.SAMPLE_RATE
-        self._ring = np.zeros(self._capture_sample_rate * self.RING_SECONDS, dtype=np.int16)
+        self._recording_seconds = self._get_recording_seconds()
+        self._ring = np.zeros(
+            self._capture_sample_rate * self._recording_seconds,
+            dtype=np.int16,
+        )
         self._ring_lock = threading.Lock()
         self._write_pos = 0
         self._samples_available = 0
@@ -209,6 +214,7 @@ class ShazamService(QObject):
                 device = int(device)
 
             capture_rate = self._select_capture_sample_rate(sd, device)
+            self._recording_seconds = self._get_recording_seconds()
             self._configure_capture_buffer(capture_rate)
 
             # Only load/start the Shazam worker after the selected microphone has
@@ -230,7 +236,8 @@ class ShazamService(QObject):
             self.status_changed.emit("Shazam: microphone capture started")
             print(
                 f"ShazamService: Started (device={device}, "
-                f"capture={capture_rate}Hz/mono/int16, shazam={self.SAMPLE_RATE}Hz)"
+                f"capture={capture_rate}Hz/mono/int16, shazam={self.SAMPLE_RATE}Hz, "
+                f"recording={self._recording_seconds}s)"
             )
             return True
         except Exception as e:
@@ -329,7 +336,7 @@ class ShazamService(QObject):
 
         16 kHz is preferred to keep the capture buffer small. Some Windows host APIs
         (especially WDM-KS/WASAPI endpoints) only accept their native 44.1/48 kHz
-        rate, so fall back to the device default and resample only the 6-second
+        rate, so fall back to the device default and resample only the configured
         recognition snapshot.
         """
         rates = [cls.SAMPLE_RATE]
@@ -360,11 +367,22 @@ class ShazamService(QObject):
 
         raise RuntimeError("No supported input sample rate. " + " / ".join(errors))
 
+    def _get_recording_seconds(self):
+        """Return the configured Shazam recording duration clamped to 5..20 seconds."""
+        try:
+            seconds = int(self.config.get(
+                "shazam_recording_seconds",
+                self.DEFAULT_RECORDING_SECONDS,
+            ))
+        except (TypeError, ValueError):
+            seconds = self.DEFAULT_RECORDING_SECONDS
+        return max(self.MIN_RECORDING_SECONDS, min(self.MAX_RECORDING_SECONDS, seconds))
+
     def _configure_capture_buffer(self, sample_rate):
         self._capture_sample_rate = int(sample_rate)
         with self._ring_lock:
             self._ring = np.zeros(
-                self._capture_sample_rate * self.RING_SECONDS,
+                self._capture_sample_rate * self._recording_seconds,
                 dtype=np.int16,
             )
             self._write_pos = 0
@@ -393,7 +411,8 @@ class ShazamService(QObject):
         if not self._active or self._recognition_busy:
             return
 
-        samples = self._snapshot_latest(self.RECOGNITION_SECONDS)
+        recording_seconds = self._recording_seconds
+        samples = self._snapshot_latest(recording_seconds)
         if samples is None:
             return
 
@@ -401,7 +420,7 @@ class ShazamService(QObject):
         audio_bytes = self._pcm_to_wav_bytes(samples)
         generation = self._generation
         try:
-            self._work_queue.put_nowait((generation, audio_bytes))
+            self._work_queue.put_nowait((generation, audio_bytes, recording_seconds))
             self._recognition_busy = True
         except queue.Full:
             # Never accumulate recognition work. The next timer tick uses the newest audio.
@@ -425,7 +444,7 @@ class ShazamService(QObject):
             if item is None:
                 break
 
-            generation, audio_bytes = item
+            generation, audio_bytes, recording_seconds = item
             title = ""
             artist = ""
             error_text = runtime_error
@@ -439,7 +458,7 @@ class ShazamService(QObject):
                 endpoint_country = str(
                     self.config.get("shazam_endpoint_country", "JP") or "JP"
                 ).strip().upper()
-                profile = (language, endpoint_country)
+                profile = (language, endpoint_country, recording_seconds)
 
                 if shazam is None or profile != shazam_profile:
                     try:
@@ -454,13 +473,14 @@ class ShazamService(QObject):
                                     statuses={429, 500, 502, 503, 504},
                                 )
                             ),
-                            segment_duration_seconds=self.RECOGNITION_SECONDS,
+                            segment_duration_seconds=recording_seconds,
                         )
                         shazam_profile = profile
                         error_text = ""
                         print(
-                            "ShazamService: Recognition locale -> "
-                            f"language={language}, country={endpoint_country}"
+                            "ShazamService: Recognition profile -> "
+                            f"language={language}, country={endpoint_country}, "
+                            f"recording={recording_seconds}s"
                         )
                     except Exception as e:
                         shazam = None

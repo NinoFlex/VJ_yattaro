@@ -1,25 +1,17 @@
-import json
-import os
-import sys
-from pathlib import Path
 from typing import List, Tuple
 
 
 class YouTubeApiKeyStore:
-    """YouTube APIキーをEXEと同じフォルダの専用JSONに保存する。"""
+    """YouTube APIキー一覧をconfig.json内に保存する。"""
 
     MAX_KEYS = 10
-    FILE_NAME = "youtube_api_keys.json"
+    CONFIG_KEY = "youtube_api_keys"
 
     def __init__(self, config_service=None):
-        if getattr(sys, "frozen", False):
-            base_dir = Path(sys.executable).resolve().parent
-        else:
-            base_dir = Path(__file__).resolve().parent.parent.parent
-
-        self.path = base_dir / self.FILE_NAME
+        if config_service is None:
+            from app.services.config_service import ConfigService
+            config_service = ConfigService()
         self.config_service = config_service
-        self._migrate_legacy_key_if_needed()
 
     @staticmethod
     def _normalize_keys(keys) -> List[str]:
@@ -36,14 +28,8 @@ class YouTubeApiKeyStore:
         return result
 
     def load(self) -> Tuple[List[str], int]:
-        if not self.path.exists():
-            return [], -1
-
-        try:
-            with self.path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as e:
-            print(f"YouTubeApiKeyStore: Failed to load {self.path}: {e}")
+        data = self.config_service.get(self.CONFIG_KEY, {})
+        if not isinstance(data, dict):
             return [], -1
 
         keys = self._normalize_keys(data.get("keys", []))
@@ -74,25 +60,18 @@ class YouTubeApiKeyStore:
             "keys": keys,
         }
 
-        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with tmp_path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-                f.write("\n")
-            os.replace(tmp_path, self.path)
-            print(
-                f"YouTubeApiKeyStore: Saved {len(keys)} key(s), "
-                f"active={active_index + 1 if active_index >= 0 else 'none'} to {self.path}"
-            )
-            return True
+            saved = bool(self.config_service.save_config({self.CONFIG_KEY: data}))
+            if saved:
+                print(
+                    f"YouTubeApiKeyStore: Saved {len(keys)} key(s), "
+                    f"active={active_index + 1 if active_index >= 0 else 'none'} to config.json"
+                )
+            else:
+                print("YouTubeApiKeyStore: Failed to save API keys to config.json")
+            return saved
         except Exception as e:
-            print(f"YouTubeApiKeyStore: Failed to save {self.path}: {e}")
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except Exception:
-                pass
+            print(f"YouTubeApiKeyStore: Failed to save API keys to config.json: {e}")
             return False
 
     def get_active_key(self) -> str:
@@ -100,17 +79,3 @@ class YouTubeApiKeyStore:
         if not keys or active_index < 0:
             return ""
         return keys[active_index]
-
-    def _migrate_legacy_key_if_needed(self):
-        """旧config.jsonのyoutube_api_keyを初回のみ専用ファイルへ移行する。"""
-        if self.path.exists() or self.config_service is None:
-            return
-
-        legacy_key = str(self.config_service.get("youtube_api_key", "") or "").strip()
-        if not legacy_key:
-            return
-
-        if self.save([legacy_key], 0):
-            # 移行後はAPIキーをconfig.jsonに重複保持しない。
-            self.config_service.save_config({"youtube_api_key": ""})
-            print("YouTubeApiKeyStore: Migrated legacy YouTube API key from config.json")

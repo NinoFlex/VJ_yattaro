@@ -123,76 +123,8 @@ class TitleBar(QWidget):
         super().__init__(main_window)
         self._main_window = main_window
         self.setFixedHeight(32)
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #f0f0f0;
-                color: #333333;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                border-bottom: 1px solid #ddd;
-            }
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                color: #333333;
-                font-size: 14px;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            #close_button:hover {
-                background-color: #e81123;
-                color: white;
-            }
-            #settings_button {
-                font-size: 11px;
-                background-color: #ffffff;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                margin: 4px 8px;
-                padding: 0 10px;
-                color: #333;
-            }
-            #settings_button:hover {
-                background-color: #f8f8f8;
-                border-color: #999;
-            }
-            #seek_button {
-                font-size: 16px;
-                background-color: #ffffff;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                margin: 4px 2px;
-                padding: 0 8px;
-                color: #333;
-                min-width: 32px;
-            }
-            #seek_button:hover {
-                background-color: #f8f8f8;
-                border-color: #999;
-            }
-            #autoplay_button {
-                font-size: 11px;
-                font-weight: bold;
-                background-color: #ffffff;
-                border: 1px solid #999;
-                border-radius: 4px;
-                margin: 4px 4px;
-                padding: 0 9px;
-                color: #444;
-                min-width: 86px;
-            }
-            #autoplay_button:hover {
-                background-color: #f5f5f5;
-                border-color: #666;
-            }
-            #autoplay_button:checked {
-                background-color: #1f6fb2;
-                border-color: #15598f;
-                color: white;
-            }
-        """)
+        self._theme = "light"
+
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 0, 0, 0)
@@ -218,7 +150,7 @@ class TitleBar(QWidget):
 
         # タイトル
         self.title_label = QLabel("あんたの代わりにVJやっ太郎")
-        self.title_label.setStyleSheet("font-weight: bold; color: #666; margin-left: 5px;")
+        self.title_label.setObjectName("title_label")
         self.title_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         layout.addWidget(self.title_label)
 
@@ -237,7 +169,7 @@ class TitleBar(QWidget):
         self.autoplay_button.setToolTip("検索後に検索結果1位の動画を自動再生します")
         self.autoplay_button.toggled.connect(self._on_autoplay_toggled)
         layout.addWidget(self.autoplay_button)
-        
+
         layout.addStretch()
 
         # 最小化ボタン
@@ -250,6 +182,78 @@ class TitleBar(QWidget):
         self.close_button.setObjectName("close_button")
         self.close_button.clicked.connect(self._main_window.close)
         layout.addWidget(self.close_button)
+
+    def apply_theme(self, theme):
+        from ui.theme import colors, normalize_theme
+        self._theme = normalize_theme(theme)
+        c = colors(self._theme)
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {c['titlebar']};
+                color: {c['text']};
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                border-bottom: 1px solid {c['border_soft']};
+            }}
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                color: {c['text']};
+                font-size: 14px;
+                padding: 0 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {c['hover']};
+            }}
+            #close_button:hover {{
+                background-color: {c['danger']};
+                color: white;
+            }}
+            #settings_button, #seek_button {{
+                background-color: {c['input']};
+                border: 1px solid {c['border']};
+                border-radius: 4px;
+                color: {c['text']};
+            }}
+            #settings_button {{
+                font-size: 11px;
+                margin: 4px 8px;
+                padding: 0 10px;
+            }}
+            #seek_button {{
+                font-size: 16px;
+                margin: 4px 2px;
+                padding: 0 8px;
+                min-width: 32px;
+            }}
+            #settings_button:hover, #seek_button:hover {{
+                background-color: {c['hover']};
+            }}
+            #autoplay_button {{
+                font-size: 11px;
+                font-weight: bold;
+                background-color: {c['input']};
+                border: 1px solid {c['border']};
+                border-radius: 4px;
+                margin: 4px 4px;
+                padding: 0 9px;
+                color: {c['text']};
+                min-width: 86px;
+            }}
+            #autoplay_button:hover {{
+                background-color: {c['hover']};
+            }}
+            #autoplay_button:checked {{
+                background-color: #1f6fb2;
+                border-color: #15598f;
+                color: white;
+            }}
+            #title_label {{
+                font-weight: bold;
+                color: {c['muted']};
+                margin-left: 5px;
+            }}
+        """)
 
     def _on_source_toggled(self, checked):
         mode = "shazam" if checked else "rekordbox"
@@ -305,7 +309,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("VJ_yattaro")
         self.resize(1920, 240)
         self.source_mode = "rekordbox"
-        
+
+        # UI生成前にテーマ設定を読み込む。
+        from app.services.config_service import ConfigService
+        from ui.theme import normalize_theme
+        self.config_service = ConfigService()
+        self.ui_theme = normalize_theme(self.config_service.get("ui_theme", "dark"))
+
         # 前面化状態管理
         self._is_bringing_to_front = False
         self._last_front_time = 0
@@ -406,11 +416,9 @@ class MainWindow(QMainWindow):
         
         content_layout.addWidget(right_container, 2)
         
-        # 設定サービスの初期化
-        from app.services.config_service import ConfigService
-        self.config_service = ConfigService()
         self.auto_play_top_result = bool(self.config_service.get("auto_play_top_result", False))
         self.title_bar.set_auto_play_checked(self.auto_play_top_result)
+        self.apply_theme(self.ui_theme, persist=False)
         
         # ログレベルを設定
         self._configure_logging()
@@ -607,7 +615,7 @@ class MainWindow(QMainWindow):
         self.pending_play_video_id = None
         # 楽曲情報の保持（右カラムから検索した場合のみ設定される）
         self._current_track_info = {"title": "", "artist": "", "comment": ""}
-        self._update_youtube_border_color_safe('#a52a2a')  # デフォルトの枠線色
+        self._update_youtube_border_color_safe(None)  # テーマ標準の枠線色へ戻す
         info("YouTube state reset to default", "UI")
     
     def open_settings(self):
@@ -622,6 +630,7 @@ class MainWindow(QMainWindow):
             enable_logging = self.config_service.get("enable_logging", True)
             configure_logging(enabled=enable_logging, redirect=True)
 
+            self.apply_theme(self.config_service.get("ui_theme", "dark"), persist=False)
             self.watcher.reload_settings()
             if hasattr(self, "shazam_service"):
                 self.shazam_service.reload_settings()
@@ -632,6 +641,55 @@ class MainWindow(QMainWindow):
             self._send_player_config()  # プレイヤー設定を送信
         else:
             print("UI: Settings dialog cancelled.")
+
+    def apply_theme(self, theme, persist=False):
+        """アプリ全体とカスタム描画ウィジェットへテーマを反映する。"""
+        from PySide6.QtWidgets import QApplication
+        from ui.theme import apply_application_theme, colors, normalize_theme
+
+        self.ui_theme = normalize_theme(theme)
+        c = colors(self.ui_theme)
+        app = QApplication.instance()
+        if app is not None:
+            apply_application_theme(app, self.ui_theme)
+
+        if hasattr(self, "main_container"):
+            self.main_container.setStyleSheet(f"""
+                QFrame#main_container {{
+                    background-color: {c['panel']};
+                    border: 1px solid {c['border']};
+                    border-radius: 8px;
+                }}
+            """)
+
+        if hasattr(self, "title_bar"):
+            self.title_bar.apply_theme(self.ui_theme)
+
+        if hasattr(self, "youtube_search_box"):
+            self.youtube_search_box.setStyleSheet(f"""
+                QLineEdit {{
+                    padding: 8px;
+                    border: 1px solid {c['border_soft']};
+                    border-radius: 4px;
+                    font-size: 12px;
+                    background-color: {c['input']};
+                    color: {c['text']};
+                    selection-background-color: {c['selection']};
+                    selection-color: {c['selection_text']};
+                }}
+                QLineEdit:focus {{
+                    border: 2px solid {c['accent']};
+                }}
+            """)
+
+        if hasattr(self, "left_pane") and hasattr(self.left_pane, "apply_theme"):
+            self.left_pane.apply_theme(self.ui_theme)
+        if hasattr(self, "right_table") and hasattr(self.right_table, "apply_theme"):
+            self.right_table.apply_theme(self.ui_theme)
+
+        if persist and hasattr(self, "config_service"):
+            self.config_service.save_config({"ui_theme": self.ui_theme})
+        print(f"UI: Theme -> {self.ui_theme}")
 
     def set_auto_play_enabled(self, enabled):
         """検索結果1位の自動再生を切り替え、設定を保存する。"""
@@ -1150,7 +1208,7 @@ class MainWindow(QMainWindow):
         self._current_track_info = {"title": "", "artist": "", "comment": ""}
         
         # YouTube検索を実行（from_list=Falseなので楽曲情報は保持しない）
-        self.search_youtube(search_text, "", "")
+        self.search_youtube(search_text, "", "", allow_auto_play=False)
     
     def play_current_video(self):
         """現在選択中のYouTube動画を再生（Shift+Enter）"""
@@ -1232,7 +1290,9 @@ class MainWindow(QMainWindow):
 
         track_title, artist, comment = fields
         print(f"UI: Double clicked on track: {track_title} by {artist}")
-        self.search_youtube(track_title, artist, comment, from_list=True)
+        self.search_youtube(
+            track_title, artist, comment, from_list=True, allow_auto_play=False
+        )
 
     def search_selected_track(self):
         """右ペインで選択中の楽曲でYouTube検索する。"""
@@ -1252,9 +1312,13 @@ class MainWindow(QMainWindow):
 
         track_title, artist, comment = fields
         print(f"UI: Searching YouTube for selected track: {track_title} by {artist}")
-        self.search_youtube(track_title, artist, comment, from_list=True)
+        self.search_youtube(
+            track_title, artist, comment, from_list=True, allow_auto_play=False
+        )
 
-    def search_youtube(self, track_title, artist, comment, from_list=False):
+    def search_youtube(
+        self, track_title, artist, comment, from_list=False, allow_auto_play=True
+    ):
         """YouTubeで動画を検索。
         
         - 検索中でなければ即座に実行する。
@@ -1263,7 +1327,8 @@ class MainWindow(QMainWindow):
         - 前の検索完了後、1秒待機してから保留中の検索を実行する。
         
         Args:
-            from_list: 右カラムのリストから検索された場合True
+            from_list: 右カラムのリスト由来の曲情報を保持する場合True
+            allow_auto_play: 自動検索ならTrue。手動検索ではFalseにして自動再生を抑止する。
         """
         from app.utils.logger import info, error
         from app.services.youtube_service import YouTubeService
@@ -1280,10 +1345,16 @@ class MainWindow(QMainWindow):
         # 検索中なら保留キューに登録して終了
         if self.youtube_search_thread and self.youtube_search_thread.isRunning():
             # 古い保留は破棄して最新の1件だけ保持
-            self._pending_search_args = (track_title, artist, comment, from_list)
+            self._pending_search_args = (
+                track_title, artist, comment, from_list, allow_auto_play
+            )
             info(f"Search queued (previous search running): {track_title}", "UI")
             return
         
+        # この検索が自動再生対象かを検索完了まで保持する。
+        # 検索は同時に1本だけなので、アクティブ検索の属性として保持できる。
+        self._active_search_allow_auto_play = bool(allow_auto_play)
+
         youtube_service = YouTubeService()
         
         # APIキーが設定されているかチェック
@@ -1359,11 +1430,17 @@ class MainWindow(QMainWindow):
         if self._pending_search_args is None:
             return
         
-        track_title, artist, comment, from_list = self._pending_search_args
+        track_title, artist, comment, from_list, allow_auto_play = self._pending_search_args
         self._pending_search_args = None  # キューをクリア
         
         info(f"Executing pending search: {track_title}", "UI")
-        self.search_youtube(track_title, artist, comment, from_list=from_list)
+        self.search_youtube(
+            track_title,
+            artist,
+            comment,
+            from_list=from_list,
+            allow_auto_play=allow_auto_play,
+        )
 
     def _auto_play_top_video(self, video):
         """検索結果1位を既存のPRELOAD -> ready -> PLAY経路で自動再生する。"""
@@ -1425,9 +1502,13 @@ class MainWindow(QMainWindow):
         self.left_pane.set_search_results(processed_videos)
         info(f"Found {len(videos)} YouTube videos (showing {initial_display_count} immediately)", "UI")
 
-        # 自動再生ONなら検索結果1位を既存のPRELOAD -> ready -> PLAY経路へ送る
-        if initial_videos:
+        # 自動検索だけ、自動再生ONなら検索結果1位をPRELOAD -> ready -> PLAYへ送る。
+        # 検索ボックス、右カラムのダブルクリック、検索ホットキーなどの手動検索では
+        # タイトルバーの自動再生設定がONでも自動再生しない。
+        if initial_videos and getattr(self, "_active_search_allow_auto_play", True):
             self._auto_play_top_video(initial_videos[0])
+        elif initial_videos:
+            print("UI: Auto-play skipped - manual YouTube search")
         
         # 最初の動画を選択状態にする（遅延実行で確実に設定）
         if processed_videos:
@@ -1796,51 +1877,17 @@ class MainWindow(QMainWindow):
             print(f"UI: Traceback: {traceback.format_exc()}")
     
     def _update_youtube_border_color_safe(self, border_color):
-        """YouTubeリストの枠の色を安全に更新"""
+        """YouTubeリスト外枠を更新する。Noneならテーマ標準色へ戻す。"""
         try:
-            # より安全なスタイルシート更新方法
-            import re
-            current_style = self.left_pane.styleSheet()
-            
-            # 枠線の色のみを更新（既存のスタイルを維持）
-            new_style = re.sub(r'border: 2px solid [^;]+;', f'border: 2px solid {border_color};', current_style)
-            
-            # 枠線が見つからない場合は追加
-            if "border:" not in new_style:
-                new_style = new_style.replace("QListView {", f"QListView {{\n                    border: 2px solid {border_color};")
-            
-            # 選択状態の枠線も更新
-            new_style = re.sub(r'border: 4px solid [^;]+;', f'border: 4px solid {border_color};', new_style)
-            
-            self.left_pane.setStyleSheet(new_style)
-            print(f"UI: YouTube border color updated to {border_color}")
-            
+            if hasattr(self.left_pane, "set_border_color"):
+                self.left_pane.set_border_color(border_color)
+            elif border_color:
+                current_style = self.left_pane.styleSheet()
+                self.left_pane.setStyleSheet(current_style + f"\nQListView {{ border: 2px solid {border_color}; }}")
+            print(f"UI: YouTube border color updated to {border_color or 'theme default'}")
         except Exception as e:
             print(f"UI: Error in safe border color update: {e}")
-            # フォールバック：最小限りのスタイルシートを設定
-            try:
-                self.left_pane.setStyleSheet(f"""
-                    QListView {{
-                        background-color: #ffffff;
-                        border: 2px solid {border_color};
-                        border-radius: 4px;
-                        outline: none;
-                    }}
-                    QListView::item {{
-                        border: none;
-                        padding: 0px;
-                        margin: 0px;
-                    }}
-                    QListView::item:selected {{
-                        border: 4px solid {border_color};
-                        border-radius: 4px;
-                        background-color: #f0f0f0;
-                    }}
-                """)
-                print(f"UI: Fallback border color update successful")
-            except Exception as e2:
-                print(f"UI: Fallback also failed: {e2}")
-    
+
     def _preload_video(self, video_id):
         """動画をプリロード"""
         if not video_id:

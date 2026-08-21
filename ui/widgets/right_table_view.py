@@ -61,23 +61,39 @@ class RightTableView(QTableView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
-        self.setStyleSheet("""
-            QTableView {
-                background-color: white;
-                alternate-background-color: #f9f9f9;
-                selection-background-color: #e3f2fd;
-                selection-color: black;
-                border: 1px solid #ddd;
+        self._theme = "light"
+        self.apply_theme(self._theme)
+
+    def apply_theme(self, theme):
+        from ui.theme import colors, normalize_theme
+        self._theme = normalize_theme(theme)
+        c = colors(self._theme)
+        self.setStyleSheet(f"""
+            QTableView {{
+                background-color: {c['panel']};
+                alternate-background-color: {c['panel_alt']};
+                selection-background-color: {c['selection_soft']};
+                selection-color: {c['selection_text']};
+                color: {c['text']};
+                border: 1px solid {c['border_soft']};
                 border-radius: 4px;
                 outline: none;
-            }
-            QTableView::item {
+            }}
+            QTableView::item {{
                 padding: 5px;
-            }
-            QTableView::item:selected {
-                background-color: #bbdefb;
-                color: black;
-            }
+            }}
+            QTableView::item:selected {{
+                background-color: {c['selection']};
+                color: {c['selection_text']};
+            }}
+            QHeaderView::section {{
+                background-color: {c['header']};
+                color: {c['text']};
+                border: none;
+                border-right: 1px solid {c['border']};
+                border-bottom: 1px solid {c['border']};
+                padding: 5px;
+            }}
         """)
 
     def setModel(self, model):
