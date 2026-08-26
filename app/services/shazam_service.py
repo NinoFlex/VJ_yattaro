@@ -525,7 +525,7 @@ class ShazamService(QObject):
             return
 
         track_key = (title.casefold(), artist.casefold())
-        if track_key == self._last_track:
+        if self._is_same_track(self._last_track, track_key):
             self.status_changed.emit(f"Shazam: {artist} - {title}")
             return
 
@@ -540,6 +540,36 @@ class ShazamService(QObject):
         self.new_track_detected.emit(entry)
         self.status_changed.emit(f"Shazam: {artist} - {title}")
         print(f"ShazamService: Recognized {artist} - {title}")
+
+    @staticmethod
+    def _track_field_matches(previous_value, current_value):
+        """Return True when two Shazam fields are close enough for de-duplication.
+
+        Compare case-insensitively.  A field contributes its first six characters;
+        when it is shorter than six characters, the whole field is used.  The
+        comparison is symmetric so a short/base title also matches a longer
+        variant regardless of which one Shazam reports first.
+        """
+        previous = str(previous_value or "").strip().casefold()
+        current = str(current_value or "").strip().casefold()
+        if not previous or not current:
+            return False
+
+        previous_prefix = previous[: min(6, len(previous))]
+        current_prefix = current[: min(6, len(current))]
+        return previous_prefix in current or current_prefix in previous
+
+    @classmethod
+    def _is_same_track(cls, previous_track, current_track):
+        if not previous_track or not current_track:
+            return False
+
+        previous_title, previous_artist = previous_track
+        current_title, current_artist = current_track
+        return (
+            cls._track_field_matches(previous_title, current_title)
+            and cls._track_field_matches(previous_artist, current_artist)
+        )
 
     def _close_stream(self):
         stream = self._stream

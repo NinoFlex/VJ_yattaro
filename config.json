@@ -36,5 +36,6 @@
     "player_track_info_position": "scroll",
     "shazam_input_device": null,
     "auto_play_top_result": false,
+    "auto_play_seek_seconds": 0,
     "ui_theme": "dark"
 }

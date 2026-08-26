@@ -51,6 +51,7 @@ class ConfigService:
             "youtube_api_keys": {"active_index": -1, "keys": []},
             "youtube_search_template": "%tracktitle% %comment%",
             "auto_play_top_result": False,
+            "auto_play_seek_seconds": 0,
             "ui_theme": "dark",
             "enable_logging": True,
             "shazam_input_device": None,

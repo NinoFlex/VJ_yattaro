@@ -613,6 +613,8 @@ class MainWindow(QMainWindow):
         self.last_clicked_video_id = None
         self.current_playing_video_id = None
         self.pending_play_video_id = None
+        # 自動検索→自動再生時だけ、playing到達後に指定秒数早送りする対象。
+        self.pending_auto_seek_video_id = None
         # 楽曲情報の保持（右カラムから検索した場合のみ設定される）
         self._current_track_info = {"title": "", "artist": "", "comment": ""}
         self._update_youtube_border_color_safe(None)  # テーマ標準の枠線色へ戻す
@@ -694,6 +696,9 @@ class MainWindow(QMainWindow):
     def set_auto_play_enabled(self, enabled):
         """検索結果1位の自動再生を切り替え、設定を保存する。"""
         self.auto_play_top_result = bool(enabled)
+        if not self.auto_play_top_result:
+            # 自動再生をOFFにした時点で、未実行の自動早送りも破棄する。
+            self.pending_auto_seek_video_id = None
         if hasattr(self, "config_service"):
             self.config_service.save_config({"auto_play_top_result": self.auto_play_top_result})
         print(f"UI: Auto-play top search result -> {'ON' if self.auto_play_top_result else 'OFF'}")
@@ -1166,6 +1171,9 @@ class MainWindow(QMainWindow):
         if not video_id:
             print("UI: No video ID found for selected YouTube video")
             return
+
+        # 手動プリロードでは、自動検索由来の早送り待ちを解除する。
+        self.pending_auto_seek_video_id = None
         
         print(f"UI: Preloading YouTube video via hotkey: {title} ({video_id})")
 
@@ -1233,6 +1241,9 @@ class MainWindow(QMainWindow):
         if not video_id:
             print("UI: No video ID found for selected YouTube video")
             return
+
+        # 手動再生では、自動検索由来の早送り待ちを解除する。
+        self.pending_auto_seek_video_id = None
         
         print(f"UI: Playing YouTube video via hotkey: {title} ({video_id})")
         
@@ -1461,6 +1472,15 @@ class MainWindow(QMainWindow):
         # 既存の手動再生と同じ経路を使う。readyフィードバック後にPLAYされる。
         self.preloaded_video_id = video_id
         self.pending_play_video_id = video_id
+
+        # Rekordbox/Shazamの自動検索→自動再生にだけ適用する。
+        # 0秒なら従来どおり何もしない。
+        try:
+            auto_seek_seconds = int(self.config_service.get("auto_play_seek_seconds", 0))
+        except (TypeError, ValueError):
+            auto_seek_seconds = 0
+        self.pending_auto_seek_video_id = video_id if auto_seek_seconds > 0 else None
+
         self.player_server.send_command("PRELOAD", video_id, track_info=self._current_track_info)
         self._update_youtube_video_state("preloading", video_id)
         print(f"UI: Auto-play queued top search result: {title} ({video_id})")
@@ -1822,6 +1842,26 @@ class MainWindow(QMainWindow):
                         
             elif state == 'playing':
                 self._update_youtube_video_state('playing', video_id)
+
+                # Rekordbox/Shazamの自動検索→自動再生で開始した動画だけ、
+                # 実際のplayingフィードバック到達後に設定秒数だけ早送りする。
+                if self.pending_auto_seek_video_id == video_id:
+                    self.pending_auto_seek_video_id = None  # playing再通知で二重早送りしない
+                    try:
+                        auto_seek_seconds = int(self.config_service.get("auto_play_seek_seconds", 0))
+                    except (TypeError, ValueError):
+                        auto_seek_seconds = 0
+                    auto_seek_seconds = max(0, min(60, auto_seek_seconds))
+                    if auto_seek_seconds > 0:
+                        if hasattr(self, 'player_server') and self.player_server:
+                            self.player_server.send_command('FORWARD', str(auto_seek_seconds))
+                            print(
+                                f"UI: Auto-play started; sent FORWARD "
+                                f"({auto_seek_seconds} seconds) for video: {video_id}"
+                            )
+                        else:
+                            print("UI: Player server not available for auto-play seek")
+
                 # 再生開始したらlast_clicked_video_idをリセット
                 print(f"UI: Checking reset condition - last_clicked_video_id: {getattr(self, 'last_clicked_video_id', 'None')}, video_id: {video_id}")
                 if hasattr(self, 'last_clicked_video_id') and self.last_clicked_video_id == video_id:

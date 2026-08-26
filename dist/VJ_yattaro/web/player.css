@@ -1,0 +1,312 @@
+/* 基本設定 */
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: black;
+    width: 100vw;
+    height: 100vh;
+}
+
+/* ステージ */
+#stage {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: black;
+}
+
+/* プレイヤーコンテナ */
+.player-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: black;
+}
+
+/* YouTubeプレイヤー */
+.player-container iframe {
+    width: 100vw;
+    height: 100vh;
+    border: none;
+}
+
+/* YouTubeプレイヤーのUI要素を非表示（VJ向け） */
+.player-container iframe ~ * {
+    display: none !important;
+}
+
+/* HTML5プレイヤーのコントロールを非表示 */
+.player-container video::-webkit-media-controls {
+    display: none !important;
+}
+
+.player-container video::-webkit-media-controls-start-playback-button {
+    display: none !important;
+}
+
+.player-container video::-webkit-media-controls-panel {
+    display: none !important;
+}
+
+/* プレイヤーA（前面） */
+#playerAContainer {
+    z-index: 10;
+}
+
+/* プレイヤーB（背面） */
+#playerBContainer {
+    z-index: 5;
+}
+
+/* プレイヤー切り替えアニメーション */
+.player-container.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.player-container.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* フェードトランジション */
+.player-container {
+    transition: opacity 0.5s ease-in-out;
+}
+
+/* クロスフェード用のz-index管理 */
+.player-container.crossfade-out {
+    z-index: 5;
+}
+
+.player-container.crossfade-in {
+    z-index: 10;
+}
+
+/* 手動再生用オーバーレイ */
+.manual-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.manual-content {
+    background: #222;
+    padding: 30px;
+    border-radius: 10px;
+    text-align: center;
+    color: white;
+    max-width: 600px;
+    border: 1px solid #555;
+}
+
+.manual-content h2 {
+    margin-top: 0;
+    color: #fff;
+}
+
+.manual-steps {
+    text-align: left;
+    margin: 20px 0;
+}
+
+.manual-steps h3 {
+    color: #4CAF50;
+}
+
+.manual-steps ol {
+    padding-left: 20px;
+}
+
+.manual-steps li {
+    margin: 10px 0;
+}
+
+.video-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin: 20px 0;
+}
+
+.video-buttons button {
+    padding: 10px 20px;
+    background: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.video-buttons button:hover {
+    background: #45a049;
+}
+
+.manual-content button {
+    padding: 10px 20px;
+    background: #f44336;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-top: 10px;
+}
+
+.manual-content button:hover {
+    background: #d32f2f;
+}
+
+#currentVideoId {
+    color: #4CAF50;
+    font-family: monospace;
+    font-size: 16px;
+}
+
+/* ローディングインジケーター */
+.loading-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 24px;
+    font-family: Arial, sans-serif;
+    display: none;
+}
+
+.loading-indicator.show {
+    display: block;
+}
+
+/* 楽曲情報オーバーレイ */
+.track-info-overlay {
+    position: fixed;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 12px 18px;
+    border-radius: 6px;
+    font-family: 'Meiryo UI', 'Yu Gothic UI', 'Segoe UI', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 50vw;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.track-info-overlay.visible {
+    opacity: 1;
+}
+
+.track-info-overlay.hidden {
+    display: none !important;
+}
+
+/* 楽曲情報の各行 */
+.track-info-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-info-line:empty {
+    display: none;
+}
+
+/* 表示位置: 右上 */
+.track-info-top-right {
+    top: 20px;
+    right: 20px;
+}
+
+/* 表示位置: 左上 */
+.track-info-top-left {
+    top: 20px;
+    left: 20px;
+}
+
+/* 表示位置: 右下 */
+.track-info-bottom-right {
+    bottom: 20px;
+    right: 20px;
+}
+
+/* 表示位置: 左下 */
+.track-info-bottom-left {
+    bottom: 20px;
+    left: 20px;
+}
+
+/* 表示位置: スクロール（テロップ） */
+.track-info-scroll {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
+    background: rgba(80, 80, 80, 0.6); /* 半透明グレー */
+    color: white;
+    padding: 18px 0; /* 文字サイズに合わせて広げる */
+    font-family: 'Meiryo UI', 'Yu Gothic UI', 'Segoe UI', sans-serif;
+    font-size: 38px; /* 文字を少し大きめに変更 */
+    font-weight: bold;
+    pointer-events: none;
+    opacity: 0;
+    width: 100vw;
+    max-width: 100vw;
+    box-sizing: border-box;
+    transition: opacity 0.5s ease-in-out;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    overflow: hidden;
+    white-space: nowrap;
+    z-index: 9999;
+}
+
+.track-info-scroll.visible {
+    opacity: 1;
+}
+
+.track-info-scroll.hidden {
+    display: none !important;
+}
+
+/* スクロール用コンテナ */
+.track-info-scroll .scroll-container {
+    display: inline-block;
+    padding-left: 0;
+    animation: track-marquee 25s linear infinite;
+}
+
+#scrollText {
+    padding-right: 0;
+}
+
+@keyframes track-marquee {
+    0% {
+        transform: translate3d(100vw, 0, 0); /* 左端がスクロール表示部の右端からスタート */
+    }
+    100% {
+        transform: translate3d(-100%, 0, 0); /* 右端がスクロール表示部の左端に接したとき終了 */
+    }
+}
+

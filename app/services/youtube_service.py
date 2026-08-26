@@ -451,8 +451,8 @@ class YouTubeService(QObject):
 
         normalized = unicodedata.normalize("NFKC", str(text))
         # B'z / C++ / C# / AC-DC のように検索語として意味を持ちやすい
-        # ASCII記号は残し、それ以外の装飾記号・句読点を空白化する。
-        safe_symbols = {"'", "’", "&", "+", "#", "-", ".", "_"}
+        # ASCII記号の一部は残すが、& は検索の安定性を優先して空白化する。
+        safe_symbols = {"'", "’", "+", "#", "-", ".", "_", "@"}
         cleaned = []
         for char in normalized:
             category = unicodedata.category(char)
@@ -476,7 +476,7 @@ class YouTubeService(QObject):
                        {"tracktitle": "曲名", "artist": "アーティスト名", "comment": "コメント"}
         
         Returns:
-            検索用に正規化されたクエリ文字列
+            検索用に正規化され、最大100文字に制限されたクエリ文字列
         """
         if not template:
             return ""
@@ -493,7 +493,10 @@ class YouTubeService(QObject):
         for var, value in variables.items():
             result = result.replace(var, value)
 
-        return self.sanitize_search_query(result)
+        # テンプレート展開・検索用正規化後の最終クエリを100文字以内に制限する。
+        # Pythonの文字列スライスなので、日本語などのマルチバイト文字も文字単位で扱われる。
+        search_query = self.sanitize_search_query(result)
+        return search_query[:100].rstrip()
     
     def get_api_key(self) -> str:
         """専用APIキーファイルから現在使用中のキーを取得。"""

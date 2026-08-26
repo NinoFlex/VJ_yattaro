@@ -228,6 +228,11 @@ class SettingsDialog(QDialog):
         self.bring_to_back_delay_spin.setValue(int(self.config_service.get("bring_to_back_delay_s", 3)))
         self.rewind_seconds_spin.setValue(int(self.config_service.get("rewind_seconds", 2)))
         self.forward_seconds_spin.setValue(int(self.config_service.get("forward_seconds", 2)))
+        try:
+            auto_play_seek_seconds = int(self.config_service.get("auto_play_seek_seconds", 0))
+        except (TypeError, ValueError):
+            auto_play_seek_seconds = 0
+        self.auto_play_seek_seconds_spin.setValue(max(0, min(60, auto_play_seek_seconds)))
         self._sync_window_placement_mode_ui()
         self.enable_logging_checkbox.setChecked(bool(self.config_service.get("enable_logging", True)))
         self.hotkey_up_edit.setText(self.config_service.get("hotkey_move_up", "ctrl+shift+up"))
@@ -1021,8 +1026,29 @@ class SettingsDialog(QDialog):
         forward_row.addWidget(self.forward_seconds_spin)
         forward_row.addStretch()
 
+        # 自動検索→自動再生後の早送り秒数
+        auto_play_seek_row = QHBoxLayout()
+        auto_play_seek_row.addWidget(QLabel("自動再生後の早送り秒数:"))
+        self.auto_play_seek_seconds_spin = QSpinBox()
+        self.auto_play_seek_seconds_spin.setRange(0, 60)
+        self.auto_play_seek_seconds_spin.setSuffix(" 秒")
+        self.auto_play_seek_seconds_spin.setValue(0)
+        self.auto_play_seek_seconds_spin.setToolTip(
+            "Rekordbox / Shazam の自動検索から自動再生した動画に適用します。0秒なら早送りしません。"
+        )
+        auto_play_seek_row.addWidget(self.auto_play_seek_seconds_spin)
+        auto_play_seek_row.addStretch()
+
         seek_layout.addLayout(rewind_row)
         seek_layout.addLayout(forward_row)
+        seek_layout.addLayout(auto_play_seek_row)
+
+        auto_play_seek_desc = QLabel(
+            "※ Rekordbox / Shazam の自動検索→自動再生時だけ適用します。手動再生には適用しません。"
+        )
+        auto_play_seek_desc.setStyleSheet(self._muted_style("font-size: 10px;"))
+        auto_play_seek_desc.setWordWrap(True)
+        seek_layout.addWidget(auto_play_seek_desc)
 
         layout.addRow(seek_group)
         
@@ -1087,6 +1113,7 @@ class SettingsDialog(QDialog):
         bring_to_back_delay_s = int(self.bring_to_back_delay_spin.value())
         rewind_seconds = int(self.rewind_seconds_spin.value())
         forward_seconds = int(self.forward_seconds_spin.value())
+        auto_play_seek_seconds = int(self.auto_play_seek_seconds_spin.value())
         
         hotkey_up = self.hotkey_up_edit.text()
         hotkey_down = self.hotkey_down_edit.text()
@@ -1128,7 +1155,10 @@ class SettingsDialog(QDialog):
         print(f"Settings: Saving Hotkeys - Up: {hotkey_up}, Down: {hotkey_down}, Left: {hotkey_left}, Right: {hotkey_right}")
         print(f"Settings: Saving YouTube Hotkeys - Preload: {hotkey_preload}, Play: {hotkey_play}, Search: {hotkey_search}, Rewind: {hotkey_rewind}, Forward: {hotkey_forward}")
         print(f"Settings: Saving Window Placement - AlwaysOnTop: {always_on_top}, HotkeyFront: {bring_to_front_on_hotkey}, SearchFront: {bring_to_front_on_search}, DelayS: {bring_to_back_delay_s}")
-        print(f"Settings: Saving Seek Settings - Rewind: {rewind_seconds}s, Forward: {forward_seconds}s")
+        print(
+            f"Settings: Saving Seek Settings - Rewind: {rewind_seconds}s, "
+            f"Forward: {forward_seconds}s, AutoPlaySeek: {auto_play_seek_seconds}s"
+        )
         print(
             f"Settings: Saving YouTube API Keys: {len(youtube_api_keys)} key(s), "
             f"active={youtube_active_key_index + 1 if youtube_active_key_index >= 0 else 'none'}"
@@ -1155,6 +1185,7 @@ class SettingsDialog(QDialog):
             "bring_to_back_delay_s": bring_to_back_delay_s,
             "rewind_seconds": rewind_seconds,
             "forward_seconds": forward_seconds,
+            "auto_play_seek_seconds": auto_play_seek_seconds,
             "hotkey_move_up": hotkey_up,
             "hotkey_move_down": hotkey_down,
             "hotkey_move_left": hotkey_left,
