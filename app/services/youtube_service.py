@@ -8,31 +8,57 @@ import json
 from urllib.parse import urlencode
 
 
+# Keep QThread wrappers alive until the native thread has actually finished.
+# Dropping the last Python reference to a running QThread can destroy the
+# underlying C++ object and abort the process (often without a Python traceback).
+_ACTIVE_QTHREADS = set()
+
+
+def _retain_qthread(thread):
+    _ACTIVE_QTHREADS.add(thread)
+
+    def _release_finished_thread():
+        _ACTIVE_QTHREADS.discard(thread)
+        try:
+            thread.finished.disconnect(_release_finished_thread)
+        except (RuntimeError, TypeError):
+            pass
+
+    thread.finished.connect(_release_finished_thread)
+    return thread
+
+
 class ThumbnailLoader(QThread):
     """サムネイルを非同期で読み込むスレッド"""
     thumbnail_loaded = Signal(str, object)  # video_id, thumbnail (QImage)
-    
-    def __init__(self, video_id: str, thumbnail_url: str):
+
+    def __init__(self, video_id: str, thumbnail_url: str, generation: int = 0):
         super().__init__()
         self.video_id = video_id
         self.thumbnail_url = thumbnail_url
+        self.generation = generation
         self._is_aborted = False
-    
+
+    def abort(self):
+        """Request cooperative cancellation without destroying a running QThread."""
+        self._is_aborted = True
+        self.requestInterruption()
+
     def run(self):
         """サムネイルを読み込む"""
-        if self._is_aborted:
+        if self._is_aborted or self.isInterruptionRequested():
             return
-            
+
         try:
             from PySide6.QtGui import QImage
             response = requests.get(self.thumbnail_url, timeout=20)
             response.raise_for_status()
-            
+
             # QImageとして読み込み（スレッドセーフ）
             image = QImage()
             image.loadFromData(response.content)
-            
-            if self._is_aborted:
+
+            if self._is_aborted or self.isInterruptionRequested():
                 return
 
             if not image.isNull():
@@ -40,10 +66,11 @@ class ThumbnailLoader(QThread):
             else:
                 print(f"ThumbnailLoader: Failed to load thumbnail for {self.video_id}")
                 self.thumbnail_loaded.emit(self.video_id, None)
-                
+
         except Exception as e:
-            print(f"ThumbnailLoader: Error loading thumbnail for {self.video_id}: {e}")
-            self.thumbnail_loaded.emit(self.video_id, None)
+            if not self._is_aborted and not self.isInterruptionRequested():
+                print(f"ThumbnailLoader: Error loading thumbnail for {self.video_id}: {e}")
+                self.thumbnail_loaded.emit(self.video_id, None)
 
 
 class YouTubeQuotaExceededError(Exception):
@@ -352,79 +379,115 @@ class YouTubeSearchThread(QThread):
 
 
 class AsyncThumbnailManager(QObject):
-    """非同期サムネイル読み込みを管理するクラス（シーケンシャル版）"""
+    """非同期サムネイル読み込みを管理するクラス（シーケンシャル版）。
+
+    QThread は thumbnail_loaded を emit した瞬間にはまだ run() から戻っていない
+    可能性があるため、finished を受け取るまでは current_loader の参照を保持する。
+    """
     thumbnail_ready = Signal(str, object)  # video_id, thumbnail (QImage)
-    
+
     def __init__(self):
         super().__init__()
         self.current_loader = None
         self.pending_videos = []
         self.loaded_video_ids = set()  # 読み込み済み動画IDを追跡
         self.is_loading = False
-    
+        self._generation = 0
+        self._stopped = False
+
     def reset(self):
-        """新しい検索開始時に呼ぶ。キューと読み込み済みIDをリセットする"""
+        """新しい検索用にキューを切り替え、旧検索の結果を無効化する。"""
+        self._generation += 1
+        self._stopped = False
         self.pending_videos.clear()
         self.loaded_video_ids.clear()
-    
+
+        # requests.get() 自体は即時中断できないため、実行中QThreadは破棄せず
+        # cooperative cancel にして finished まで参照を保持する。
+        if self.current_loader:
+            self.current_loader.abort()
+
     def load_thumbnails_async(self, videos: List[Dict]):
-        """複数のサムネイルを順番に非同期で読み込む"""
-        # 新しい動画のみをペンディングリストに追加（同一検索の2回目呼び出しを考慮してclearしない）
+        """複数のサムネイルを順番に非同期で読み込む。"""
+        if self._stopped:
+            return
+
+        pending_ids = {video.get('video_id') for video in self.pending_videos}
         for video in videos:
             video_id = video.get('video_id')
-            if video_id and video_id not in self.loaded_video_ids and 'thumbnail_url' in video:
+            thumbnail_url = video.get('thumbnail_url')
+            if (
+                video_id
+                and thumbnail_url
+                and video_id not in self.loaded_video_ids
+                and video_id not in pending_ids
+            ):
                 self.pending_videos.append(video)
-        
-        # 現在読み込み中でなければ開始
-        # 読み込み中の場合は _on_thumbnail_loaded が次の pending_videos を拾う
-        if not self.is_loading and self.pending_videos:
+                pending_ids.add(video_id)
+
+        # current_loader がある間は、たとえ thumbnail_loaded 済みでも
+        # finished までは次スレッドを作らない。
+        if self.current_loader is None and self.pending_videos:
             self._load_next_thumbnail()
-    
+
     def _load_next_thumbnail(self):
-        """次のサムネイルを読み込む"""
+        """次のサムネイルを読み込む。"""
+        if self._stopped or self.current_loader is not None:
+            return
         if not self.pending_videos:
             self.is_loading = False
             return
-        
+
         self.is_loading = True
-        video = self.pending_videos.pop(0)  # 先頭から取得（1位から順番）
+        video = self.pending_videos.pop(0)
         video_id = video['video_id']
         thumbnail_url = video['thumbnail_url']
-        
+
         self.loaded_video_ids.add(video_id)
-        self.current_loader = ThumbnailLoader(video_id, thumbnail_url)
-        # スレッド終了時に自動破棄されるように接続
-        self.current_loader.finished.connect(self.current_loader.deleteLater)
-        # スレッド間通信のため明示的に QueuedConnection を設定（メインスレッドで安全に受信）
-        self.current_loader.thumbnail_loaded.connect(self._on_thumbnail_loaded, type=Qt.QueuedConnection)
-        self.current_loader.start()
-    
+        loader = ThumbnailLoader(video_id, thumbnail_url, self._generation)
+        self.current_loader = loader
+        _retain_qthread(loader)
+
+        # QImage はワーカースレッドで生成可。QPixmap化はメインスレッド側で行う。
+        loader.thumbnail_loaded.connect(self._on_thumbnail_loaded, type=Qt.QueuedConnection)
+        # 参照解放と次ジョブ開始は thumbnail_loaded ではなく finished 後に行う。
+        loader.finished.connect(self._on_thumbnail_loader_finished, type=Qt.QueuedConnection)
+        loader.start()
+
     def _on_thumbnail_loaded(self, video_id: str, thumbnail):
-        """サムネイル読み込み完了時のコールバック"""
+        """サムネイル読み込み完了時のコールバック。"""
+        loader = self.sender()
+        if self._stopped:
+            return
+        if loader is not None and getattr(loader, 'generation', -1) != self._generation:
+            # 新しい検索へ切り替わった後に届いた旧リクエスト結果は捨てる。
+            return
         self.thumbnail_ready.emit(video_id, thumbnail)
-        
-        # 参照をクリア（finishedシグナルによって自動的にdeleteLaterが実行されるため安全）
-        self.current_loader = None
-        
-        # 次のサムネイルを読み込み
-        self._load_next_thumbnail()
-    
+
+    def _on_thumbnail_loader_finished(self):
+        """ネイティブスレッド終了後にだけ参照を外し、次の読み込みへ進む。"""
+        loader = self.sender()
+        if loader is self.current_loader:
+            self.current_loader = None
+        self.is_loading = self.current_loader is not None
+
+        if not self._stopped:
+            self._load_next_thumbnail()
+
     def stop_all_loaders(self):
-        """すべてのサムネイル読み込みスレッドを停止"""
-        if self.current_loader and self.current_loader.isRunning():
-            try:
-                self.current_loader._is_aborted = True
-                self.current_loader.thumbnail_loaded.disconnect()
-            except:
-                pass
-            self.current_loader.quit()
-            self.current_loader.wait(1000)
-            self.current_loader.deleteLater()
-        
-        self.current_loader = None
+        """読み込みを停止する。実行中QThreadは finished 前に破棄しない。"""
+        self._stopped = True
+        self._generation += 1
         self.pending_videos.clear()
         self.loaded_video_ids.clear()
-        self.is_loading = False
+
+        if self.current_loader:
+            self.current_loader.abort()
+
+        # current_loader は _on_thumbnail_loader_finished() が呼ばれるまで保持する。
+        # ここで wait(1000) 後に delete/None にすると、通信中の場合に
+        # "QThread: Destroyed while thread is still running" でプロセスが落ち得る。
+        self.is_loading = bool(self.current_loader and self.current_loader.isRunning())
 
 
 class YouTubeService(QObject):
@@ -573,6 +636,7 @@ class YouTubeService(QObject):
             query,
             api_key_store=self.api_key_store,
         )
+        _retain_qthread(self.search_thread)
 
         # コールバックを接続
         if callback:

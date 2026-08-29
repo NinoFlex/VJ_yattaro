@@ -1423,17 +1423,29 @@ class MainWindow(QMainWindow):
             print("UI: Search completed - search box enabled")
     
     def _on_search_finished(self):
-        """検索スレッド終了時のクリーンアップ。
+        """検索QThreadが実際に終了した後だけ参照を解放する。
         保留中の検索があれば 1秒後に実行する。
         """
         from app.utils.logger import info
+
+        finished_thread = self.sender()
+        # 古いスレッドの finished が遅れて届いても、新しい検索を消さない。
+        if (
+            finished_thread is not None
+            and self.youtube_search_thread is not None
+            and finished_thread is not self.youtube_search_thread
+        ):
+            info("Ignoring stale YouTube search finished signal.", "UI")
+            return
+
         self._set_searching_state(False)
-        self.youtube_search_thread = None
-        
+        if finished_thread is None or finished_thread is self.youtube_search_thread:
+            self.youtube_search_thread = None
+
         if self._pending_search_args is not None:
             info("Search finished. Pending search found - will execute in 1 second.", "UI")
             self._pending_search_timer.start(1000)  # 1秒後に保留検索を実行
-    
+
     def _execute_pending_search(self):
         """保留中のYouTube検索を実行する（検索完了から1秒後に呼ばれる）"""
         from app.utils.logger import info
@@ -1499,8 +1511,8 @@ class MainWindow(QMainWindow):
             self._bring_to_front()
             info("Brought window to front after search completion", "UI")
         
-        # 検索完了を通知
-        self._on_search_finished()
+        # 検索結果は受信済みだが、QThread の run() はまだ終了処理中の可能性がある。
+        # 参照解放は finished シグナルから _on_search_finished() が呼ばれた時だけ行う。
         
         # 段階的表示：まず5件だけ即時表示
         initial_display_count = min(5, len(videos))
@@ -1662,21 +1674,25 @@ class MainWindow(QMainWindow):
             # すべてのスレッドを強制停止
             self._cleanup_thumbnail_loaders()
             
-            # YouTube検索スレッドを強制停止
+            # YouTube検索スレッドを協調停止。実行中QThreadは finished 前に破棄しない。
             if hasattr(self, 'youtube_search_thread') and self.youtube_search_thread:
-                if self.youtube_search_thread.isRunning():
+                search_thread = self.youtube_search_thread
+                if search_thread.isRunning():
                     try:
-                        self.youtube_search_thread._is_aborted = True
-                        self.youtube_search_thread.search_completed.disconnect()
-                        self.youtube_search_thread.search_error.disconnect()
+                        search_thread.search_completed.disconnect()
+                        search_thread.search_error.disconnect()
                     except Exception as e:
                         print(f"UI: Error disconnecting search thread signals: {e}")
-                # terminate() ではなく安全な終了を試みる
-                self.youtube_search_thread.quit()
-                self.youtube_search_thread.wait(1000) # 1秒待機
-                self.youtube_search_thread = None
-                print("UI: Force stopped search thread")
-            
+                    search_thread.stop_search()
+
+                if not search_thread.isRunning():
+                    self.youtube_search_thread = None
+                    print("UI: Search thread stopped safely")
+                else:
+                    # requests の通信が戻るまでは thread の寿命を維持する。
+                    # youtube_service 側の active-thread registry も finished まで保持する。
+                    print("UI: Search thread is still finishing; deferred release")
+
             # UIコンポーネントのデータをクリア
             if hasattr(self, 'left_pane'):
                 self.left_pane.clear_results()

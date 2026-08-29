@@ -10,21 +10,11 @@
     "bring_to_back_delay_s": 3,
     "player_port": 8080,
     "youtube_api_keys": {
-        "active_index": 1,
-        "keys": [
-            "AIzaSyDtJBZXg7ZW7j1Jpk4F2_bHaPb6uVKZMWE",
-            "AIzaSyCNXFpLPMIroQsGJT9VRCL9IRTDaW2Jx10"
-        ]
+        "active_index": -1,
+        "keys": []
     },
-    "youtube_search_template": "%tracktitle% %comment% %artist%",
-    "auto_play_top_result": true,
-    "auto_play_seek_seconds": 8,
-    "ui_theme": "dark",
+    "youtube_search_template": "%tracktitle% %comment%",
     "enable_logging": true,
-    "shazam_input_device": 44,
-    "shazam_language": "ja-JP",
-    "shazam_endpoint_country": "JP",
-    "shazam_recording_seconds": 6,
     "midi_port_name": "LPD8 mk2",
     "midi_move_up": 43,
     "midi_move_down": 39,
@@ -43,5 +33,9 @@
     "forward_seconds": 4,
     "hotkey_rewind": "ctrl+;",
     "hotkey_forward": "ctrl+:",
-    "player_track_info_position": "scroll"
+    "player_track_info_position": "scroll",
+    "shazam_input_device": null,
+    "auto_play_top_result": false,
+    "auto_play_seek_seconds": 0,
+    "ui_theme": "dark"
 }
