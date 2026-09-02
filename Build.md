@@ -19,7 +19,7 @@ py -3.12 -m pip install pyinstaller
 - Python 3.12の確認
 - 依存ライブラリのインストール
 - PyInstallerによるフォルダ形式ビルド
-- `config.json` / `web` の配置
+- `config.json` / `web` / `assets` の配置
 - `shazam_history.json` の生成
 
 ```bat
@@ -29,9 +29,10 @@ build.bat
 手動で実行する場合:
 
 ```powershell
-py -3.12 -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --collect-all shazamio --collect-all shazamio_core --collect-all aiohttp_retry --collect-all sounddevice --collect-all _sounddevice_data main.py
+py -3.12 -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --add-data="assets;assets" --collect-all shazamio --collect-all shazamio_core --collect-all aiohttp_retry --collect-all sounddevice --collect-all _sounddevice_data main.py
 Copy-Item config.json dist\VJ_yattaro\
 Copy-Item -Recurse -Force web dist\VJ_yattaro\web
+Copy-Item -Recurse -Force assets dist\VJ_yattaro\assets
 [System.IO.File]::WriteAllText("dist\VJ_yattaro\shazam_history.json", "[]")
 ```
 
@@ -41,6 +42,7 @@ Copy-Item -Recurse -Force web dist\VJ_yattaro\web
 dist/VJ_yattaro/
 ├── VJ_yattaro.exe
 ├── web/
+├── assets/
 ├── _internal/
 ├── config.json
 └── shazam_history.json
@@ -97,3 +99,11 @@ dist\VJ_yattaro\_internal\_sounddevice_data\portaudio-binaries\libportaudio64bit
 ```
 
 `py -3.12 -m sounddevice` 自体で入力デバイスが出ない場合は、Windowsの「設定 > プライバシーとセキュリティ > マイク」でデスクトップアプリのマイクアクセスが許可されているか、デバイスマネージャー上で対象マイクが有効かを確認してください。
+## A/Bプレイヤー操作パネル
+
+- アプリ上部にPlayer A / Player Bの状態、サムネイル、楽曲情報、再生時間を表示します。
+- 左右の回転アイコンは各物理プレイヤーの再生・一時停止操作です。
+- 中央のA/Bトグルで、巻き戻し・早送りを送る対象プレイヤーを選択します。
+- シーケンスバーは表示専用です。ブラウザからは状態変化時だけ現在位置と総時間を取得し、その後はアプリ側の単調時計で表示を進めます。
+- `assets/player_spinner.gif` は操作パネル用のアニメーションです。
+

@@ -26,9 +26,11 @@ py -3.12 -m PyInstaller ^
     --windowed ^
     --name="VJ_yattaro" ^
     --add-data="web;web" ^
+    --add-data="assets;assets" ^
     --collect-all shazamio ^
     --collect-all shazamio_core ^
     --collect-all aiohttp_retry ^
+    --collect-all pygame ^
     --collect-all sounddevice ^
     --collect-all _sounddevice_data ^
     main.py
@@ -47,6 +49,12 @@ if errorlevel 1 (
 xcopy web dist\VJ_yattaro\web\ /e /i /y >nul
 if errorlevel 1 (
     echo ERROR: Failed to copy web directory.
+    exit /b 1
+)
+
+xcopy assets dist\VJ_yattaro\assets\ /e /i /y >nul
+if errorlevel 1 (
+    echo ERROR: Failed to copy assets directory.
     exit /b 1
 )
 

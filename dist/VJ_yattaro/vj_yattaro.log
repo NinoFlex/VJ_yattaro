@@ -1,0 +1,964 @@
+[2026-09-02 22:11:56.639] UI: Starting application...
+[2026-09-02 22:11:56.681] UI: Creating main window...
+[2026-09-02 22:11:56.741] UI: Theme -> dark
+[2026-09-02 22:11:56.741] UI: Logging configured at level INFO (Redirection active)
+[2026-09-02 22:11:58.588] UI: Initial top track set: ('ドラム式探査機', '田所あずさ', '神達に拾われた男2\u3000ED')
+[2026-09-02 22:11:58.588] HistoryWatcher: Initial track loaded: ('ドラム式探査機', '田所あずさ', '神達に拾われた男2\u3000ED')
+[2026-09-02 22:11:58.588] HistoryWatcher: Started monitoring every 3.0s
+[2026-09-02 22:11:58.590] HotkeyService: Initialized using Win32 RegisterHotKey
+[2026-09-02 22:11:58.591] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-02 22:11:58.692] HotkeyService: Registered Win32 hotkey 'up' (ID:1, VK:0x26, Mod:0x0)
+[2026-09-02 22:11:58.692] HotkeyService: Registered Win32 hotkey 'down' (ID:2, VK:0x28, Mod:0x0)
+[2026-09-02 22:11:58.692] HotkeyService: Registered Win32 hotkey 'left' (ID:3, VK:0x25, Mod:0x0)
+[2026-09-02 22:11:58.692] HotkeyService: Registered Win32 hotkey 'right' (ID:4, VK:0x27, Mod:0x0)
+[2026-09-02 22:11:58.692] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:5, VK:0x6f, Mod:0x2)
+[2026-09-02 22:11:58.692] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:6, VK:0xbf, Mod:0x2)
+[2026-09-02 22:11:58.694] HotkeyService: Registered Win32 hotkey 'ctrl+\' (ID:7, VK:0xe2, Mod:0x2)
+[2026-09-02 22:11:58.694] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:8, VK:0x6e, Mod:0x2)
+[2026-09-02 22:11:58.694] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:9, VK:0xbe, Mod:0x2)
+[2026-09-02 22:11:58.694] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:10, VK:0xbb, Mod:0x2)
+[2026-09-02 22:11:58.695] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:11, VK:0x6b, Mod:0x2)
+[2026-09-02 22:11:58.695] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:12, VK:0xba, Mod:0x2)
+[2026-09-02 22:11:58.695] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:13, VK:0x6a, Mod:0x2)
+[2026-09-02 22:11:58.696] UI: Hotkeys reloaded - Up: up, Down: down, Left: left, Right: right, Preload: ctrl+/, Play: ctrl+\, Search: ctrl+., Rewind: ctrl+;, Forward: ctrl+:
+[2026-09-02 22:11:59.491] MidiService: Updating config. Device='LPD8 mk2', Mappings: {43: 'move_up', 39: 'move_down', 41: 'move_left', 42: 'move_right', 36: 'play', 40: 'search', 37: 'rewind', 38: 'forward'}
+[2026-09-02 22:11:59.521] MidiService: Available MIDI inputs: ['DDJ-FLX4', 'LPD8 mk2']
+[2026-09-02 22:11:59.521] MidiService: Connecting to device ID 2 (LPD8 mk2)
+[2026-09-02 22:11:59.521] UI: MIDI config reloaded - Device: LPD8 mk2
+[2026-09-02 22:11:59.545] MidiServiceWorker: Started listening to device ID 2
+[2026-09-02 22:11:59.585] PlayerHttpServer: Server started on http://localhost:8080
+[2026-09-02 22:11:59.585] UI: Player HTTP server started
+[2026-09-02 22:11:59.588] UI: YouTube border color updated to theme default
+[2026-09-02 22:11:59.589] UI: YouTube state reset to default
+[2026-09-02 22:12:00.069] UI: Starting event loop...
+[2026-09-02 22:12:01.135] UI: Opened player in browser: http://localhost:8080/player.html?defaultVideoId=eyUUHfVm8Ik&trackInfoPosition=scroll
+[2026-09-02 22:12:02.291] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:02.292] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:02.292] PlayerCommandHandler: Content-Length: 129
+[2026-09-02 22:12:02.292] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"","timestamp":1788354721981,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true}'
+[2026-09-02 22:12:02.294] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '', 'timestamp': 1788354721981, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True}
+[2026-09-02 22:12:02.294] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:02.294] UI: Player feedback received - state: HEARTBEAT, player: A, video: 
+[2026-09-02 22:12:02.585] PlayerHttpServer: Sent command: SET_CONFIG - {"trackInfoPosition": "scroll"}
+[2026-09-02 22:12:02.585] UI: Sent SET_CONFIG to player - trackInfoPosition: scroll
+[2026-09-02 22:12:02.990] PlayerHttpServer: Sent command: REQUEST_PLAYER_STATE - 
+[2026-09-02 22:12:02.990] UI: Requested one-shot A/B player state snapshots
+[2026-09-02 22:12:03.495] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:03.495] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:03.495] PlayerCommandHandler: Content-Length: 188
+[2026-09-02 22:12:03.496] PlayerCommandHandler: Raw post data: b'{"state":"idle","videoId":"","timestamp":1788354723181,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{},"currentTime":0,"duration":null}'
+[2026-09-02 22:12:03.496] PlayerCommandHandler: Parsed feedback data: {'state': 'idle', 'videoId': '', 'timestamp': 1788354723181, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {}, 'currentTime': 0, 'duration': None}
+[2026-09-02 22:12:03.497] UI: Player feedback received - state: idle, player: A, video: 
+[2026-09-02 22:12:03.497] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:03.498] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:03.499] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:03.499] PlayerCommandHandler: Content-Length: 189
+[2026-09-02 22:12:03.499] PlayerCommandHandler: Raw post data: b'{"state":"idle","videoId":"","timestamp":1788354723181,"currentPlayer":"A","nextPlayer":"B","playerId":"B","isCurrent":false,"trackInfo":null,"mediaInfo":{},"currentTime":0,"duration":null}'
+[2026-09-02 22:12:03.499] PlayerCommandHandler: Parsed feedback data: {'state': 'idle', 'videoId': '', 'timestamp': 1788354723181, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'B', 'isCurrent': False, 'trackInfo': None, 'mediaInfo': {}, 'currentTime': 0, 'duration': None}
+[2026-09-02 22:12:03.499] UI: Player feedback received - state: idle, player: B, video: 
+[2026-09-02 22:12:03.501] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:04.465] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:04.466] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:04.466] PlayerCommandHandler: Content-Length: 304
+[2026-09-02 22:12:04.466] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354724244,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":null,"duration":null}'
+[2026-09-02 22:12:04.466] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354724244, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': '', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': None, 'duration': None}
+[2026-09-02 22:12:04.467] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:04.492] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:04.493] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:04.494] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:04.494] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:04.494] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:04.494] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:04.495] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:04.549] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:04.550] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:04.550] PlayerCommandHandler: Content-Length: 303
+[2026-09-02 22:12:04.550] PlayerCommandHandler: Raw post data: b'{"state":"unstarted","videoId":"eyUUHfVm8Ik","timestamp":1788354724269,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":null}'
+[2026-09-02 22:12:04.550] PlayerCommandHandler: Parsed feedback data: {'state': 'unstarted', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354724269, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': '', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': None}
+[2026-09-02 22:12:04.550] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:04.552] UI: Player feedback received - state: unstarted, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:04.572] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:04.573] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:04.573] PlayerCommandHandler: Content-Length: 303
+[2026-09-02 22:12:04.573] PlayerCommandHandler: Raw post data: b'{"state":"buffering","videoId":"eyUUHfVm8Ik","timestamp":1788354724272,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":null}'
+[2026-09-02 22:12:04.573] PlayerCommandHandler: Parsed feedback data: {'state': 'buffering', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354724272, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': '', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': None}
+[2026-09-02 22:12:04.574] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:04.574] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:05.042] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:05.042] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:05.042] PlayerCommandHandler: Content-Length: 384
+[2026-09-02 22:12:05.043] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354724849,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.06653909346008301,"duration":5.021}'
+[2026-09-02 22:12:05.043] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354724849, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.06653909346008301, 'duration': 5.021}
+[2026-09-02 22:12:05.044] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:05.045] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:05.045] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:05.047] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:05.047] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:05.047] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:05.048] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:05.048] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:07.383] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:07.384] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:07.384] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:07.384] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"eyUUHfVm8Ik","timestamp":1788354727088,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true}'
+[2026-09-02 22:12:07.384] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354727088, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True}
+[2026-09-02 22:12:07.386] UI: Player feedback received - state: HEARTBEAT, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:07.386] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:09.871] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:09.872] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:09.872] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:09.872] PlayerCommandHandler: Raw post data: b'{"state":"ended","videoId":"eyUUHfVm8Ik","timestamp":1788354729809,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":5.021,"duration":5.021}'
+[2026-09-02 22:12:09.872] PlayerCommandHandler: Parsed feedback data: {'state': 'ended', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354729809, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 5.021, 'duration': 5.021}
+[2026-09-02 22:12:09.874] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:09.876] UI: Player feedback received - state: ended, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:10.125] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:10.127] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:10.127] PlayerCommandHandler: Content-Length: 385
+[2026-09-02 22:12:10.128] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354729820,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.003999948501586914,"duration":5.021}'
+[2026-09-02 22:12:10.128] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354729820, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.003999948501586914, 'duration': 5.021}
+[2026-09-02 22:12:10.130] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:10.130] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:10.130] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:10.131] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:10.131] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:10.132] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:10.132] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:10.132] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:10.132] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:10.133] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:10.133] PlayerCommandHandler: Raw post data: b'{"state":"buffering","videoId":"eyUUHfVm8Ik","timestamp":1788354729826,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":5.021}'
+[2026-09-02 22:12:10.133] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:10.134] PlayerCommandHandler: Parsed feedback data: {'state': 'buffering', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354729826, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': 5.021}
+[2026-09-02 22:12:10.134] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:10.135] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:10.135] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:10.135] PlayerCommandHandler: Content-Length: 385
+[2026-09-02 22:12:10.136] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:10.137] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354729831,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.003974093460083008,"duration":5.021}'
+[2026-09-02 22:12:10.137] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354729831, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.003974093460083008, 'duration': 5.021}
+[2026-09-02 22:12:10.138] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:10.138] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:10.139] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:10.139] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:10.139] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:10.140] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:10.140] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:10.140] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:12.503] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:12.503] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:12.503] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:12.504] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"eyUUHfVm8Ik","timestamp":1788354732190,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true}'
+[2026-09-02 22:12:12.504] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354732190, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True}
+[2026-09-02 22:12:12.505] UI: Player feedback received - state: HEARTBEAT, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:12.505] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:15.202] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:15.203] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:15.203] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:15.204] PlayerCommandHandler: Raw post data: b'{"state":"ended","videoId":"eyUUHfVm8Ik","timestamp":1788354734895,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":5.021,"duration":5.021}'
+[2026-09-02 22:12:15.204] PlayerCommandHandler: Parsed feedback data: {'state': 'ended', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354734895, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 5.021, 'duration': 5.021}
+[2026-09-02 22:12:15.206] UI: Player feedback received - state: ended, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:15.206] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:15.207] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:15.207] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:15.207] PlayerCommandHandler: Content-Length: 386
+[2026-09-02 22:12:15.208] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354734899,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.0019998550415039062,"duration":5.021}'
+[2026-09-02 22:12:15.208] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354734899, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.0019998550415039062, 'duration': 5.021}
+[2026-09-02 22:12:15.209] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:15.209] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:15.210] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:15.210] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:15.210] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:15.210] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:15.211] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:15.211] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:15.211] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:15.211] PlayerCommandHandler: Raw post data: b'{"state":"buffering","videoId":"eyUUHfVm8Ik","timestamp":1788354734905,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":5.021}'
+[2026-09-02 22:12:15.213] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:15.213] PlayerCommandHandler: Parsed feedback data: {'state': 'buffering', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354734905, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': 5.021}
+[2026-09-02 22:12:15.213] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:15.214] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:15.214] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:15.215] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:15.215] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:15.216] PlayerCommandHandler: Content-Length: 385
+[2026-09-02 22:12:15.216] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354734909,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.002698927520751953,"duration":5.021}'
+[2026-09-02 22:12:15.216] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354734909, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.002698927520751953, 'duration': 5.021}
+[2026-09-02 22:12:15.217] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:15.217] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:15.218] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:15.218] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:15.218] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:15.218] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:15.219] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:15.219] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:17.595] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:17.595] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:17.595] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:17.597] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"eyUUHfVm8Ik","timestamp":1788354737282,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true}'
+[2026-09-02 22:12:17.597] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354737282, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True}
+[2026-09-02 22:12:17.598] UI: Player feedback received - state: HEARTBEAT, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:17.598] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:20.286] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:20.287] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:20.287] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:20.288] PlayerCommandHandler: Raw post data: b'{"state":"ended","videoId":"eyUUHfVm8Ik","timestamp":1788354739974,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":5.021,"duration":5.021}'
+[2026-09-02 22:12:20.288] PlayerCommandHandler: Parsed feedback data: {'state': 'ended', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354739974, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 5.021, 'duration': 5.021}
+[2026-09-02 22:12:20.289] UI: Player feedback received - state: ended, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:20.289] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:20.290] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:20.291] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:20.291] PlayerCommandHandler: Content-Length: 385
+[2026-09-02 22:12:20.291] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354739983,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.003999948501586914,"duration":5.021}'
+[2026-09-02 22:12:20.291] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354739983, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.003999948501586914, 'duration': 5.021}
+[2026-09-02 22:12:20.294] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:20.294] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:20.294] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:20.295] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:20.295] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:20.295] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:20.296] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:20.296] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:20.296] PlayerCommandHandler: Raw post data: b'{"state":"buffering","videoId":"eyUUHfVm8Ik","timestamp":1788354739984,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":5.021}'
+[2026-09-02 22:12:20.297] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:20.297] PlayerCommandHandler: Parsed feedback data: {'state': 'buffering', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354739984, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': 5.021}
+[2026-09-02 22:12:20.297] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:20.297] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:20.298] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:20.298] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:20.301] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:20.301] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:20.302] PlayerCommandHandler: Content-Length: 386
+[2026-09-02 22:12:20.302] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354739989,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.0027681659393310547,"duration":5.021}'
+[2026-09-02 22:12:20.302] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354739989, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.0027681659393310547, 'duration': 5.021}
+[2026-09-02 22:12:20.303] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:20.303] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:20.304] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:20.304] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:20.304] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:20.305] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:20.305] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:20.305] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:21.907] UI: Double clicked on track: 月の温度 by JELEE
+[2026-09-02 22:12:21.991] UI: Track info saved - title: 月の温度, artist: JELEE, comment: 夜のクラゲは泳げない　第4話 ED
+[2026-09-02 22:12:21.992] UI: YouTube API key not configured
+[2026-09-02 22:12:22.249] UI: Double clicked on track: 月の温度 by JELEE
+[2026-09-02 22:12:22.249] UI: Track info saved - title: 月の温度, artist: JELEE, comment: 夜のクラゲは泳げない　第4話 ED
+[2026-09-02 22:12:22.250] UI: YouTube API key not configured
+[2026-09-02 22:12:22.604] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:22.604] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:22.605] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:22.605] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"eyUUHfVm8Ik","timestamp":1788354742290,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true}'
+[2026-09-02 22:12:22.605] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354742290, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True}
+[2026-09-02 22:12:22.605] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:22.808] UI: Player feedback received - state: HEARTBEAT, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:25.201] MidiService: Updating config. Device='LPD8 mk2', Mappings: {}
+[2026-09-02 22:12:25.201] MidiService: Available MIDI inputs: ['DDJ-FLX4', 'LPD8 mk2']
+[2026-09-02 22:12:25.202] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-02 22:12:25.202] MidiService: Updating config. Device='LPD8 mk2', Mappings: {}
+[2026-09-02 22:12:25.203] MidiService: Available MIDI inputs: ['DDJ-FLX4', 'LPD8 mk2']
+[2026-09-02 22:12:25.203] SettingsDialog: Hotkeys and MIDI triggers disabled while settings dialog is open
+[2026-09-02 22:12:25.366] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:25.367] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:25.367] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:25.367] PlayerCommandHandler: Raw post data: b'{"state":"ended","videoId":"eyUUHfVm8Ik","timestamp":1788354745053,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":5.021,"duration":5.021}'
+[2026-09-02 22:12:25.368] PlayerCommandHandler: Parsed feedback data: {'state': 'ended', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354745053, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 5.021, 'duration': 5.021}
+[2026-09-02 22:12:25.368] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:25.370] UI: Player feedback received - state: ended, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:25.370] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:25.371] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:25.371] PlayerCommandHandler: Content-Length: 385
+[2026-09-02 22:12:25.371] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354745061,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.004000186920166016,"duration":5.021}'
+[2026-09-02 22:12:25.371] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354745061, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.004000186920166016, 'duration': 5.021}
+[2026-09-02 22:12:25.372] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:25.372] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:25.373] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:25.374] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:25.374] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:25.374] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:25.375] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:25.375] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:25.375] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:25.376] PlayerCommandHandler: Raw post data: b'{"state":"buffering","videoId":"eyUUHfVm8Ik","timestamp":1788354745064,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":5.021}'
+[2026-09-02 22:12:25.376] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:25.376] PlayerCommandHandler: Parsed feedback data: {'state': 'buffering', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354745064, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': 5.021}
+[2026-09-02 22:12:25.376] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:25.377] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:25.378] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:25.378] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:25.378] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:25.379] PlayerCommandHandler: Content-Length: 386
+[2026-09-02 22:12:25.379] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354745071,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.0027781659393310548,"duration":5.021}'
+[2026-09-02 22:12:25.380] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354745071, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.0027781659393310548, 'duration': 5.021}
+[2026-09-02 22:12:25.380] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:25.380] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:25.381] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:25.381] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:25.381] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:25.382] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:25.382] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:25.382] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:27.698] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:27.698] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:27.698] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:27.698] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"eyUUHfVm8Ik","timestamp":1788354747385,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true}'
+[2026-09-02 22:12:27.699] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354747385, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True}
+[2026-09-02 22:12:27.699] UI: Player feedback received - state: HEARTBEAT, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:27.699] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:30.080] Settings: Saving DB Path: C:/Users/NINO/git/master.db, Interval: 3
+[2026-09-02 22:12:30.080] Settings: Saving Hotkeys - Up: up, Down: down, Left: left, Right: right
+[2026-09-02 22:12:30.081] Settings: Saving YouTube Hotkeys - Preload: ctrl+/, Play: ctrl+\, Search: ctrl+., Rewind: ctrl+;, Forward: ctrl+:
+[2026-09-02 22:12:30.081] Settings: Saving Window Placement - AlwaysOnTop: False, HotkeyFront: True, SearchFront: True, DelayS: 3
+[2026-09-02 22:12:30.081] Settings: Saving Seek Settings - Rewind: 3s, Forward: 4s, AutoPlaySeek: 0s
+[2026-09-02 22:12:30.082] Settings: Saving YouTube API Keys: 1 key(s), active=1
+[2026-09-02 22:12:30.082] Settings: Saving YouTube Search Template: %tracktitle% %comment%
+[2026-09-02 22:12:30.082] Settings: Saving Shazam recording duration: 6s
+[2026-09-02 22:12:30.083] ConfigService: Config saved to C:\Users\NINO\Downloads\app_play_animation_state_fix\dist\VJ_yattaro\config.json
+[2026-09-02 22:12:30.084] YouTubeApiKeyStore: Saved 1 key(s), active=1 to config.json
+[2026-09-02 22:12:30.084] ConfigService: Config saved to C:\Users\NINO\Downloads\app_play_animation_state_fix\dist\VJ_yattaro\config.json
+[2026-09-02 22:12:30.085] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-02 22:12:30.185] HotkeyService: Registered Win32 hotkey 'up' (ID:14, VK:0x26, Mod:0x0)
+[2026-09-02 22:12:30.186] HotkeyService: Registered Win32 hotkey 'down' (ID:15, VK:0x28, Mod:0x0)
+[2026-09-02 22:12:30.186] HotkeyService: Registered Win32 hotkey 'left' (ID:16, VK:0x25, Mod:0x0)
+[2026-09-02 22:12:30.186] HotkeyService: Registered Win32 hotkey 'right' (ID:17, VK:0x27, Mod:0x0)
+[2026-09-02 22:12:30.187] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:18, VK:0x6f, Mod:0x2)
+[2026-09-02 22:12:30.187] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:19, VK:0xbf, Mod:0x2)
+[2026-09-02 22:12:30.187] HotkeyService: Registered Win32 hotkey 'ctrl+\' (ID:20, VK:0xe2, Mod:0x2)
+[2026-09-02 22:12:30.187] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:21, VK:0x6e, Mod:0x2)
+[2026-09-02 22:12:30.187] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:22, VK:0xbe, Mod:0x2)
+[2026-09-02 22:12:30.188] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:23, VK:0xbb, Mod:0x2)
+[2026-09-02 22:12:30.188] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:24, VK:0x6b, Mod:0x2)
+[2026-09-02 22:12:30.188] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:25, VK:0xba, Mod:0x2)
+[2026-09-02 22:12:30.188] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:26, VK:0x6a, Mod:0x2)
+[2026-09-02 22:12:30.188] SettingsDialog: Hotkeys restored
+[2026-09-02 22:12:30.189] MidiService: Updating config. Device='LPD8 mk2', Mappings: {43: 'move_up', 39: 'move_down', 41: 'move_left', 42: 'move_right', 36: 'play', 40: 'search', 37: 'rewind', 38: 'forward'}
+[2026-09-02 22:12:30.189] MidiService: Available MIDI inputs: ['DDJ-FLX4', 'LPD8 mk2']
+[2026-09-02 22:12:30.195] UI: Settings dialog accepted. Reflecting changes...
+[2026-09-02 22:12:30.289] UI: Theme -> dark
+[2026-09-02 22:12:30.289] HistoryWatcher: Reloading settings...
+[2026-09-02 22:12:30.444] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:30.445] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:30.445] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:30.445] PlayerCommandHandler: Raw post data: b'{"state":"ended","videoId":"eyUUHfVm8Ik","timestamp":1788354750136,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":5.021,"duration":5.021}'
+[2026-09-02 22:12:30.445] PlayerCommandHandler: Parsed feedback data: {'state': 'ended', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354750136, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 5.021, 'duration': 5.021}
+[2026-09-02 22:12:30.447] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:30.448] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:30.449] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:30.449] PlayerCommandHandler: Content-Length: 385
+[2026-09-02 22:12:30.449] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354750144,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.003999948501586914,"duration":5.021}'
+[2026-09-02 22:12:30.450] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354750144, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.003999948501586914, 'duration': 5.021}
+[2026-09-02 22:12:30.450] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:30.451] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:30.451] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:30.451] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:30.451] PlayerCommandHandler: Raw post data: b'{"state":"buffering","videoId":"eyUUHfVm8Ik","timestamp":1788354750145,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":5.021}'
+[2026-09-02 22:12:30.452] PlayerCommandHandler: Parsed feedback data: {'state': 'buffering', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354750145, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': 5.021}
+[2026-09-02 22:12:30.452] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:30.453] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:30.455] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:30.455] PlayerCommandHandler: Content-Length: 386
+[2026-09-02 22:12:30.455] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354750152,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.0037718550415039064,"duration":5.021}'
+[2026-09-02 22:12:30.456] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354750152, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.0037718550415039064, 'duration': 5.021}
+[2026-09-02 22:12:30.456] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:30.579] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-02 22:12:30.680] HotkeyService: Registered Win32 hotkey 'up' (ID:27, VK:0x26, Mod:0x0)
+[2026-09-02 22:12:30.680] HotkeyService: Registered Win32 hotkey 'down' (ID:28, VK:0x28, Mod:0x0)
+[2026-09-02 22:12:30.680] HotkeyService: Registered Win32 hotkey 'left' (ID:29, VK:0x25, Mod:0x0)
+[2026-09-02 22:12:30.681] HotkeyService: Registered Win32 hotkey 'right' (ID:30, VK:0x27, Mod:0x0)
+[2026-09-02 22:12:30.681] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:31, VK:0x6f, Mod:0x2)
+[2026-09-02 22:12:30.681] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:32, VK:0xbf, Mod:0x2)
+[2026-09-02 22:12:30.682] HotkeyService: Registered Win32 hotkey 'ctrl+\' (ID:33, VK:0xe2, Mod:0x2)
+[2026-09-02 22:12:30.682] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:34, VK:0x6e, Mod:0x2)
+[2026-09-02 22:12:30.682] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:35, VK:0xbe, Mod:0x2)
+[2026-09-02 22:12:30.682] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:36, VK:0xbb, Mod:0x2)
+[2026-09-02 22:12:30.683] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:37, VK:0x6b, Mod:0x2)
+[2026-09-02 22:12:30.683] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:38, VK:0xba, Mod:0x2)
+[2026-09-02 22:12:30.684] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:39, VK:0x6a, Mod:0x2)
+[2026-09-02 22:12:30.684] UI: Hotkeys reloaded - Up: up, Down: down, Left: left, Right: right, Preload: ctrl+/, Play: ctrl+\, Search: ctrl+., Rewind: ctrl+;, Forward: ctrl+:
+[2026-09-02 22:12:30.684] MidiService: Updating config. Device='LPD8 mk2', Mappings: {43: 'move_up', 39: 'move_down', 41: 'move_left', 42: 'move_right', 36: 'play', 40: 'search', 37: 'rewind', 38: 'forward'}
+[2026-09-02 22:12:30.685] MidiService: Available MIDI inputs: ['DDJ-FLX4', 'LPD8 mk2']
+[2026-09-02 22:12:30.685] UI: MIDI config reloaded - Device: LPD8 mk2
+[2026-09-02 22:12:30.685] PlayerHttpServer: Sent command: SET_CONFIG - {"trackInfoPosition": "scroll"}
+[2026-09-02 22:12:30.685] UI: Sent SET_CONFIG to player - trackInfoPosition: scroll
+[2026-09-02 22:12:30.696] UI: Player feedback received - state: ended, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:30.697] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:30.697] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:30.697] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:30.698] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:30.698] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:30.698] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:30.698] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:30.699] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:30.699] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:30.699] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:30.699] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:30.700] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:30.700] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:30.700] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:30.700] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:30.847] UI: Double clicked on track: ニュームーンに恋して by やくしまるえつこ
+[2026-09-02 22:12:30.848] UI: Track info saved - title: ニュームーンに恋して, artist: やくしまるえつこ, comment: 美少女戦士セーラームーンCrystal OP
+[2026-09-02 22:12:30.849] UI: Searching YouTube for: ニュームーンに恋して 美少女戦士セーラームーンCrystal OP
+[2026-09-02 22:12:30.849] UI: Search started - search box disabled
+[2026-09-02 22:12:31.003] PlayerHttpServer: Sent command: REQUEST_PLAYER_STATE - 
+[2026-09-02 22:12:31.004] UI: Requested one-shot A/B player state snapshots
+[2026-09-02 22:12:31.342] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:31.342] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:31.342] PlayerCommandHandler: Content-Length: 383
+[2026-09-02 22:12:31.343] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354751039,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0.8491739237060547,"duration":5.021}'
+[2026-09-02 22:12:31.343] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354751039, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0.8491739237060547, 'duration': 5.021}
+[2026-09-02 22:12:31.343] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:31.344] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:31.345] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:31.345] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-02 22:12:31.345] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:31.345] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-02 22:12:31.347] PlayerCommandHandler: Content-Length: 189
+[2026-09-02 22:12:31.347] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:31.347] PlayerCommandHandler: Raw post data: b'{"state":"idle","videoId":"","timestamp":1788354751039,"currentPlayer":"A","nextPlayer":"B","playerId":"B","isCurrent":false,"trackInfo":null,"mediaInfo":{},"currentTime":0,"duration":null}'
+[2026-09-02 22:12:31.347] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:31.348] PlayerCommandHandler: Parsed feedback data: {'state': 'idle', 'videoId': '', 'timestamp': 1788354751039, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'B', 'isCurrent': False, 'trackInfo': None, 'mediaInfo': {}, 'currentTime': 0, 'duration': None}
+[2026-09-02 22:12:31.348] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:31.349] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:31.349] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-02 22:12:31.350] UI: Player feedback received - state: idle, player: B, video: 
+[2026-09-02 22:12:31.867] UI: Window already active, current _user_has_clicked_since_front is True
+[2026-09-02 22:12:31.892] UI: Successfully brought window to front using Windows API
+[2026-09-02 22:12:31.892] UI: User has interacted with the window, skipping bring-to-back timer
+[2026-09-02 22:12:31.893] UI: Brought window to front after search completion
+[2026-09-02 22:12:31.894] UI: Found 20 YouTube videos (showing 5 immediately)
+[2026-09-02 22:12:31.895] UI: Auto-play skipped - manual YouTube search
+[2026-09-02 22:12:31.897] UI: skipping _schedule_bring_to_back because window is active or recently clicked
+[2026-09-02 22:12:31.897] UI: Search completed - search box enabled
+[2026-09-02 22:12:32.018] UI: Finalized bring to front operation
+[2026-09-02 22:12:32.096] UI: Selected first YouTube video after search
+[2026-09-02 22:12:32.192] YouTubeListModel: Updated thumbnail for video 0hZXIdwFox4 at index 0
+[2026-09-02 22:12:32.193] UI: Thumbnail loaded for video 0hZXIdwFox4
+[2026-09-02 22:12:32.389] UI: Added 15 remaining videos to list
+[2026-09-02 22:12:32.390] UI: Restored selection to video 0hZXIdwFox4 at index 0
+[2026-09-02 22:12:32.519] YouTubeListModel: Updated thumbnail for video _-hEenwdtA0 at index 1
+[2026-09-02 22:12:32.519] UI: Thumbnail loaded for video _-hEenwdtA0
+[2026-09-02 22:12:32.703] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:32.703] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:32.703] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:32.705] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"eyUUHfVm8Ik","timestamp":1788354752391,"currentPlayer":"A","nextPlayer":"B","playerId":"A","isCurrent":true}'
+[2026-09-02 22:12:32.705] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354752391, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'A', 'isCurrent': True}
+[2026-09-02 22:12:32.705] UI: Player feedback received - state: HEARTBEAT, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:32.705] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:32.719] YouTubeListView: Selected video at index 0
+[2026-09-02 22:12:32.800] YouTubeListModel: Updated thumbnail for video A7dLmZAKM_Y at index 2
+[2026-09-02 22:12:32.800] UI: Thumbnail loaded for video A7dLmZAKM_Y
+[2026-09-02 22:12:32.811] UI: YouTube double-click event received for index <PySide6.QtCore.QModelIndex(0,0,0x0,YouTubeListModel(0x1c407ff2e80)) at 0x000001C440A27EC0>
+[2026-09-02 22:12:32.812] UI: Video data extracted - ID: 0hZXIdwFox4, Title: 「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ　PRETTY GUARDIAN SAILORMOON　THEME SONG
+[2026-09-02 22:12:32.812] UI: YouTube video double-clicked: 「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ　PRETTY GUARDIAN SAILORMOON　THEME SONG (0hZXIdwFox4)
+[2026-09-02 22:12:32.813] UI: Current last_clicked_video_id: None
+[2026-09-02 22:12:32.813] UI: First click detected - sending PRELOAD for 0hZXIdwFox4
+[2026-09-02 22:12:32.814] PlayerHttpServer: Sent command: PRELOAD - 0hZXIdwFox4
+[2026-09-02 22:12:32.814] UI: YouTube video state updated to preloading for video: 0hZXIdwFox4
+[2026-09-02 22:12:32.814] UI: Updating delegate - state: preloading, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:32.815] Delegate: set_video_state called - state: preloading, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:32.815] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:32.815] UI: Selected thumbnail border color updated for state: preloading, video: 0hZXIdwFox4
+[2026-09-02 22:12:32.815] UI: Sent PRELOAD command for video: 0hZXIdwFox4
+[2026-09-02 22:12:32.816] UI: YouTube double-click processing completed successfully
+[2026-09-02 22:12:33.075] YouTubeListView: Selected video at index 0
+[2026-09-02 22:12:33.113] YouTubeListModel: Updated thumbnail for video qTls7zbCX5c at index 3
+[2026-09-02 22:12:33.114] UI: Thumbnail loaded for video qTls7zbCX5c
+[2026-09-02 22:12:33.127] UI: YouTube double-click event received for index <PySide6.QtCore.QModelIndex(0,0,0x0,YouTubeListModel(0x1c407ff2e80)) at 0x000001C440A49D00>
+[2026-09-02 22:12:33.128] UI: Video data extracted - ID: 0hZXIdwFox4, Title: 「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ　PRETTY GUARDIAN SAILORMOON　THEME SONG
+[2026-09-02 22:12:33.128] UI: YouTube video double-clicked: 「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ　PRETTY GUARDIAN SAILORMOON　THEME SONG (0hZXIdwFox4)
+[2026-09-02 22:12:33.128] UI: Current last_clicked_video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.129] UI: Second click detected - sending PLAY for 0hZXIdwFox4
+[2026-09-02 22:12:33.129] PlayerHttpServer: Sent command: PLAY - 0hZXIdwFox4
+[2026-09-02 22:12:33.129] UI: YouTube video state updated to playing for video: 0hZXIdwFox4
+[2026-09-02 22:12:33.129] UI: Set current_playing_video_id to: 0hZXIdwFox4
+[2026-09-02 22:12:33.130] UI: Updating delegate - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.130] Delegate: set_video_state called - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.130] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:33.130] UI: Selected thumbnail border color updated for state: playing, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.131] UI: Sent PLAY command for video: 0hZXIdwFox4
+[2026-09-02 22:12:33.131] UI: YouTube double-click processing completed successfully
+[2026-09-02 22:12:33.197] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:33.198] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:33.198] PlayerCommandHandler: Content-Length: 576
+[2026-09-02 22:12:33.199] PlayerCommandHandler: Raw post data: b'{"state":"preloading","videoId":"0hZXIdwFox4","timestamp":1788354752895,"currentPlayer":"A","nextPlayer":"B","playerId":"B","isCurrent":false,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"}}'
+[2026-09-02 22:12:33.199] PlayerCommandHandler: Parsed feedback data: {'state': 'preloading', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354752895, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'B', 'isCurrent': False, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}}
+[2026-09-02 22:12:33.200] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:33.200] UI: Player feedback received - state: preloading, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.201] UI: YouTube video state updated to preloading for video: 0hZXIdwFox4
+[2026-09-02 22:12:33.201] UI: Updating delegate - state: preloading, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.201] Delegate: set_video_state called - state: preloading, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.202] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:33.202] UI: Selected thumbnail border color updated for state: preloading, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.498] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:33.499] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:33.499] PlayerCommandHandler: Content-Length: 605
+[2026-09-02 22:12:33.499] PlayerCommandHandler: Raw post data: b'{"state":"unstarted","videoId":"0hZXIdwFox4","timestamp":1788354753182,"currentPlayer":"A","nextPlayer":"B","playerId":"B","isCurrent":false,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0,"duration":91}'
+[2026-09-02 22:12:33.500] PlayerCommandHandler: Parsed feedback data: {'state': 'unstarted', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354753182, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'B', 'isCurrent': False, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0, 'duration': 91}
+[2026-09-02 22:12:33.500] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:33.501] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:33.501] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:33.501] PlayerCommandHandler: Content-Length: 601
+[2026-09-02 22:12:33.502] PlayerCommandHandler: Raw post data: b'{"state":"ready","videoId":"0hZXIdwFox4","timestamp":1788354753183,"currentPlayer":"A","nextPlayer":"B","playerId":"B","isCurrent":false,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0,"duration":91}'
+[2026-09-02 22:12:33.502] PlayerCommandHandler: Parsed feedback data: {'state': 'ready', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354753183, 'currentPlayer': 'A', 'nextPlayer': 'B', 'playerId': 'B', 'isCurrent': False, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0, 'duration': 91}
+[2026-09-02 22:12:33.503] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:33.511] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:33.512] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:33.513] PlayerCommandHandler: Content-Length: 602
+[2026-09-02 22:12:33.513] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"0hZXIdwFox4","timestamp":1788354753206,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0,"duration":91}'
+[2026-09-02 22:12:33.513] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354753206, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0, 'duration': 91}
+[2026-09-02 22:12:33.513] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:33.523] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:33.523] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:33.524] PlayerCommandHandler: Content-Length: 604
+[2026-09-02 22:12:33.524] PlayerCommandHandler: Raw post data: b'{"state":"unstarted","videoId":"0hZXIdwFox4","timestamp":1788354753220,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0,"duration":91}'
+[2026-09-02 22:12:33.524] PlayerCommandHandler: Parsed feedback data: {'state': 'unstarted', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354753220, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0, 'duration': 91}
+[2026-09-02 22:12:33.525] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:33.541] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:33.543] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:33.543] PlayerCommandHandler: Content-Length: 604
+[2026-09-02 22:12:33.544] PlayerCommandHandler: Raw post data: b'{"state":"buffering","videoId":"0hZXIdwFox4","timestamp":1788354753240,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0,"duration":91}'
+[2026-09-02 22:12:33.544] PlayerCommandHandler: Parsed feedback data: {'state': 'buffering', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354753240, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0, 'duration': 91}
+[2026-09-02 22:12:33.545] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:33.592] YouTubeListModel: Updated thumbnail for video 7wFk_OgRSQA at index 4
+[2026-09-02 22:12:33.593] UI: Thumbnail loaded for video 7wFk_OgRSQA
+[2026-09-02 22:12:33.594] UI: Player feedback received - state: unstarted, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.594] UI: Player feedback received - state: ready, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.595] UI: YouTube video state updated to ready for video: 0hZXIdwFox4
+[2026-09-02 22:12:33.595] UI: Updating delegate - state: ready, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.596] Delegate: set_video_state called - state: ready, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.596] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:33.596] UI: Selected thumbnail border color updated for state: ready, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.596] UI: Checking auto-play - pending_play_video_id: None, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.597] UI: Player feedback received - state: playing, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.598] UI: YouTube video state updated to playing for video: 0hZXIdwFox4
+[2026-09-02 22:12:33.598] UI: Set current_playing_video_id to: 0hZXIdwFox4
+[2026-09-02 22:12:33.598] UI: Updating delegate - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.598] Delegate: set_video_state called - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:33.599] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:33.599] UI: Selected thumbnail border color updated for state: playing, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.599] UI: Reset last_clicked_video_id after playing: 0hZXIdwFox4
+[2026-09-02 22:12:33.600] UI: Player feedback received - state: unstarted, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.600] UI: Player feedback received - state: buffering, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:33.942] YouTubeListModel: Updated thumbnail for video c0Va228UhRs at index 5
+[2026-09-02 22:12:33.943] UI: Thumbnail loaded for video c0Va228UhRs
+[2026-09-02 22:12:34.020] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:34.020] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:34.021] PlayerCommandHandler: Content-Length: 625
+[2026-09-02 22:12:34.021] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"0hZXIdwFox4","timestamp":1788354753708,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0.012391969482421876,"duration":90.121}'
+[2026-09-02 22:12:34.021] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354753708, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0.012391969482421876, 'duration': 90.121}
+[2026-09-02 22:12:34.022] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:34.022] UI: Player feedback received - state: playing, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:34.022] UI: YouTube video state updated to playing for video: 0hZXIdwFox4
+[2026-09-02 22:12:34.023] UI: Set current_playing_video_id to: 0hZXIdwFox4
+[2026-09-02 22:12:34.023] UI: Updating delegate - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:34.023] Delegate: set_video_state called - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:34.024] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:34.024] UI: Selected thumbnail border color updated for state: playing, video: 0hZXIdwFox4
+[2026-09-02 22:12:34.068] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:34.068] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:34.069] PlayerCommandHandler: Content-Length: 623
+[2026-09-02 22:12:34.069] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"0hZXIdwFox4","timestamp":1788354753759,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0.0633920877380371,"duration":90.121}'
+[2026-09-02 22:12:34.069] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354753759, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0.0633920877380371, 'duration': 90.121}
+[2026-09-02 22:12:34.070] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:34.070] UI: Player feedback received - state: playing, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:34.071] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:34.071] UI: YouTube video state updated to playing for video: 0hZXIdwFox4
+[2026-09-02 22:12:34.071] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:34.071] UI: Set current_playing_video_id to: 0hZXIdwFox4
+[2026-09-02 22:12:34.072] PlayerCommandHandler: Content-Length: 383
+[2026-09-02 22:12:34.072] UI: Updating delegate - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:34.072] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"eyUUHfVm8Ik","timestamp":1788354753758,"currentPlayer":"B","nextPlayer":"A","playerId":"A","isCurrent":false,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":3.568595834060669,"duration":5.021}'
+[2026-09-02 22:12:34.072] Delegate: set_video_state called - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:12:34.073] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354753758, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'A', 'isCurrent': False, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 3.568595834060669, 'duration': 5.021}
+[2026-09-02 22:12:34.074] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:34.074] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:34.074] UI: Selected thumbnail border color updated for state: playing, video: 0hZXIdwFox4
+[2026-09-02 22:12:34.079] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:34.083] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:34.083] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:34.083] PlayerCommandHandler: Content-Length: 368
+[2026-09-02 22:12:34.084] PlayerCommandHandler: Raw post data: b'{"state":"unstarted","videoId":"eyUUHfVm8Ik","timestamp":1788354753775,"currentPlayer":"B","nextPlayer":"A","playerId":"A","isCurrent":false,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":null}'
+[2026-09-02 22:12:34.084] PlayerCommandHandler: Parsed feedback data: {'state': 'unstarted', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354753775, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'A', 'isCurrent': False, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': None}
+[2026-09-02 22:12:34.085] UI: Player feedback received - state: unstarted, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:34.085] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:34.087] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:34.087] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:34.088] PlayerCommandHandler: Content-Length: 364
+[2026-09-02 22:12:34.088] PlayerCommandHandler: Raw post data: b'{"state":"ready","videoId":"eyUUHfVm8Ik","timestamp":1788354753777,"currentPlayer":"B","nextPlayer":"A","playerId":"A","isCurrent":false,"trackInfo":null,"mediaInfo":{"videoTitle":"\xe3\x83\x95\xe3\x83\xaa\xe3\x83\xbc\xe5\x8b\x95\xe7\x94\xbb\xe7\xb4\xa0\xe6\x9d\x90  NowLoading Purple DL\xe3\x83\xaa\xe3\x83\xb3\xe3\x82\xaf\xe3\x81\xaf\xe8\xaa\xac\xe6\x98\x8e\xe6\xac\x84","thumbnailUrl":"https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg","durationText":""},"currentTime":0,"duration":null}'
+[2026-09-02 22:12:34.088] PlayerCommandHandler: Parsed feedback data: {'state': 'ready', 'videoId': 'eyUUHfVm8Ik', 'timestamp': 1788354753777, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'A', 'isCurrent': False, 'trackInfo': None, 'mediaInfo': {'videoTitle': 'フリー動画素材  NowLoading Purple DLリンクは説明欄', 'thumbnailUrl': 'https://i.ytimg.com/vi/eyUUHfVm8Ik/hqdefault.jpg', 'durationText': ''}, 'currentTime': 0, 'duration': None}
+[2026-09-02 22:12:34.089] UI: Player feedback received - state: ready, player: A, video: eyUUHfVm8Ik
+[2026-09-02 22:12:34.089] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:34.089] UI: YouTube video state updated to ready for video: eyUUHfVm8Ik
+[2026-09-02 22:12:34.090] UI: Updating delegate - state: ready, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:34.090] Delegate: set_video_state called - state: ready, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:34.090] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:12:34.090] UI: Selected thumbnail border color updated for state: ready, video: eyUUHfVm8Ik
+[2026-09-02 22:12:34.091] UI: Checking auto-play - pending_play_video_id: None, video_id: eyUUHfVm8Ik
+[2026-09-02 22:12:34.305] YouTubeListModel: Updated thumbnail for video 9ezu6r9uu24 at index 6
+[2026-09-02 22:12:34.305] UI: Thumbnail loaded for video 9ezu6r9uu24
+[2026-09-02 22:12:34.641] YouTubeListModel: Updated thumbnail for video ene3e1Kp3Pg at index 7
+[2026-09-02 22:12:34.642] UI: Thumbnail loaded for video ene3e1Kp3Pg
+[2026-09-02 22:12:34.980] YouTubeListModel: Updated thumbnail for video axZ9LYMvrPo at index 8
+[2026-09-02 22:12:34.981] UI: Thumbnail loaded for video axZ9LYMvrPo
+[2026-09-02 22:12:35.346] YouTubeListModel: Updated thumbnail for video m1IJwrc1Ar4 at index 9
+[2026-09-02 22:12:35.347] UI: Thumbnail loaded for video m1IJwrc1Ar4
+[2026-09-02 22:12:35.682] YouTubeListModel: Updated thumbnail for video hGOc1yrpmtQ at index 10
+[2026-09-02 22:12:35.682] UI: Thumbnail loaded for video hGOc1yrpmtQ
+[2026-09-02 22:12:36.004] YouTubeListModel: Updated thumbnail for video 3PIfPZSorwA at index 11
+[2026-09-02 22:12:36.005] UI: Thumbnail loaded for video 3PIfPZSorwA
+[2026-09-02 22:12:36.300] YouTubeListModel: Updated thumbnail for video aIQVnR1e9aw at index 12
+[2026-09-02 22:12:36.301] UI: Thumbnail loaded for video aIQVnR1e9aw
+[2026-09-02 22:12:36.624] YouTubeListModel: Updated thumbnail for video TPRdSjAm0Sk at index 13
+[2026-09-02 22:12:36.625] UI: Thumbnail loaded for video TPRdSjAm0Sk
+[2026-09-02 22:12:36.984] YouTubeListModel: Updated thumbnail for video 7XkR216CnyA at index 14
+[2026-09-02 22:12:36.984] UI: Thumbnail loaded for video 7XkR216CnyA
+[2026-09-02 22:12:37.311] YouTubeListModel: Updated thumbnail for video vsw3kxnhEgQ at index 15
+[2026-09-02 22:12:37.311] UI: Thumbnail loaded for video vsw3kxnhEgQ
+[2026-09-02 22:12:37.677] YouTubeListModel: Updated thumbnail for video -R13IxkmmSY at index 16
+[2026-09-02 22:12:37.678] UI: Thumbnail loaded for video -R13IxkmmSY
+[2026-09-02 22:12:37.781] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:37.781] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:37.781] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:37.781] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354757478,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:12:37.782] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354757478, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:12:37.782] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:37.782] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:38.019] YouTubeListModel: Updated thumbnail for video Or19FeJ9vSM at index 17
+[2026-09-02 22:12:38.019] UI: Thumbnail loaded for video Or19FeJ9vSM
+[2026-09-02 22:12:38.343] YouTubeListModel: Updated thumbnail for video nvjsOZXRoKs at index 18
+[2026-09-02 22:12:38.343] UI: Thumbnail loaded for video nvjsOZXRoKs
+[2026-09-02 22:12:38.563] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:38.564] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:38.564] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:38.564] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"QxJWmZ74GfM","timestamp":1788354758260,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:12:38.565] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'QxJWmZ74GfM', 'timestamp': 1788354758260, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:12:38.565] UI: Player feedback received - state: HEARTBEAT, player: B, video: QxJWmZ74GfM
+[2026-09-02 22:12:38.565] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:38.634] YouTubeListModel: Updated thumbnail for video ZImo2LZ1nRQ at index 19
+[2026-09-02 22:12:38.634] UI: Thumbnail loaded for video ZImo2LZ1nRQ
+[2026-09-02 22:12:42.780] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:42.780] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:42.780] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:42.780] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354762479,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:12:42.782] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354762479, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:12:42.782] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:42.782] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:47.891] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:47.891] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:47.892] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:47.892] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354767580,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:12:47.892] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354767580, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:12:47.895] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:47.895] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:52.979] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:52.979] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:52.981] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:52.981] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354772676,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:12:52.981] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354772676, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:12:52.981] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:12:52.981] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:57.995] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:12:57.996] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:12:57.996] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:12:57.997] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354777679,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:12:57.997] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354777679, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:12:57.997] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:12:57.997] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:03.086] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:03.086] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:03.086] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:03.088] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354782780,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:03.088] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354782780, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:03.088] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:03.088] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:08.179] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:08.180] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:08.180] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:08.180] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354787876,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:08.181] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354787876, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:08.181] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:08.181] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:13.192] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:13.192] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:13.193] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:13.193] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354792878,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:13.193] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354792878, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:13.194] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:13.194] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:18.184] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:18.185] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:18.185] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:18.185] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354797881,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:18.186] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354797881, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:18.187] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:18.187] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:23.194] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:23.194] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:23.195] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:23.195] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354802884,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:23.196] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354802884, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:23.196] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:23.196] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:28.284] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:28.285] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:28.285] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:28.286] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354807977,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:28.286] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354807977, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:28.287] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:28.287] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:33.301] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:33.302] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:33.302] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:33.305] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354812981,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:33.305] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354812981, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:33.306] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:33.307] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:38.379] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:38.380] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:38.380] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:38.380] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354818076,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:38.381] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354818076, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:38.381] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:38.381] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:38.577] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:38.577] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:38.577] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:38.577] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"QxJWmZ74GfM","timestamp":1788354818264,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:38.578] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'QxJWmZ74GfM', 'timestamp': 1788354818264, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:38.579] UI: Player feedback received - state: HEARTBEAT, player: B, video: QxJWmZ74GfM
+[2026-09-02 22:13:38.579] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:43.394] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:43.394] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:43.396] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:43.396] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354823080,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:43.396] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354823080, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:43.397] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:43.397] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:48.478] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:48.479] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:48.479] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:48.480] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354828176,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:48.481] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354828176, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:48.481] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:48.644] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:53.479] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:53.480] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:53.480] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:53.480] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354833177,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:53.481] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354833177, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:53.481] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:13:53.481] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:58.482] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:13:58.482] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:13:58.483] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:13:58.483] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354838178,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:13:58.483] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354838178, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:13:58.484] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:13:58.484] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:03.498] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:03.499] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:03.499] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:03.499] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354843181,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:03.500] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354843181, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:03.500] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:03.625] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:04.305] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:04.307] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:04.307] PlayerCommandHandler: Content-Length: 605
+[2026-09-02 22:14:04.307] PlayerCommandHandler: Raw post data: b'{"state":"ended","videoId":"0hZXIdwFox4","timestamp":1788354844002,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":90.121,"duration":91}'
+[2026-09-02 22:14:04.308] PlayerCommandHandler: Parsed feedback data: {'state': 'ended', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354844002, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 90.121, 'duration': 91}
+[2026-09-02 22:14:04.310] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:04.310] UI: Player feedback received - state: ended, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:04.322] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:04.323] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:04.323] PlayerCommandHandler: Content-Length: 621
+[2026-09-02 22:14:04.323] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"0hZXIdwFox4","timestamp":1788354844011,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0.003000020980834961,"duration":91}'
+[2026-09-02 22:14:04.324] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354844011, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0.003000020980834961, 'duration': 91}
+[2026-09-02 22:14:04.326] UI: Player feedback received - state: playing, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:04.326] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:04.326] UI: YouTube video state updated to playing for video: 0hZXIdwFox4
+[2026-09-02 22:14:04.327] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:04.327] UI: Set current_playing_video_id to: 0hZXIdwFox4
+[2026-09-02 22:14:04.327] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:04.327] UI: Updating delegate - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:14:04.327] PlayerCommandHandler: Content-Length: 604
+[2026-09-02 22:14:04.328] Delegate: set_video_state called - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:14:04.328] PlayerCommandHandler: Raw post data: b'{"state":"buffering","videoId":"0hZXIdwFox4","timestamp":1788354844016,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0,"duration":91}'
+[2026-09-02 22:14:04.328] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:14:04.329] PlayerCommandHandler: Parsed feedback data: {'state': 'buffering', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354844016, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0, 'duration': 91}
+[2026-09-02 22:14:04.329] UI: Selected thumbnail border color updated for state: playing, video: 0hZXIdwFox4
+[2026-09-02 22:14:04.329] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:04.330] UI: Player feedback received - state: buffering, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:04.415] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:04.415] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:04.416] PlayerCommandHandler: Content-Length: 621
+[2026-09-02 22:14:04.416] PlayerCommandHandler: Raw post data: b'{"state":"playing","videoId":"0hZXIdwFox4","timestamp":1788354844026,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true,"trackInfo":{"title":"\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6","artist":"\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93","comment":"\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal OP"},"mediaInfo":{"videoTitle":"\xe3\x80\x8c\xe7\xbe\x8e\xe5\xb0\x91\xe5\xa5\xb3\xe6\x88\xa6\xe5\xa3\xab\xe3\x82\xbb\xe3\x83\xbc\xe3\x83\xa9\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3Crystal\xe3\x80\x8d\xe7\xac\xac1\xe5\xbc\xbeOP\xe6\x9b\xb2\xe3\x80\x8c\xe3\x83\x8b\xe3\x83\xa5\xe3\x83\xbc\xe3\x83\xa0\xe3\x83\xbc\xe3\x83\xb3\xe3\x81\xab\xe6\x81\x8b\xe3\x81\x97\xe3\x81\xa6\xe3\x80\x8d\xef\xbc\x8f\xe3\x82\x84\xe3\x81\x8f\xe3\x81\x97\xe3\x81\xbe\xe3\x82\x8b\xe3\x81\x88\xe3\x81\xa4\xe3\x81\x93\xe3\x80\x80PRETTY GUARDIAN SAILORMOON\xe3\x80\x80THEME SONG","thumbnailUrl":"https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg","durationText":"1:31"},"currentTime":0.003350927520751953,"duration":91}'
+[2026-09-02 22:14:04.417] PlayerCommandHandler: Parsed feedback data: {'state': 'playing', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354844026, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True, 'trackInfo': {'title': 'ニュームーンに恋して', 'artist': 'やくしまるえつこ', 'comment': '美少女戦士セーラームーンCrystal OP'}, 'mediaInfo': {'videoTitle': '「美少女戦士セーラームーンCrystal」第1弾OP曲「ニュームーンに恋して」／やくしまるえつこ\u3000PRETTY GUARDIAN SAILORMOON\u3000THEME SONG', 'thumbnailUrl': 'https://i.ytimg.com/vi/0hZXIdwFox4/hqdefault.jpg', 'durationText': '1:31'}, 'currentTime': 0.003350927520751953, 'duration': 91}
+[2026-09-02 22:14:04.418] UI: Player feedback received - state: playing, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:04.418] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:04.418] UI: YouTube video state updated to playing for video: 0hZXIdwFox4
+[2026-09-02 22:14:04.418] UI: Set current_playing_video_id to: 0hZXIdwFox4
+[2026-09-02 22:14:04.419] UI: Updating delegate - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:14:04.419] Delegate: set_video_state called - state: playing, video_id: 0hZXIdwFox4
+[2026-09-02 22:14:04.419] Delegate: Updated all items to maintain current video border
+[2026-09-02 22:14:04.420] UI: Selected thumbnail border color updated for state: playing, video: 0hZXIdwFox4
+[2026-09-02 22:14:08.582] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:08.582] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:08.583] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:08.583] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354848278,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:08.583] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354848278, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:08.584] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:08.584] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:13.683] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:13.683] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:13.684] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:13.684] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354853379,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:13.684] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354853379, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:13.685] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:13.685] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:18.697] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:18.697] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:18.698] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:18.698] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354858382,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:18.698] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354858382, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:18.698] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:18.699] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:23.792] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:23.792] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:23.793] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:23.794] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354863482,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:23.794] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354863482, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:23.794] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:23.794] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:28.878] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:28.879] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:28.879] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:28.880] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354868576,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:28.880] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354868576, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:28.880] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:28.880] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:33.893] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:33.894] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:33.894] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:33.894] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354873580,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:33.894] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354873580, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:33.895] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:33.895] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:38.580] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:38.582] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:38.582] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:38.582] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"QxJWmZ74GfM","timestamp":1788354878273,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:38.583] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': 'QxJWmZ74GfM', 'timestamp': 1788354878273, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:38.583] UI: Player feedback received - state: HEARTBEAT, player: B, video: QxJWmZ74GfM
+[2026-09-02 22:14:38.583] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:38.991] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:14:38.991] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:14:38.992] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:14:38.992] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354878677,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:14:38.992] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354878677, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:14:38.993] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:14:38.993] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:14:40.894] UI: Cleaning up on application exit...
+[2026-09-02 22:14:40.895] UI: Cleared YouTube list for memory cleanup
+[2026-09-02 22:14:41.043] UI: Force memory cleanup completed
+[2026-09-02 22:14:41.044] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-02 22:14:41.044] UI: Hotkey service stopped
+[2026-09-02 22:14:41.045] MidiService: Stopping worker...
+[2026-09-02 22:14:41.054] UI: Midi service stopped
+[2026-09-02 22:14:41.054] HistoryWatcher: Stopped monitoring
+[2026-09-02 22:14:41.055] UI: History watcher stopped
+[2026-09-02 22:14:41.055] UI: Shazam service stopped
+[2026-09-02 22:14:41.084] PlayerHttpServer: Server stopped
+[2026-09-02 22:14:41.084] UI: Player server stopped
+[2026-09-02 22:15:40.076] UI: Starting application...
+[2026-09-02 22:15:40.120] UI: Creating main window...
+[2026-09-02 22:15:40.180] UI: Theme -> dark
+[2026-09-02 22:15:40.181] UI: Logging configured at level INFO (Redirection active)
+[2026-09-02 22:15:42.143] UI: Initial top track set: ('ドラム式探査機', '田所あずさ', '神達に拾われた男2\u3000ED')
+[2026-09-02 22:15:42.144] HistoryWatcher: Initial track loaded: ('ドラム式探査機', '田所あずさ', '神達に拾われた男2\u3000ED')
+[2026-09-02 22:15:42.144] HistoryWatcher: Started monitoring every 3.0s
+[2026-09-02 22:15:42.146] HotkeyService: Initialized using Win32 RegisterHotKey
+[2026-09-02 22:15:42.147] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-02 22:15:42.247] HotkeyService: Registered Win32 hotkey 'up' (ID:1, VK:0x26, Mod:0x0)
+[2026-09-02 22:15:42.247] HotkeyService: Registered Win32 hotkey 'down' (ID:2, VK:0x28, Mod:0x0)
+[2026-09-02 22:15:42.248] HotkeyService: Registered Win32 hotkey 'left' (ID:3, VK:0x25, Mod:0x0)
+[2026-09-02 22:15:42.248] HotkeyService: Registered Win32 hotkey 'right' (ID:4, VK:0x27, Mod:0x0)
+[2026-09-02 22:15:42.248] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:5, VK:0x6f, Mod:0x2)
+[2026-09-02 22:15:42.249] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:6, VK:0xbf, Mod:0x2)
+[2026-09-02 22:15:42.249] HotkeyService: Registered Win32 hotkey 'ctrl+\' (ID:7, VK:0xe2, Mod:0x2)
+[2026-09-02 22:15:42.249] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:8, VK:0x6e, Mod:0x2)
+[2026-09-02 22:15:42.249] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:9, VK:0xbe, Mod:0x2)
+[2026-09-02 22:15:42.250] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:10, VK:0xbb, Mod:0x2)
+[2026-09-02 22:15:42.250] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:11, VK:0x6b, Mod:0x2)
+[2026-09-02 22:15:42.250] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:12, VK:0xba, Mod:0x2)
+[2026-09-02 22:15:42.251] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:13, VK:0x6a, Mod:0x2)
+[2026-09-02 22:15:42.251] UI: Hotkeys reloaded - Up: up, Down: down, Left: left, Right: right, Preload: ctrl+/, Play: ctrl+\, Search: ctrl+., Rewind: ctrl+;, Forward: ctrl+:
+[2026-09-02 22:15:43.104] MidiService: Updating config. Device='LPD8 mk2', Mappings: {43: 'move_up', 39: 'move_down', 41: 'move_left', 42: 'move_right', 36: 'play', 40: 'search', 37: 'rewind', 38: 'forward'}
+[2026-09-02 22:15:43.134] MidiService: Available MIDI inputs: ['DDJ-FLX4', 'LPD8 mk2']
+[2026-09-02 22:15:43.135] MidiService: Connecting to device ID 2 (LPD8 mk2)
+[2026-09-02 22:15:43.135] UI: MIDI config reloaded - Device: LPD8 mk2
+[2026-09-02 22:15:43.161] MidiServiceWorker: Started listening to device ID 2
+[2026-09-02 22:15:43.203] PlayerHttpServer: Server started on http://localhost:8080
+[2026-09-02 22:15:43.204] UI: Player HTTP server started
+[2026-09-02 22:15:43.208] UI: YouTube border color updated to theme default
+[2026-09-02 22:15:43.208] UI: YouTube state reset to default
+[2026-09-02 22:15:43.705] UI: Starting event loop...
+[2026-09-02 22:15:44.714] UI: Player already running (last poll 0.1s ago, feedback 1788354944.7s ago). Skipping browser open.
+[2026-09-02 22:15:45.231] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:15:45.231] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:15:45.232] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:15:45.232] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354898977,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:15:45.232] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354898977, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:15:45.233] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:15:45.390] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:15:46.215] PlayerHttpServer: Sent command: SET_CONFIG - {"trackInfoPosition": "scroll"}
+[2026-09-02 22:15:46.216] UI: Sent SET_CONFIG to player - trackInfoPosition: scroll
+[2026-09-02 22:15:46.621] PlayerHttpServer: Sent command: REQUEST_PLAYER_STATE - 
+[2026-09-02 22:15:46.621] UI: Requested one-shot A/B player state snapshots
+[2026-09-02 22:15:47.750] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:15:47.750] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:15:47.751] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:15:47.751] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354903985,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:15:47.751] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354903985, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:15:47.752] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:15:47.752] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:15:50.541] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:15:50.542] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:15:50.542] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:15:50.542] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354909080,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:15:50.542] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354909080, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:15:50.543] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:15:50.543] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:15:53.048] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:15:53.048] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:15:53.049] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:15:53.049] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354914084,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:15:53.050] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354914084, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:15:53.050] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:15:53.050] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:15:55.853] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:15:55.854] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:15:55.854] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:15:55.854] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354919182,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:15:55.855] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354919182, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:15:55.855] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:15:55.855] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:15:58.349] PlayerCommandHandler: Received POST request for /feedback
+[2026-09-02 22:15:58.349] PlayerCommandHandler: Starting feedback processing...
+[2026-09-02 22:15:58.350] PlayerCommandHandler: Content-Length: 140
+[2026-09-02 22:15:58.350] PlayerCommandHandler: Raw post data: b'{"state":"HEARTBEAT","videoId":"0hZXIdwFox4","timestamp":1788354924278,"currentPlayer":"B","nextPlayer":"A","playerId":"B","isCurrent":true}'
+[2026-09-02 22:15:58.350] PlayerCommandHandler: Parsed feedback data: {'state': 'HEARTBEAT', 'videoId': '0hZXIdwFox4', 'timestamp': 1788354924278, 'currentPlayer': 'B', 'nextPlayer': 'A', 'playerId': 'B', 'isCurrent': True}
+[2026-09-02 22:15:58.351] PlayerCommandHandler: Feedback response sent successfully
+[2026-09-02 22:15:58.351] UI: Player feedback received - state: HEARTBEAT, player: B, video: 0hZXIdwFox4
+[2026-09-02 22:15:59.799] UI: Cleaning up on application exit...
+[2026-09-02 22:15:59.800] UI: Cleared YouTube list for memory cleanup
+[2026-09-02 22:15:59.926] UI: Force memory cleanup completed
+[2026-09-02 22:15:59.927] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-02 22:15:59.927] UI: Hotkey service stopped
+[2026-09-02 22:15:59.927] MidiService: Stopping worker...
+[2026-09-02 22:15:59.937] UI: Midi service stopped
+[2026-09-02 22:15:59.938] HistoryWatcher: Stopped monitoring
+[2026-09-02 22:15:59.938] UI: History watcher stopped
+[2026-09-02 22:15:59.938] UI: Shazam service stopped
+[2026-09-02 22:16:00.235] PlayerHttpServer: Server stopped
+[2026-09-02 22:16:00.235] UI: Player server stopped

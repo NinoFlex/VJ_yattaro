@@ -347,26 +347,41 @@ class PlayerHttpServer:
         PlayerCommandHandler.state_callback = callback
         print("PlayerHttpServer: State callback set")
     
-    def send_command(self, cmd, video_id="", track_info=None):
-        """コマンドをキューに追加"""
+    def send_command(
+        self,
+        cmd,
+        video_id="",
+        track_info=None,
+        player_id=None,
+        media_info=None,
+        value=None,
+    ):
+        """Add a command to the browser queue."""
         try:
             command = {
                 "cmd": cmd,
                 "videoId": video_id,
-                "timestamp": time.time()
+                "timestamp": time.time(),
             }
-            # 楽曲情報がある場合はコマンドに追加
             if track_info:
                 command["trackInfo"] = track_info
-            
+            if media_info:
+                command["mediaInfo"] = media_info
+            normalized_player = str(player_id or "").upper()
+            if normalized_player in ("A", "B"):
+                command["playerId"] = normalized_player
+            if value is not None:
+                command["value"] = value
+
             with PlayerCommandHandler.queue_lock:
                 PlayerCommandHandler.command_queue.append(command)
-            
-            print(f"PlayerHttpServer: Sent command: {cmd} - {video_id}")
-            
+
+            target = f" player={normalized_player}" if normalized_player else ""
+            print(f"PlayerHttpServer: Sent command: {cmd} - {video_id}{target}")
+
         except Exception as e:
             print(f"PlayerHttpServer: Error sending command: {e}")
-    
+
     def clear_queue(self):
         """コマンドキューをクリア"""
         try:

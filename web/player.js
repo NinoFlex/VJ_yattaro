@@ -32,6 +32,13 @@ class VJPlayer {
         // 楽曲情報の管理
         this.currentTrackInfo = null;
         this.nextTrackInfo = null;
+        this.currentMediaInfo = null;
+        this.nextMediaInfo = null;
+
+        // Physical A/B player state for the desktop operation panels.
+        this.playerVideoIds = { A: null, B: null };
+        this.playerTrackInfo = { A: null, B: null };
+        this.playerMediaInfo = { A: null, B: null };
         // 楽曲情報の表示位置（クエリパラメータまたはデフォルト: 右上）
         this.trackInfoPosition = this.getTrackInfoPositionFromQuery() || 'top-right';
 
@@ -270,27 +277,29 @@ class VJPlayer {
     }
 
     playDefaultVideo() {
-        // デフォルト動画を再生
         console.log(`Playing default video: ${this.defaultVideoId}`);
 
         try {
             this.players.A.loadVideoById({
                 videoId: this.defaultVideoId,
                 startSeconds: 0,
-                suggestedQuality: 'medium' // 品質を下げて安定性を向上
+                suggestedQuality: 'medium'
             });
 
-            // 状態を更新
             this.currentVideoId = this.defaultVideoId;
             this.currentPlayer = 'A';
+            this.nextPlayer = 'B';
+            this.playerVideoIds.A = this.defaultVideoId;
+            this.playerMediaInfo.A = {
+                videoTitle: '',
+                thumbnailUrl: `https://i.ytimg.com/vi/${this.defaultVideoId}/hqdefault.jpg`,
+                durationText: ''
+            };
 
-            // 状態フィードバックを送信
-            this.sendFeedback('playing', this.defaultVideoId);
-
+            this.sendFeedback('playing', this.defaultVideoId, 'A');
             console.log(`Default video started: ${this.defaultVideoId}`);
         } catch (error) {
             console.error('Error playing default video:', error);
-            // 再生失敗時は手動再生案内を表示
             this.showManualPlayback();
         }
     }
@@ -303,20 +312,28 @@ class VJPlayer {
         }
         console.log(`Player ${playerId} state changed: ${state}`);
 
-        // isReady状態の更新
-        if (state === YT.PlayerState.CUED || state === YT.PlayerState.PLAYING) {
+        if (state === YT.PlayerState.CUED || state === YT.PlayerState.PLAYING || state === YT.PlayerState.PAUSED) {
             this.isReady[playerId] = true;
             this.forceCaptionsOff(playerId);
-            // 字幕が少し遅れて有効化されるケースの保険。
             setTimeout(() => this.forceCaptionsOff(playerId), 250);
             setTimeout(() => this.forceCaptionsOff(playerId), 1000);
-            console.log(`Player ${playerId} is now ready (state: ${state})`);
-        } else if (state === YT.PlayerState.UNSTARTED || state === YT.PlayerState.BUFFERING) {
+        } else if (state === YT.PlayerState.UNSTARTED) {
             this.isReady[playerId] = false;
-            console.log(`Player ${playerId} not ready (state: ${state})`);
         }
 
-        // 動画終了時の処理（ループ）
+        const stateNames = {};
+        stateNames[YT.PlayerState.UNSTARTED] = 'unstarted';
+        stateNames[YT.PlayerState.ENDED] = 'ended';
+        stateNames[YT.PlayerState.PLAYING] = 'playing';
+        stateNames[YT.PlayerState.PAUSED] = 'paused';
+        stateNames[YT.PlayerState.BUFFERING] = 'buffering';
+        stateNames[YT.PlayerState.CUED] = 'ready';
+        const feedbackState = stateNames[state];
+        if (feedbackState) {
+            this.sendFeedback(feedbackState, this.getVideoIdForPlayer(playerId), playerId);
+        }
+
+        // Loop only the player currently visible on the output.
         if (state === YT.PlayerState.ENDED && playerId === this.currentPlayer) {
             this.players[playerId].playVideo();
         }
@@ -325,6 +342,10 @@ class VJPlayer {
     onPlayerError(playerId, event) {
         console.error(`Player ${playerId} error:`, event);
         console.error(`Error code: ${event.data}`);
+        this.sendFeedback('error', this.getVideoIdForPlayer(playerId), playerId, {
+            errorCode: event.data,
+            includeTiming: false
+        });
 
         // エラーコードの詳細
         const errorCodes = {
@@ -623,7 +644,7 @@ class VJPlayer {
             // 定期的に生存信号（Heartbeat）を送信（5秒に1回）
             const now = Date.now();
             if (now - this._lastHeartbeatAt > 5000) {
-                this.sendFeedback('HEARTBEAT', this.currentVideoId || '');
+                this.sendFeedback('HEARTBEAT', this.currentVideoId || '', this.currentPlayer, { includeTiming: false, includeMetadata: false });
                 this._lastHeartbeatAt = now;
             }
 
@@ -646,19 +667,33 @@ class VJPlayer {
         const cmd = command.cmd;
         const videoId = command.videoId;
         const trackInfo = command.trackInfo || null;
+        const mediaInfo = command.mediaInfo || null;
+        const playerId = this.normalizePlayerId(command.playerId);
 
         switch (cmd) {
             case 'PRELOAD':
-                this.handlePreload(videoId, trackInfo);
+                this.handlePreload(videoId, trackInfo, mediaInfo);
                 break;
             case 'PLAY':
-                this.handlePlay(videoId, trackInfo);
+                this.handlePlay(videoId, trackInfo, mediaInfo);
                 break;
             case 'REWIND':
-                this.handleRewind(parseFloat(videoId) || 10);
+                this.handleRewind(parseFloat(videoId) || 10, playerId);
                 break;
             case 'FORWARD':
-                this.handleForward(parseFloat(videoId) || 10);
+                this.handleForward(parseFloat(videoId) || 10, playerId);
+                break;
+            case 'PAUSE_PLAYER':
+                this.handlePause(playerId);
+                break;
+            case 'RESUME_PLAYER':
+                this.handleResume(playerId);
+                break;
+            case 'SELECT_PLAYER':
+                this.handleSelectPlayer(playerId);
+                break;
+            case 'REQUEST_PLAYER_STATE':
+                this.sendAllPlayerSnapshots();
                 break;
             case 'SET_CONFIG':
                 this.handleSetConfig(videoId);
@@ -668,86 +703,93 @@ class VJPlayer {
         }
     }
 
-    // プリロード処理
-    handlePreload(videoId, trackInfo) {
-        if (!videoId || videoId === this.nextVideoId) {
+    // PRELOAD always targets the player currently reserved as nextPlayer.
+
+    handlePreload(videoId, trackInfo, mediaInfo) {
+        const targetPlayer = this.nextPlayer;
+        if (!videoId) {
+            return;
+        }
+        if (videoId === this.nextVideoId && this.playerVideoIds[targetPlayer] === videoId) {
+            this.sendPlayerSnapshot(targetPlayer);
             return;
         }
 
-        console.log(`Preloading video: ${videoId}`);
+        console.log(`Preloading video ${videoId} into player ${targetPlayer}`);
         this.nextVideoId = videoId;
-        // 楽曲情報を次の動画用に保持
+        this.playerVideoIds[targetPlayer] = videoId;
         if (trackInfo) {
             this.nextTrackInfo = trackInfo;
+            this.playerTrackInfo[targetPlayer] = trackInfo;
+        }
+        if (mediaInfo) {
+            this.nextMediaInfo = mediaInfo;
+            this.playerMediaInfo[targetPlayer] = mediaInfo;
         }
 
-        // 状態フィードバックを送信
-        this.sendFeedback('preloading', videoId);
+        this.sendFeedback('preloading', videoId, targetPlayer, { includeTiming: false });
+        this.isReady[targetPlayer] = false;
 
-        // 次のプレイヤーが存在する場合は通常の cue を使う
-        const nextPlayerObj = this.players[this.nextPlayer];
+        const nextPlayerObj = this.players[targetPlayer];
         if (nextPlayerObj && typeof nextPlayerObj.cueVideoById === 'function') {
             try {
-                this.players[this.nextPlayer].cueVideoById({
+                nextPlayerObj.cueVideoById({
                     videoId: videoId,
                     startSeconds: 0,
                     suggestedQuality: 'hd720'
                 });
 
-                // プリロード完了後にready状態を送信
+                // Some browsers delay or omit CUED; keep a one-shot fallback notification.
                 setTimeout(() => {
-                    if (this.nextVideoId === videoId) {
-                        this.sendFeedback('ready', videoId);
-                        console.log(`Video ready: ${videoId}`);
+                    if (this.nextVideoId === videoId && this.nextPlayer === targetPlayer) {
+                        this.sendFeedback('ready', videoId, targetPlayer);
+                        console.log(`Video ready: ${videoId} on player ${targetPlayer}`);
                     }
-                }, 1000); // 1秒後にready状態を送信
+                }, 1000);
             } catch (e) {
                 console.warn('cueVideoById failed, falling back to iframe:', e);
-                // iframe フォールバックとして埋め込む（autoplayはしない）
-                if (this.ensureIframeFor(this.nextPlayer, videoId, false)) {
-                    // iframe の場合は即 ready 扱いにする
-                    this.sendFeedback('ready', videoId);
-                    console.log(`Iframe preload ready: ${videoId}`);
+                if (this.ensureIframeFor(targetPlayer, videoId, false)) {
+                    this.sendFeedback('ready', videoId, targetPlayer, { includeTiming: false });
                 } else {
                     this.showManualPlayback();
                 }
             }
         } else {
-            // YT.Playerが無い（フォールバック済み）なら iframe を作成して ready 扱い
-            if (this.ensureIframeFor(this.nextPlayer, videoId, false)) {
-                this.sendFeedback('ready', videoId);
-                console.log(`Iframe preload ready: ${videoId}`);
+            if (this.ensureIframeFor(targetPlayer, videoId, false)) {
+                this.sendFeedback('ready', videoId, targetPlayer, { includeTiming: false });
             } else {
                 this.showManualPlayback();
             }
         }
     }
 
-    // 再生処理
-    handlePlay(videoId, trackInfo) {
+    // PLAY switches the prepared physical player to the output.
+
+    handlePlay(videoId, trackInfo, mediaInfo) {
         if (!videoId) {
             return;
         }
 
-        console.log(`Playing video: ${videoId}`);
-        // 楽曲情報を次の動画用に保持
+        const targetPlayer = this.nextPlayer;
+        console.log(`Playing video ${videoId} on target player ${targetPlayer}`);
+        this.playerVideoIds[targetPlayer] = videoId;
         if (trackInfo) {
             this.nextTrackInfo = trackInfo;
+            this.playerTrackInfo[targetPlayer] = trackInfo;
         }
-        console.log(`Current state: isReady[${this.nextPlayer}]=${this.isReady[this.nextPlayer]}, nextVideoId=${this.nextVideoId}`);
+        if (mediaInfo) {
+            this.nextMediaInfo = mediaInfo;
+            this.playerMediaInfo[targetPlayer] = mediaInfo;
+        }
 
-        if (this.isReady[this.nextPlayer] && this.nextVideoId === videoId) {
-            // 準備完了している場合、即座に切り替え
-            console.log('Ready - switching immediately');
-            this.switchAndPlay(videoId);
+        if (this.isReady[targetPlayer] && this.nextVideoId === videoId) {
+            this.switchAndPlay(videoId, targetPlayer);
             return;
         }
 
-        // 準備完了していない場合、YT.Player があれば load、なければ iframe フォールバックを作る
-        console.log('Not ready - loading and waiting');
         this.nextVideoId = videoId;
-
-        const nextPlayerObj = this.players[this.nextPlayer];
+        this.isReady[targetPlayer] = false;
+        const nextPlayerObj = this.players[targetPlayer];
         if (nextPlayerObj && typeof nextPlayerObj.loadVideoById === 'function') {
             try {
                 nextPlayerObj.loadVideoById({
@@ -757,32 +799,32 @@ class VJPlayer {
                 });
             } catch (e) {
                 console.warn('loadVideoById failed, falling back to iframe:', e);
-                // iframe に差し替えて自動再生を試みる
-                if (this.ensureIframeFor(this.nextPlayer, videoId, true)) {
-                    // iframe は即時切り替え可能とみなす
-                    this.isReady[this.nextPlayer] = true;
+                if (this.ensureIframeFor(targetPlayer, videoId, true)) {
+                    this.isReady[targetPlayer] = true;
                 }
             }
-        } else {
-            // YT.Player が存在しない場合は iframe で再生を行う
-            if (this.ensureIframeFor(this.nextPlayer, videoId, true)) {
-                this.isReady[this.nextPlayer] = true;
-            }
+        } else if (this.ensureIframeFor(targetPlayer, videoId, true)) {
+            this.isReady[targetPlayer] = true;
         }
 
-        // ロード完了を待って切り替え
-        this.waitForReadyAndSwitch(videoId);
+        this.waitForReadyAndSwitch(videoId, targetPlayer);
     }
 
-    // 準備完了を待って切り替え
-    waitForReadyAndSwitch(videoId) {
-        const checkReady = () => {
-            // YT.Player が消えて iframe フォールバックになっている場合、iframe が目的の動画を指していれば即座に切替
-            const nextContainer = document.getElementById(`player${this.nextPlayer}Container`);
-            const iframePresent = nextContainer && nextContainer.dataset && nextContainer.dataset.embedFallback === '1' && nextContainer.dataset.embedVideoId === videoId;
+    // Wait for the same physical target captured when PLAY was received.
 
-            if ((this.isReady[this.nextPlayer] && this.nextVideoId === videoId) || iframePresent) {
-                this.switchAndPlay(videoId);
+    waitForReadyAndSwitch(videoId, targetPlayer) {
+        const checkReady = () => {
+            // A newer PRELOAD/PLAY replaced this request; do not switch the stale video.
+            if (this.nextPlayer !== targetPlayer || this.nextVideoId !== videoId) {
+                return;
+            }
+            const nextContainer = document.getElementById(`player${targetPlayer}Container`);
+            const iframePresent = nextContainer && nextContainer.dataset &&
+                nextContainer.dataset.embedFallback === '1' &&
+                nextContainer.dataset.embedVideoId === videoId;
+
+            if (this.isReady[targetPlayer] || iframePresent) {
+                this.switchAndPlay(videoId, targetPlayer);
             } else {
                 setTimeout(checkReady, 100);
             }
@@ -790,155 +832,275 @@ class VJPlayer {
         checkReady();
     }
 
-    // 巻き戻し処理
-    handleRewind(seconds) {
-        console.log(`Rewinding ${seconds} seconds`);
-        const currentPlayerObj = this.players[this.currentPlayer];
-
-        if (currentPlayerObj && typeof currentPlayerObj.seekTo === 'function') {
-            try {
-                const currentTime = currentPlayerObj.getCurrentTime();
-                const newTime = Math.max(0, currentTime - seconds);
-                currentPlayerObj.seekTo(newTime, true);
-                console.log(`Rewound to ${newTime} seconds`);
-            } catch (error) {
-                console.error('Error during rewind:', error);
-            }
-        } else {
-            console.log('Rewind not available: current player does not support seekTo');
-        }
+    normalizePlayerId(playerId) {
+        const normalized = String(playerId || '').toUpperCase();
+        return normalized === 'A' || normalized === 'B' ? normalized : this.currentPlayer;
     }
 
-    // 早送り処理
-    handleForward(seconds) {
-        console.log(`Forwarding ${seconds} seconds`);
-        const currentPlayerObj = this.players[this.currentPlayer];
-
-        if (currentPlayerObj && typeof currentPlayerObj.seekTo === 'function') {
-            try {
-                const currentTime = currentPlayerObj.getCurrentTime();
-                const duration = currentPlayerObj.getDuration();
-                const newTime = Math.min(duration || currentTime + seconds, currentTime + seconds);
-                currentPlayerObj.seekTo(newTime, true);
-                console.log(`Forwarded to ${newTime} seconds`);
-            } catch (error) {
-                console.error('Error during forward:', error);
-            }
-        } else {
-            console.log('Forward not available: current player does not support seekTo');
+    getVideoIdForPlayer(playerId) {
+        const normalized = this.normalizePlayerId(playerId);
+        // While PRELOAD/PLAY is loading, prefer the requested ID over stale API data.
+        if (normalized === this.nextPlayer && this.nextVideoId) {
+            return this.nextVideoId;
         }
+        const player = this.players[normalized];
+        try {
+            if (player && typeof player.getVideoData === 'function') {
+                const data = player.getVideoData();
+                if (data && data.video_id) {
+                    this.playerVideoIds[normalized] = data.video_id;
+                    return data.video_id;
+                }
+            }
+        } catch (e) {
+            // During iframe/player transitions the API may be temporarily unavailable.
+        }
+        return this.playerVideoIds[normalized] ||
+            (normalized === this.currentPlayer ? this.currentVideoId : null) || '';
     }
 
-    // プレイヤー切り替えと再生
-    switchAndPlay(videoId) {
-        console.log(`Switching to player ${this.nextPlayer} with video: ${videoId}`);
+    refreshPlayerMediaInfoFromIframe(playerId, expectedVideoId = '') {
+        const normalized = this.normalizePlayerId(playerId);
+        const existing = Object.assign({}, this.playerMediaInfo[normalized] || {});
+        const player = this.players[normalized];
+        try {
+            if (player && typeof player.getVideoData === 'function') {
+                const data = player.getVideoData();
+                const actualVideoId = data && data.video_id ? String(data.video_id) : '';
+                const expected = String(expectedVideoId || '');
 
-        // DOMの準備状態を確認
-        console.log('DOM ready state:', document.readyState);
-        console.log('Available containers:', {
-            playerA: document.getElementById('playerAContainer'),
-            playerB: document.getElementById('playerBContainer')
-        });
+                // During PRELOAD the physical iframe can still report the old
+                // video's title for a moment. Never let that stale title replace
+                // the metadata of the newly requested video.
+                const matchesRequestedVideo = !expected || !actualVideoId || actualVideoId === expected;
+                if (matchesRequestedVideo && data && data.title) {
+                    existing.videoTitle = String(data.title);
+                }
+                if (matchesRequestedVideo && actualVideoId && !existing.thumbnailUrl) {
+                    existing.thumbnailUrl = `https://i.ytimg.com/vi/${actualVideoId}/hqdefault.jpg`;
+                }
+            }
+        } catch (e) {
+            // Player data can be temporarily unavailable during A/B transitions.
+        }
+        this.playerMediaInfo[normalized] = existing;
+        return existing;
+    }
 
-        // 状態更新（切り替え前に実行）
+    playerStateName(playerId) {
+        const normalized = this.normalizePlayerId(playerId);
+        const state = this._lastPlayerState[normalized];
+        if (typeof YT !== 'undefined' && YT.PlayerState) {
+            if (state === YT.PlayerState.PLAYING) return 'playing';
+            if (state === YT.PlayerState.PAUSED) return 'paused';
+            if (state === YT.PlayerState.BUFFERING) return 'buffering';
+            if (state === YT.PlayerState.CUED) return 'ready';
+            if (state === YT.PlayerState.ENDED) return 'ended';
+            if (state === YT.PlayerState.UNSTARTED) return 'unstarted';
+        }
+        return this.playerVideoIds[normalized] ? 'ready' : 'idle';
+    }
+
+    handleSelectPlayer(playerId) {
+        const targetPlayer = this.normalizePlayerId(playerId);
+        if (targetPlayer !== 'A' && targetPlayer !== 'B') {
+            return;
+        }
+
+        if (targetPlayer === this.currentPlayer) {
+            this.sendPlayerSnapshot(targetPlayer);
+            return;
+        }
+
         const oldPlayer = this.currentPlayer;
         const oldPlayerObj = this.players[oldPlayer];
+        const oldContainer = document.getElementById(`player${oldPlayer}Container`);
+        const targetContainer = document.getElementById(`player${targetPlayer}Container`);
+        const selectedVideoId = this.getVideoIdForPlayer(targetPlayer);
+
+        // Only one output should make sound.  Preserve the old player's
+        // position by pausing rather than stopping it when the visible side is
+        // changed with the A/B toggle.
+        try {
+            if (oldPlayerObj && typeof oldPlayerObj.pauseVideo === 'function') {
+                oldPlayerObj.pauseVideo();
+            }
+        } catch (e) {
+            console.warn(`Failed to pause previous visible player ${oldPlayer}:`, e);
+        }
+
+        if (oldContainer) {
+            oldContainer.classList.remove('active', 'crossfade-in', 'crossfade-out');
+            oldContainer.classList.add('hidden');
+            oldContainer.style.opacity = '0';
+            oldContainer.style.pointerEvents = 'none';
+        }
+        if (targetContainer) {
+            targetContainer.classList.remove('hidden', 'crossfade-in', 'crossfade-out');
+            targetContainer.classList.add('active');
+            targetContainer.style.opacity = '1';
+            targetContainer.style.pointerEvents = 'auto';
+        }
+
+        // Consume the old "next" slot if that is the side the user selected.
+        // The opposite physical player becomes the next preload destination.
+        const selectedWasNext = targetPlayer === this.nextPlayer;
+        this.currentPlayer = targetPlayer;
+        this.nextPlayer = targetPlayer === 'A' ? 'B' : 'A';
+        this.currentVideoId = selectedVideoId || '';
+        if (selectedWasNext) {
+            this.nextVideoId = null;
+        }
+        this.currentTrackInfo = this.playerTrackInfo[targetPlayer] || null;
+        this.currentMediaInfo = this.playerMediaInfo[targetPlayer] || null;
+        this.updateTrackInfoOverlay();
+
+        // Let pauseVideo/state-change settle, then report both sides so the Qt
+        // panels update their current marker and state consistently.
+        setTimeout(() => {
+            this.sendPlayerSnapshot(oldPlayer);
+            this.sendPlayerSnapshot(targetPlayer);
+        }, 80);
+        console.log(`Visible player selected by controller toggle: ${targetPlayer}`);
+    }
+
+    handlePause(playerId) {
+        const targetPlayer = this.normalizePlayerId(playerId);
+        const player = this.players[targetPlayer];
+        if (player && typeof player.pauseVideo === 'function') {
+            try {
+                player.pauseVideo();
+                setTimeout(() => this.sendPlayerSnapshot(targetPlayer, 'paused'), 50);
+                return;
+            } catch (error) {
+                console.error(`Pause failed for player ${targetPlayer}:`, error);
+            }
+        }
+        this.sendFeedback('control_unavailable', this.getVideoIdForPlayer(targetPlayer), targetPlayer, { includeTiming: false });
+    }
+
+    handleResume(playerId) {
+        const targetPlayer = this.normalizePlayerId(playerId);
+        const player = this.players[targetPlayer];
+        if (player && typeof player.playVideo === 'function') {
+            try {
+                player.playVideo();
+                setTimeout(() => this.sendPlayerSnapshot(targetPlayer, 'playing'), 50);
+                return;
+            } catch (error) {
+                console.error(`Resume failed for player ${targetPlayer}:`, error);
+            }
+        }
+        this.sendFeedback('control_unavailable', this.getVideoIdForPlayer(targetPlayer), targetPlayer, { includeTiming: false });
+    }
+
+    handleSeekDelta(seconds, playerId) {
+        const targetPlayer = this.normalizePlayerId(playerId);
+        const player = this.players[targetPlayer];
+        if (!player || typeof player.seekTo !== 'function' || typeof player.getCurrentTime !== 'function') {
+            this.sendFeedback('control_unavailable', this.getVideoIdForPlayer(targetPlayer), targetPlayer, { includeTiming: false });
+            return;
+        }
+
+        try {
+            const currentTime = Number(player.getCurrentTime()) || 0;
+            const duration = typeof player.getDuration === 'function' ? Number(player.getDuration()) || 0 : 0;
+            let newTime = Math.max(0, currentTime + Number(seconds || 0));
+            if (duration > 0) {
+                newTime = Math.min(duration, newTime);
+            }
+            player.seekTo(newTime, true);
+            console.log(`Player ${targetPlayer} seeked to ${newTime} seconds`);
+            setTimeout(() => this.sendPlayerSnapshot(targetPlayer), 50);
+        } catch (error) {
+            console.error(`Seek failed for player ${targetPlayer}:`, error);
+        }
+    }
+
+    handleRewind(seconds, playerId) {
+        console.log(`Rewinding player ${this.normalizePlayerId(playerId)} by ${seconds} seconds`);
+        this.handleSeekDelta(-Math.abs(seconds), playerId);
+    }
+
+    handleForward(seconds, playerId) {
+        console.log(`Forwarding player ${this.normalizePlayerId(playerId)} by ${seconds} seconds`);
+        this.handleSeekDelta(Math.abs(seconds), playerId);
+    }
+
+    // Switch the selected physical player to the visible output.
+
+    switchAndPlay(videoId, targetPlayer = null) {
+        const selectedPlayer = targetPlayer || this.nextPlayer;
+        console.log(`Switching to player ${selectedPlayer} with video: ${videoId}`);
+
+        const oldPlayer = this.currentPlayer;
+        const oldPlayerObj = this.players[oldPlayer];
+        const wasPreloaded = this.nextVideoId === videoId && this.nextPlayer === selectedPlayer;
+
         this.currentVideoId = videoId;
-        this.currentPlayer = this.nextPlayer;
-        this.nextPlayer = this.nextPlayer === 'A' ? 'B' : 'A';
+        this.currentPlayer = selectedPlayer;
+        this.nextPlayer = selectedPlayer === 'A' ? 'B' : 'A';
         this.nextVideoId = null;
+        this.playerVideoIds[selectedPlayer] = videoId;
 
-        // プレイヤー切り替え（フェード処理付き）
         const currentContainer = document.getElementById(`player${oldPlayer}Container`);
-        const nextContainer = document.getElementById(`player${this.currentPlayer}Container`);
-
-        console.log('Looking for containers:', {
-            [`player${oldPlayer}Container`]: currentContainer,
-            [`player${this.currentPlayer}Container`]: nextContainer
-        });
+        const nextContainer = document.getElementById(`player${selectedPlayer}Container`);
 
         if (currentContainer && nextContainer) {
-            console.log('Both containers found, starting stable crossfade transition');
-
-            // 新しい動画を再生開始（フェードは待機）
-            const nextPlayerObj = this.players[this.currentPlayer];
+            const nextPlayerObj = this.players[selectedPlayer];
             let videoStarted = false;
 
             if (nextPlayerObj && typeof nextPlayerObj.playVideo === 'function') {
                 try {
                     nextPlayerObj.playVideo();
-                    console.log('Started playing next video, waiting for actual playback');
                     videoStarted = true;
                 } catch (e) {
                     console.warn('playVideo failed:', e);
                 }
             } else {
-                console.log('No YT.Player for current player; assume iframe fallback will autoplay if present');
                 videoStarted = true;
             }
 
-            // 次のプレイヤーを非表示状態で準備
             nextContainer.classList.remove('hidden');
             nextContainer.classList.add('active');
             nextContainer.style.opacity = '0';
             nextContainer.style.transition = 'opacity 0.5s ease-in-out';
-
-            // 現在のプレイヤーにもトランジションを確実に設定
             currentContainer.style.transition = 'opacity 0.5s ease-in-out';
 
-            // 動画再生開始を待ってからフェード開始
             const startFade = () => {
-                console.log('Starting stable crossfade after video playback started');
-
-                // クロスフェード開始
-                // 両方のプレイヤーを重ねて表示
                 currentContainer.classList.add('crossfade-out');
                 nextContainer.classList.add('crossfade-in');
 
-                // 同時にフェード開始
                 requestAnimationFrame(() => {
-                    // 現在のプレイヤーをフェードアウト
                     currentContainer.style.opacity = '0';
                     currentContainer.classList.remove('active');
                     currentContainer.classList.add('hidden');
-
-                    // 次のプレイヤーをフェードイン
                     nextContainer.style.opacity = '1';
                 });
 
-                // フェードアウト完了後に古い動画を停止
                 setTimeout(() => {
-                    if (oldPlayerObj && typeof oldPlayerObj.stopVideo === 'function') {
+                    if (oldPlayer !== selectedPlayer && oldPlayerObj && typeof oldPlayerObj.stopVideo === 'function') {
                         try {
                             oldPlayerObj.stopVideo();
-                            console.log('Stopped previous video after fade-out');
                         } catch (e) {
                             console.warn('stopVideo failed:', e);
                         }
                     }
-                    // z-indexをリセット
                     currentContainer.classList.remove('crossfade-out');
                     nextContainer.classList.remove('crossfade-in');
-                }, 500); // フェードアウト完了時間
+                    this.sendPlayerSnapshot(oldPlayer);
+                    this.sendPlayerSnapshot(selectedPlayer, 'playing');
+                }, 500);
             };
 
             if (videoStarted) {
-                // プリロード済みかどうかで待機時間を調整
-                // プリロード済み（ready状態）なら即フェード、未プリロードなら300ms待機
-                const wasPreloaded = this.nextVideoId === videoId;
-                const waitTime = wasPreloaded ? 50 : 300; // プリロード済みは50ms、未プリロードは300ms
-                console.log(`Video was preloaded: ${wasPreloaded}, waiting ${waitTime}ms before fade`);
-                setTimeout(startFade, waitTime);
+                setTimeout(startFade, wasPreloaded ? 50 : 300);
             } else {
-                // 再生開始できなかった場合は即時フェード
                 startFade();
             }
-
         } else {
-            console.error('Container elements not found:', { oldPlayer, currentPlayer: this.currentPlayer });
-
-            // フォールバック：直接スタイルを操作
-            const nextPlayerObj = this.players[this.currentPlayer];
+            console.error('Container elements not found:', { oldPlayer, currentPlayer: selectedPlayer });
+            const nextPlayerObj = this.players[selectedPlayer];
             if (nextPlayerObj && typeof nextPlayerObj.playVideo === 'function') {
                 try {
                     nextPlayerObj.playVideo();
@@ -946,7 +1108,6 @@ class VJPlayer {
                     console.warn('playVideo failed:', e);
                 }
             }
-
             if (currentContainer) {
                 currentContainer.style.opacity = '0';
                 currentContainer.style.pointerEvents = 'none';
@@ -955,27 +1116,22 @@ class VJPlayer {
                 nextContainer.style.opacity = '1';
                 nextContainer.style.pointerEvents = 'auto';
             }
-
-            // フォールバック時も古い動画は停止
             setTimeout(() => {
-                if (oldPlayerObj && typeof oldPlayerObj.stopVideo === 'function') {
+                if (oldPlayer !== selectedPlayer && oldPlayerObj && typeof oldPlayerObj.stopVideo === 'function') {
                     try { oldPlayerObj.stopVideo(); } catch (e) { console.warn('stopVideo failed:', e); }
                 }
             }, 500);
         }
 
-        // 状態フィードバックを送信
-        this.sendFeedback('playing', videoId);
-
-        // 楽曲情報を更新（次の動画の情報を現在に移す）
-        this.currentTrackInfo = this.nextTrackInfo;
+        this.currentTrackInfo = this.playerTrackInfo[selectedPlayer] || this.nextTrackInfo;
+        this.currentMediaInfo = this.playerMediaInfo[selectedPlayer] || this.nextMediaInfo;
         this.nextTrackInfo = null;
+        this.nextMediaInfo = null;
         this.updateTrackInfoOverlay();
-
+        this.sendFeedback('playing', videoId, selectedPlayer);
         console.log(`Switch complete. Current player: ${this.currentPlayer}`);
     }
 
-    // ポーリングポート設定
     setPollingPort(port) {
         this.pollingPort = port;
         this.pollingUrl = `http://127.0.0.1:${port}/poll`;
@@ -984,25 +1140,62 @@ class VJPlayer {
     }
 
     // 状態フィードバック送信
-    async sendFeedback(state, videoId) {
+    readPlayerTiming(playerId) {
+        const targetPlayer = this.normalizePlayerId(playerId);
+        const player = this.players[targetPlayer];
+        let currentTime = null;
+        let duration = null;
         try {
+            if (player && typeof player.getCurrentTime === 'function') {
+                const value = Number(player.getCurrentTime());
+                if (Number.isFinite(value)) currentTime = value;
+            }
+            if (player && typeof player.getDuration === 'function') {
+                const value = Number(player.getDuration());
+                if (Number.isFinite(value) && value > 0) duration = value;
+            }
+        } catch (e) {
+            // One-shot timing is optional; metadata duration remains available.
+        }
+        return { currentTime, duration };
+    }
+
+    async sendFeedback(state, videoId, playerId = null, options = {}) {
+        try {
+            const normalizedPlayer = playerId ? this.normalizePlayerId(playerId) : null;
             const feedbackData = {
                 state: state,
-                videoId: videoId,
-                timestamp: Date.now()
+                videoId: videoId || '',
+                timestamp: Date.now(),
+                currentPlayer: this.currentPlayer,
+                nextPlayer: this.nextPlayer
             };
+
+            if (normalizedPlayer) {
+                feedbackData.playerId = normalizedPlayer;
+                feedbackData.isCurrent = normalizedPlayer === this.currentPlayer;
+                if (options.includeMetadata !== false) {
+                    // Read the actual YouTube title only when state metadata is
+                    // already being sent. HEARTBEAT explicitly skips this path.
+                    const mediaInfo = this.refreshPlayerMediaInfoFromIframe(normalizedPlayer, videoId);
+                    feedbackData.trackInfo = this.playerTrackInfo[normalizedPlayer] || null;
+                    feedbackData.mediaInfo = mediaInfo || null;
+                }
+                if (options.includeTiming !== false) {
+                    Object.assign(feedbackData, this.readPlayerTiming(normalizedPlayer));
+                }
+            }
+            if (options.errorCode !== undefined) {
+                feedbackData.errorCode = options.errorCode;
+            }
 
             const response = await fetch(this.feedbackUrl, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(feedbackData)
             });
 
-            if (response.ok) {
-                console.log(`Feedback sent: ${state} for ${videoId}`);
-            } else {
+            if (!response.ok) {
                 console.error(`Failed to send feedback: ${response.status}`);
             }
         } catch (error) {
@@ -1011,7 +1204,19 @@ class VJPlayer {
         }
     }
 
-    // SET_CONFIGコマンドの処理
+    sendPlayerSnapshot(playerId, stateOverride = null) {
+        const targetPlayer = this.normalizePlayerId(playerId);
+        const state = stateOverride || this.playerStateName(targetPlayer);
+        return this.sendFeedback(state, this.getVideoIdForPlayer(targetPlayer), targetPlayer);
+    }
+
+    sendAllPlayerSnapshots() {
+        this.sendPlayerSnapshot('A');
+        this.sendPlayerSnapshot('B');
+    }
+
+    // SET_CONFIG command handling.
+
     handleSetConfig(configJson) {
         try {
             const config = JSON.parse(configJson);

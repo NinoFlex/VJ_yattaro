@@ -9,7 +9,7 @@ YouTube IFrame Player APIを使用したA/B 2プレイヤーによるプリロ�
 - **自動ループ再生**: 動画終了時に自動的にループ再生
 - **ミュート固定**: VJ用途を想定し、常にミュート状態で再生
 - **HTTPサーバー統合**: Pythonアプリケーションから自動起動・制御
-- **状態フィードバック**: プレイヤーの状態をリアルタイムでアプリケーションに通知
+- **A/B別状態フィードバック**: 物理プレイヤーA/Bの状態、単発の再生位置・総時間をアプリケーションに通知
 - **自動ブラウザ起動**: アプリケーション起動時にプレイヤーを自動で開く
 
 ## 使用方法
@@ -41,7 +41,20 @@ http://localhost:8080/player.html?defaultVideoId=eyUUHfVm8Ik
 GET http://localhost:8080/poll
 ```
 
-#### 状態フィードバック
+#
+#### A/B個別操作
+
+```json
+{"cmd":"PAUSE_PLAYER", "playerId":"A"}
+{"cmd":"RESUME_PLAYER", "playerId":"B"}
+{"cmd":"REWIND", "videoId":"3", "playerId":"A"}
+{"cmd":"FORWARD", "videoId":"4", "playerId":"B"}
+{"cmd":"REQUEST_PLAYER_STATE"}
+```
+
+`REWIND` / `FORWARD` の `videoId` は既存プロトコルとの互換性のため秒数として使用します。
+
+### 状態フィードバック
 ```
 POST http://localhost:8080/feedback
 ```
@@ -65,7 +78,9 @@ GET http://localhost:8080/player.css
 ```json
 {
   "cmd": "PRELOAD",
-  "videoId": "dQw4w9WgXcQ"
+  "videoId": "dQw4w9WgXcQ",
+  "trackInfo": {"title": "曲名", "artist": "アーティスト", "comment": "コメント"},
+  "mediaInfo": {"videoTitle": "動画タイトル", "thumbnailUrl": "https://...", "durationText": "04:12"}
 }
 ```
 
@@ -74,7 +89,9 @@ GET http://localhost:8080/player.css
 ```json
 {
   "cmd": "PLAY",
-  "videoId": "dQw4w9WgXcQ"
+  "videoId": "dQw4w9WgXcQ",
+  "trackInfo": {"title": "曲名", "artist": "アーティスト", "comment": "コメント"},
+  "mediaInfo": {"videoTitle": "動画タイトル", "thumbnailUrl": "https://...", "durationText": "04:12"}
 }
 ```
 
@@ -84,8 +101,14 @@ GET http://localhost:8080/player.css
 
 ```json
 {
-  "state": "preloading|ready|playing|ended|error",
+  "state": "preloading|ready|playing|paused|buffering|ended|error",
   "videoId": "YouTube動画ID",
+  "playerId": "A",
+  "isCurrent": true,
+  "currentTime": 83.2,
+  "duration": 252.0,
+  "trackInfo": {"title": "曲名", "artist": "アーティスト", "comment": "コメント"},
+  "mediaInfo": {"videoTitle": "動画タイトル", "thumbnailUrl": "https://...", "durationText": "04:12"},
   "timestamp": 1234567890123
 }
 ```
@@ -121,7 +144,7 @@ GET http://localhost:8080/player.css
 ### 統合機能
 - **自動ブラウザ起動**: アプリ起動時に `webbrowser.open()` でプレイヤーを開く
 - **デフォルト動画ID**: eyUUHfVm8Ik をクエリパラメータで渡す
-- **状態同期**: プレイヤーの状態変更をアプリケーションにリアルタイム通知
+- **状態同期**: A/Bそれぞれの状態変化時だけ時刻スナップショットを通知し、アプリ側で進捗を補間
 - **コマンドキュー**: スレッドセーフなコマンド送信
 
 ## ファイル構成

@@ -515,9 +515,23 @@ class YouTubeService(QObject):
         normalized = unicodedata.normalize("NFKC", str(text))
         # B'z / C++ / C# / AC-DC のように検索語として意味を持ちやすい
         # ASCII記号の一部は残すが、& は検索の安定性を優先して空白化する。
-        safe_symbols = {"'", "’", "+", "#", "-", ".", "_", "@"}
+        #
+        # YouTube Data API の q では、空白直後など「語頭の -」が Boolean NOT
+        # として解釈される。曲名の装飾 "-ユーレカ エヴリカ-" などをそのまま
+        # 渡すと、目的の語を検索結果から除外してしまうため、ハイフンは
+        # AC-DC のように文字と文字の間にある場合だけ残す。
+        safe_symbols = {"'", "’", "+", "#", ".", "_", "@"}
         cleaned = []
-        for char in normalized:
+        for index, char in enumerate(normalized):
+            if char == "-":
+                prev_char = normalized[index - 1] if index > 0 else ""
+                next_char = normalized[index + 1] if index + 1 < len(normalized) else ""
+                if prev_char.isalnum() and next_char.isalnum():
+                    cleaned.append(char)
+                else:
+                    cleaned.append(" ")
+                continue
+
             category = unicodedata.category(char)
             if char in safe_symbols:
                 cleaned.append(char)

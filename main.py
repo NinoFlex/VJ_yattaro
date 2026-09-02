@@ -136,17 +136,6 @@ class TitleBar(QWidget):
         self.settings_button.clicked.connect(self._main_window.open_settings)
         layout.addWidget(self.settings_button)
 
-        # 巻き戻しボタン
-        self.rewind_button = QPushButton("◀◀")
-        self.rewind_button.setObjectName("seek_button")
-        self.rewind_button.clicked.connect(self._main_window.rewind_video)
-        layout.addWidget(self.rewind_button)
-
-        # 早送りボタン
-        self.forward_button = QPushButton("▶▶")
-        self.forward_button.setObjectName("seek_button")
-        self.forward_button.clicked.connect(self._main_window.forward_video)
-        layout.addWidget(self.forward_button)
 
         # タイトル
         self.title_label = QLabel("あんたの代わりにVJやっ太郎")
@@ -209,7 +198,7 @@ class TitleBar(QWidget):
                 background-color: {c['danger']};
                 color: white;
             }}
-            #settings_button, #seek_button {{
+            #settings_button {{
                 background-color: {c['input']};
                 border: 1px solid {c['border']};
                 border-radius: 4px;
@@ -220,13 +209,7 @@ class TitleBar(QWidget):
                 margin: 4px 8px;
                 padding: 0 10px;
             }}
-            #seek_button {{
-                font-size: 16px;
-                margin: 4px 2px;
-                padding: 0 8px;
-                min-width: 32px;
-            }}
-            #settings_button:hover, #seek_button:hover {{
+            #settings_button:hover {{
                 background-color: {c['hover']};
             }}
             #autoplay_button {{
@@ -307,7 +290,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("VJ_yattaro")
-        self.resize(1920, 240)
+        # Default height is sized to the title bar + compact player controls +
+        # the 180 px main panes, avoiding unused vertical space.
+        self.resize(1920, 285)
         self.source_mode = "rekordbox"
 
         # UI生成前にテーマ設定を読み込む。
@@ -337,7 +322,7 @@ class MainWindow(QMainWindow):
         if screen:
             screen_geometry = screen.availableGeometry()
             window_width = 1920
-            window_height = 240
+            window_height = self.height()
             x = (screen_geometry.width() - window_width) // 2  # 中央揃え
             y = screen_geometry.height() - window_height - 10  # 下から10px上
             self.move(x, y)
@@ -366,6 +351,21 @@ class MainWindow(QMainWindow):
         self.title_bar = TitleBar(self)
         self.root_layout.addWidget(self.title_bar)
 
+        # Browser player A/B operation panels.
+        from ui.widgets.player_control_panel import DualPlayerControlBar
+        self.player_controls = DualPlayerControlBar(self)
+        self.player_controls.playback_requested.connect(self.toggle_player_playback)
+        self.player_controls.rewind_requested.connect(self.rewind_video)
+        self.player_controls.forward_requested.connect(self.forward_video)
+        self.player_controls.target_changed.connect(self._on_player_target_changed)
+        self.root_layout.addWidget(self.player_controls)
+
+        # Local progress clock. Browser timing is sampled only on state changes.
+        self._player_panel_timer = QTimer(self)
+        self._player_panel_timer.setInterval(200)
+        self._player_panel_timer.timeout.connect(self.player_controls.tick)
+        self._player_panel_timer.start()
+
         # メインコンテンツ
         content_widget = QWidget()
         content_layout = QHBoxLayout(content_widget)
@@ -377,23 +377,28 @@ class MainWindow(QMainWindow):
         from ui.widgets.youtube_list_view import YouTubeListView
         self.left_pane = YouTubeListView()
         # スタイルシートはYouTubeListView内部で設定
-        content_layout.addWidget(self.left_pane, 3)
+        content_layout.addWidget(self.left_pane, 3, Qt.AlignTop)
         
         # YouTubeリストにフォーカスを設定
         self.left_pane.setFocusPolicy(Qt.StrongFocus)
 
         # 右ペイン
         right_container = QWidget()
+        # Match the right search+table block to the fixed 180 px YouTube list.
+        # Keeping both panes the same height prevents the history table from
+        # stretching vertically when the main window has spare space.
+        right_container.setFixedHeight(180)
         right_layout = QVBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(5)
+        right_layout.setSpacing(4)
         
         # YouTube検索ボックス（IME対応版）
         self.youtube_search_box = ImeAwareLineEdit()
         self.youtube_search_box.setPlaceholderText("YouTube検索 (Enterで実行)")
+        self.youtube_search_box.setFixedHeight(30)
         self.youtube_search_box.setStyleSheet("""
             QLineEdit {
-                padding: 8px;
+                padding: 3px 6px;
                 border: 1px solid #ddd;
                 border-radius:4px;
                 font-size: 12px;
@@ -414,7 +419,7 @@ class MainWindow(QMainWindow):
         # 右テーブルにもフォーカスを設定
         self.right_table.setFocusPolicy(Qt.StrongFocus)
         
-        content_layout.addWidget(right_container, 2)
+        content_layout.addWidget(right_container, 2, Qt.AlignTop)
         
         self.auto_play_top_result = bool(self.config_service.get("auto_play_top_result", False))
         self.title_bar.set_auto_play_checked(self.auto_play_top_result)
@@ -498,6 +503,13 @@ class MainWindow(QMainWindow):
         self.midi_service.search_triggered.connect(self.search_selected_track)
         self.midi_service.rewind_triggered.connect(self.rewind_video)
         self.midi_service.forward_triggered.connect(self.forward_video)
+
+        # USB MIDI devices can briefly disappear/re-enumerate on Windows.
+        # Keep this low-frequency so it has no meaningful UI cost.
+        self._midi_watchdog = QTimer(self)
+        self._midi_watchdog.setInterval(3000)
+        self._midi_watchdog.timeout.connect(self.midi_service.ensure_connected)
+        self._midi_watchdog.start()
         
         # 右テーブルのダブルクリックシグナルを接続
         self.right_table.doubleClicked.connect(self.on_table_double_click)
@@ -536,10 +548,15 @@ class MainWindow(QMainWindow):
         
         # タイトルバーとその中の操作ボタン
         self.title_bar.installEventFilter(self)
-        for btn in [self.title_bar.settings_button, self.title_bar.rewind_button, 
-                   self.title_bar.forward_button, self.title_bar.source_toggle, self.title_bar.autoplay_button,
-                   self.title_bar.min_button, self.title_bar.close_button]:
+        for btn in [self.title_bar.settings_button, self.title_bar.source_toggle,
+                   self.title_bar.autoplay_button, self.title_bar.min_button, self.title_bar.close_button]:
             btn.installEventFilter(self)
+
+        self.player_controls.installEventFilter(self)
+        self.player_controls.panel_a.installEventFilter(self)
+        self.player_controls.panel_b.installEventFilter(self)
+        for control in self.player_controls.interactive_widgets():
+            control.installEventFilter(self)
             
         # 検索ボックス
         self.youtube_search_box.installEventFilter(self)
@@ -553,6 +570,7 @@ class MainWindow(QMainWindow):
         
         # 起動時にプレイヤー設定を送信（既にブラウザが開いている場合に備えて遅延送信）
         QTimer.singleShot(3000, self._send_player_config)
+        QTimer.singleShot(3400, self._request_player_state)
 
     def _open_player_in_browser(self):
         """起動時にYouTubeプレイヤーを既定ブラウザで開く（既に開いている場合はスキップ）"""
@@ -619,6 +637,131 @@ class MainWindow(QMainWindow):
         self._current_track_info = {"title": "", "artist": "", "comment": ""}
         self._update_youtube_border_color_safe(None)  # テーマ標準の枠線色へ戻す
         info("YouTube state reset to default", "UI")
+
+    def _on_player_target_changed(self, player_id):
+        player_id = str(player_id or "A").upper()
+        if player_id not in ("A", "B"):
+            return
+
+        # The center toggle now controls both the operation target and which
+        # physical browser player is shown on the output.  Update the panel
+        # highlight immediately; browser feedback will confirm the final state.
+        if hasattr(self, "player_controls"):
+            for panel_id in ("A", "B"):
+                self.player_controls.panel(panel_id).set_active_output(
+                    panel_id == player_id
+                )
+
+        if hasattr(self, "player_server") and self.player_server:
+            self.player_server.send_command("SELECT_PLAYER", player_id=player_id)
+            print(f"UI: Player operation/display target -> {player_id}")
+        else:
+            print(f"UI: Player operation target -> {player_id} (server not ready)")
+
+    def _selected_player_id(self):
+        if hasattr(self, "player_controls"):
+            return self.player_controls.selected_player()
+        return "A"
+
+    def _find_video_data(self, video_id):
+        if not video_id or not hasattr(self, "left_pane"):
+            return None
+        try:
+            model = self.left_pane.model
+            for row in range(model.rowCount()):
+                video = model.get_video_at(row)
+                if video and video.get("video_id") == video_id:
+                    return video
+        except Exception as e:
+            print(f"UI: Failed to find video metadata for {video_id}: {e}")
+        return None
+
+    def _build_player_media_info(self, video_data=None, video_id=""):
+        video_data = video_data or self._find_video_data(video_id) or {}
+        resolved_video_id = str(video_data.get("video_id", "") or video_id or "")
+        thumbnail_url = str(video_data.get("thumbnail_url", "") or "")
+        if not thumbnail_url and resolved_video_id:
+            thumbnail_url = f"https://i.ytimg.com/vi/{resolved_video_id}/hqdefault.jpg"
+        return {
+            "videoTitle": str(video_data.get("title", "") or ""),
+            "thumbnailUrl": thumbnail_url,
+            "durationText": str(video_data.get("duration", "") or ""),
+        }
+
+    def _send_video_command(self, command, video_id, video_data=None):
+        if not hasattr(self, "player_server") or not self.player_server:
+            return False
+        self.player_server.send_command(
+            command,
+            video_id,
+            track_info=dict(self._current_track_info),
+            media_info=self._build_player_media_info(video_data, video_id),
+        )
+        return True
+
+    def _request_player_state(self):
+        if hasattr(self, "player_server") and self.player_server:
+            self.player_server.send_command("REQUEST_PLAYER_STATE")
+            print("UI: Requested one-shot A/B player state snapshots")
+
+    def toggle_player_playback(self, player_id):
+        player_id = str(player_id or "A").upper()
+        if player_id not in ("A", "B") or not hasattr(self, "player_controls"):
+            return
+        panel = self.player_controls.panel(player_id)
+        if not panel.video_id:
+            print(f"UI: Player {player_id} has no loaded video")
+            return
+        if not hasattr(self, "player_server") or not self.player_server:
+            print("UI: Player server not available for play/pause")
+            return
+
+        selected_before_click = self.player_controls.selected_player()
+        if selected_before_click != player_id:
+            # Clicking the play button on the non-selected side means
+            # "make this side current and play it".  Changing the toggle emits
+            # SELECT_PLAYER first, then RESUME_PLAYER is queued immediately after.
+            self.player_controls.set_selected_player(player_id)
+            command = "RESUME_PLAYER"
+            panel.set_state("playing", is_current=True)
+        elif panel.state in ("playing", "buffering"):
+            command = "PAUSE_PLAYER"
+            panel.set_state("paused")
+        else:
+            command = "RESUME_PLAYER"
+            panel.set_state("playing")
+
+        self.player_server.send_command(command, player_id=player_id)
+        print(f"UI: Sent {command} to player {player_id}")
+
+    def _update_player_control_panel(self, feedback_data):
+        if not hasattr(self, "player_controls"):
+            return
+        state = str(feedback_data.get("state", "") or "")
+        if state.upper() == "HEARTBEAT":
+            return
+        player_id = str(feedback_data.get("playerId", "") or "").upper()
+        if player_id not in ("A", "B"):
+            return
+
+        is_current = feedback_data.get("isCurrent")
+        if is_current is True:
+            # Keep the center toggle aligned with the browser's actual visible
+            # player after normal PRELOAD/PLAY crossfades too.  This update is
+            # silent so it does not echo another SELECT_PLAYER command.
+            self.player_controls.set_selected_player(player_id, notify=False)
+            for panel_id in ("A", "B"):
+                self.player_controls.panel(panel_id).set_active_output(panel_id == player_id)
+
+        self.player_controls.panel(player_id).set_state(
+            state=state,
+            current_time=feedback_data.get("currentTime"),
+            duration=feedback_data.get("duration"),
+            video_id=feedback_data.get("videoId"),
+            track_info=feedback_data.get("trackInfo"),
+            media_info=feedback_data.get("mediaInfo"),
+            is_current=is_current,
+        )
     
     def open_settings(self):
         """詳細設定画面を別ウィンドウとして開く"""
@@ -641,6 +784,7 @@ class MainWindow(QMainWindow):
             self.apply_window_placement_mode()  # ウィンドウ配置モードを反映
             self._restart_player_server_if_needed()  # プレイヤーサーバー設定を反映
             self._send_player_config()  # プレイヤー設定を送信
+            QTimer.singleShot(300, self._request_player_state)
         else:
             print("UI: Settings dialog cancelled.")
 
@@ -666,6 +810,8 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "title_bar"):
             self.title_bar.apply_theme(self.ui_theme)
+        if hasattr(self, "player_controls"):
+            self.player_controls.apply_theme(self.ui_theme)
 
         if hasattr(self, "youtube_search_box"):
             self.youtube_search_box.setStyleSheet(f"""
@@ -800,20 +946,46 @@ class MainWindow(QMainWindow):
 
     def on_history_updated(self, new_history):
         """Watcherから新しいRekordbox履歴データを受け取った時の処理"""
-        self.rekordbox_table_model.update_data(new_history)
+        # beginResetModel()/endResetModel() はQtの選択状態を無効化するため、
+        # リセットが必要な場合に備えて「更新前」に現在選択を保存する。
+        selected_row = -1
+        selected_track = None
+        if self.source_mode == "rekordbox":
+            selection_model = self.right_table.selectionModel()
+            if selection_model:
+                current_indexes = selection_model.selectedRows()
+                if current_indexes:
+                    selected_row = current_indexes[0].row()
+                    if 0 <= selected_row < len(self.rekordbox_table_model._data):
+                        selected_track = self.rekordbox_table_model._data[selected_row]
+
+        model_changed = self.rekordbox_table_model.update_data(new_history)
 
         # Shazam表示中はRekordboxの更新でUIや自動検索を動かさない。
         if self.source_mode != "rekordbox":
             return
 
-        selection_model = self.right_table.selectionModel()
-        if not selection_model:
-            return
+        # 内容が同一ならモデル自体をリセットしていないので、Qtの選択は
+        # そのまま残る。実データが変わった時だけ選択を復元する。
+        if model_changed and selected_row >= 0:
+            restore_row = -1
+            if selected_track is not None:
+                # 行の挿入などで位置がずれても、同じ履歴項目を優先して探す。
+                for row, track in enumerate(self.rekordbox_table_model._data):
+                    if track == selected_track:
+                        restore_row = row
+                        break
 
-        current_indexes = selection_model.selectedRows()
-        current_row = current_indexes[0].row() if current_indexes else -1
-        if current_row != -1 and current_row < self.rekordbox_table_model.rowCount():
-            self.right_table.selectRow(current_row)
+            # 選択していた履歴が消えた場合は、可能なら同じ行番号を維持。
+            if restore_row < 0 and self.rekordbox_table_model.rowCount() > 0:
+                restore_row = min(selected_row, self.rekordbox_table_model.rowCount() - 1)
+
+            if restore_row >= 0:
+                self.right_table.selectRow(restore_row)
+                print(
+                    f"UI: Restored right-table selection after history refresh: "
+                    f"row {selected_row} -> {restore_row}"
+                )
         
         # 元々の表から更新されていた場合、一番上の項目で自動で検索を実行
         if len(new_history) > 0:
@@ -1184,7 +1356,7 @@ class MainWindow(QMainWindow):
         if is_selected_ready:
             print(f"UI: Video is ready, playing immediately (preload hotkey): {video_id}")
             if hasattr(self, 'player_server') and self.player_server:
-                self.player_server.send_command('PLAY', video_id, track_info=self._current_track_info)
+                self._send_video_command('PLAY', video_id, video_data)
                 self._update_youtube_video_state('playing', video_id)
                 print(f"UI: Sent PLAY command for ready video (preload hotkey): {video_id}")
             else:
@@ -1194,7 +1366,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'player_server') and self.player_server:
             self.preloaded_video_id = video_id
             self.pending_play_video_id = None
-            self.player_server.send_command('PRELOAD', video_id, track_info=self._current_track_info)
+            self._send_video_command('PRELOAD', video_id, video_data)
             self._update_youtube_video_state('preloading', video_id)
             print(f"UI: Sent PRELOAD command via hotkey for video: {video_id}")
         else:
@@ -1256,7 +1428,7 @@ class MainWindow(QMainWindow):
         if is_selected_ready:
             print(f"UI: Video is ready, playing immediately (play hotkey): {video_id}")
             if hasattr(self, 'player_server') and self.player_server:
-                self.player_server.send_command('PLAY', video_id, track_info=self._current_track_info)
+                self._send_video_command('PLAY', video_id, video_data)
                 self._update_youtube_video_state('playing', video_id)
                 print(f"UI: Sent PLAY command for ready video (play hotkey): {video_id}")
             else:
@@ -1266,30 +1438,52 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'player_server') and self.player_server:
             self.preloaded_video_id = video_id
             self.pending_play_video_id = video_id
-            self.player_server.send_command('PRELOAD', video_id, track_info=self._current_track_info)
+            self._send_video_command('PRELOAD', video_id, video_data)
             self._update_youtube_video_state('preloading', video_id)
             print(f"UI: Sent PRELOAD command, will auto-play when ready (play hotkey): {video_id}")
         else:
             print("UI: Player server not available for play")
     
     def rewind_video(self):
-        """現在再生中の動画を指定秒数巻き戻す"""
-        rewind_seconds = self.config_service.get("rewind_seconds", 2)
+        """トグルで選択されたブラウザプレイヤーだけを巻き戻す。"""
+        try:
+            rewind_seconds = max(0, int(self.config_service.get("rewind_seconds", 2)))
+        except (TypeError, ValueError):
+            rewind_seconds = 2
+        player_id = self._selected_player_id()
         if hasattr(self, 'player_server') and self.player_server:
-            self.player_server.send_command('REWIND', str(rewind_seconds))
-            print(f"UI: Sent REWIND command ({rewind_seconds} seconds)")
+            self.player_server.send_command(
+                'REWIND', str(rewind_seconds), player_id=player_id
+            )
+            if hasattr(self, "player_controls"):
+                self.player_controls.panel(player_id).adjust_position(-rewind_seconds)
+            print(
+                f"UI: Sent REWIND command ({rewind_seconds} seconds) "
+                f"to player {player_id}"
+            )
         else:
             print("UI: Player server not available for rewind")
-    
+
     def forward_video(self):
-        """現在再生中の動画を指定秒数早送りする"""
-        forward_seconds = self.config_service.get("forward_seconds", 2)
+        """トグルで選択されたブラウザプレイヤーだけを早送りする。"""
+        try:
+            forward_seconds = max(0, int(self.config_service.get("forward_seconds", 2)))
+        except (TypeError, ValueError):
+            forward_seconds = 2
+        player_id = self._selected_player_id()
         if hasattr(self, 'player_server') and self.player_server:
-            self.player_server.send_command('FORWARD', str(forward_seconds))
-            print(f"UI: Sent FORWARD command ({forward_seconds} seconds)")
+            self.player_server.send_command(
+                'FORWARD', str(forward_seconds), player_id=player_id
+            )
+            if hasattr(self, "player_controls"):
+                self.player_controls.panel(player_id).adjust_position(forward_seconds)
+            print(
+                f"UI: Sent FORWARD command ({forward_seconds} seconds) "
+                f"to player {player_id}"
+            )
         else:
             print("UI: Player server not available for forward")
-    
+
     def on_table_double_click(self, index):
         """右テーブルがダブルクリックされた時の処理"""
         if not index.isValid():
@@ -1493,7 +1687,7 @@ class MainWindow(QMainWindow):
             auto_seek_seconds = 0
         self.pending_auto_seek_video_id = video_id if auto_seek_seconds > 0 else None
 
-        self.player_server.send_command("PRELOAD", video_id, track_info=self._current_track_info)
+        self._send_video_command("PRELOAD", video_id, video)
         self._update_youtube_video_state("preloading", video_id)
         print(f"UI: Auto-play queued top search result: {title} ({video_id})")
 
@@ -1526,6 +1720,7 @@ class MainWindow(QMainWindow):
                 'video_id': video.get('video_id', ''),
                 'title': video.get('title', ''),
                 'thumbnail': None,  # 後で非同期読み込み
+                'thumbnail_url': video.get('thumbnail_url', ''),
                 'duration': video.get('duration', ''),
                 'url': video.get('url', '')
             })
@@ -1594,6 +1789,7 @@ class MainWindow(QMainWindow):
                 'video_id': video.get('video_id', ''),
                 'title': video.get('title', ''),
                 'thumbnail': None,  # 後で非同期読み込み
+                'thumbnail_url': video.get('thumbnail_url', ''),
                 'duration': video.get('duration', ''),
                 'url': video.get('url', '')
             })
@@ -1767,6 +1963,7 @@ class MainWindow(QMainWindow):
                 'video_id': f'dummy_{i}',
                 'title': f'取得失敗しました。APIキーを確認してください。',
                 'thumbnail': None,  # 後でサムネイルを設定
+                'thumbnail_url': '',
                 'duration': f'{random.randint(2,10)}:{random.randint(10,59):02d}',
                 'url': f'https://youtube.com/watch?v=dummy_{i}'
             })
@@ -1802,7 +1999,7 @@ class MainWindow(QMainWindow):
                 # 2回目のダブルクリック：再生
                 print(f"UI: Second click detected - sending PLAY for {video_id}")
                 if hasattr(self, 'player_server') and self.player_server:
-                    self.player_server.send_command('PLAY', video_id, track_info=self._current_track_info)
+                    self._send_video_command('PLAY', video_id, video_data)
                     self._update_youtube_video_state('playing', video_id)
                     print(f"UI: Sent PLAY command for video: {video_id}")
                 else:
@@ -1812,7 +2009,7 @@ class MainWindow(QMainWindow):
                 print(f"UI: First click detected - sending PRELOAD for {video_id}")
                 self.last_clicked_video_id = video_id
                 if hasattr(self, 'player_server') and self.player_server:
-                    self.player_server.send_command('PRELOAD', video_id, track_info=self._current_track_info)
+                    self._send_video_command('PRELOAD', video_id, video_data)
                     self._update_youtube_video_state('preloading', video_id)
                     print(f"UI: Sent PRELOAD command for video: {video_id}")
                 else:
@@ -1826,77 +2023,93 @@ class MainWindow(QMainWindow):
             print(f"UI: Traceback: {traceback.format_exc()}")
     
     def _handle_player_feedback(self, feedback_data):
-        """プレイヤーからのフィードバックを処理"""
+        """ブラウザのA/B状態をパネルと従来の検索結果表示へ反映する。"""
         try:
-            state = feedback_data.get('state')
-            video_id = feedback_data.get('videoId')  # videoId で取得
-            timestamp = feedback_data.get('timestamp')
-            
-            # 最終フィードバック時刻を更新
+            state = str(feedback_data.get('state', '') or '')
+            video_id = str(feedback_data.get('videoId', '') or '')
+            player_id = str(feedback_data.get('playerId', '') or '').upper()
+            is_current = feedback_data.get('isCurrent')
+
             import time
             self._last_player_feedback_time = time.time()
-            
-            print(f"UI: Player feedback received - state: {state}, video: {video_id}")
-            
-            # 状態に応じて枠の色を更新
+            self._update_player_control_panel(feedback_data)
+
+            print(
+                f"UI: Player feedback received - state: {state}, "
+                f"player: {player_id or '-'}, video: {video_id}"
+            )
+
+            if state.upper() == 'HEARTBEAT':
+                return
+
+            # ready/preloading identify the prepared next video even though it is not visible yet.
             if state == 'ready':
                 self._update_youtube_video_state('ready', video_id)
 
-                # Shift+Enterで「ready到達次第PLAY」待ちの場合のみ自動再生
-                print(f"UI: Checking auto-play - pending_play_video_id: {self.pending_play_video_id}, video_id: {video_id}")
+                print(
+                    f"UI: Checking auto-play - pending_play_video_id: "
+                    f"{self.pending_play_video_id}, video_id: {video_id}"
+                )
                 if self.pending_play_video_id == video_id:
-                    print(f"UI: Auto-playing video after ready: {video_id}")
-                    if hasattr(self, 'player_server') and self.player_server:
-                        self.player_server.send_command('PLAY', video_id, track_info=self._current_track_info)
+                    if self._send_video_command(
+                        'PLAY', video_id, self._find_video_data(video_id)
+                    ):
                         self._update_youtube_video_state('playing', video_id)
                         self.pending_play_video_id = None
                         print(f"UI: Sent PLAY command for auto-play: {video_id}")
                     else:
                         print("UI: Player server not available for auto-play")
-                else:
-                    print("UI: No auto-play - pending_play_video_id doesn't match or not set")
-                        
-            elif state == 'playing':
-                self._update_youtube_video_state('playing', video_id)
 
-                # Rekordbox/Shazamの自動検索→自動再生で開始した動画だけ、
-                # 実際のplayingフィードバック到達後に設定秒数だけ早送りする。
-                if self.pending_auto_seek_video_id == video_id:
-                    self.pending_auto_seek_video_id = None  # playing再通知で二重早送りしない
-                    try:
-                        auto_seek_seconds = int(self.config_service.get("auto_play_seek_seconds", 0))
-                    except (TypeError, ValueError):
-                        auto_seek_seconds = 0
-                    auto_seek_seconds = max(0, min(60, auto_seek_seconds))
-                    if auto_seek_seconds > 0:
-                        if hasattr(self, 'player_server') and self.player_server:
-                            self.player_server.send_command('FORWARD', str(auto_seek_seconds))
-                            print(
-                                f"UI: Auto-play started; sent FORWARD "
-                                f"({auto_seek_seconds} seconds) for video: {video_id}"
-                            )
-                        else:
-                            print("UI: Player server not available for auto-play seek")
-
-                # 再生開始したらlast_clicked_video_idをリセット
-                print(f"UI: Checking reset condition - last_clicked_video_id: {getattr(self, 'last_clicked_video_id', 'None')}, video_id: {video_id}")
-                if hasattr(self, 'last_clicked_video_id') and self.last_clicked_video_id == video_id:
-                    self.last_clicked_video_id = None
-                    self.current_playing_video_id = video_id  # 再生中の動画IDを記録
-                    print(f"UI: Reset last_clicked_video_id after playing: {video_id}")
-                else:
-                    # 再生開始した動画IDを記録
-                    if self.current_playing_video_id != video_id:
-                        self.current_playing_video_id = video_id
-                        print(f"UI: Updated current_playing_video_id to: {video_id}")
-                if self.pending_play_video_id == video_id:
-                    self.pending_play_video_id = None
             elif state == 'preloading':
                 self._update_youtube_video_state('preloading', video_id)
-                    
+
+            elif state == 'playing':
+                # A target can briefly enter PLAYING before the crossfade makes it current.
+                # Only the visible player controls the legacy green border/current video fields.
+                visible_playback = is_current is not False
+                if visible_playback:
+                    self._update_youtube_video_state('playing', video_id)
+
+                    # Automatic search playback applies its configured initial seek once.
+                    if self.pending_auto_seek_video_id == video_id:
+                        self.pending_auto_seek_video_id = None
+                        try:
+                            auto_seek_seconds = int(
+                                self.config_service.get("auto_play_seek_seconds", 0)
+                            )
+                        except (TypeError, ValueError):
+                            auto_seek_seconds = 0
+                        auto_seek_seconds = max(0, min(60, auto_seek_seconds))
+                        if auto_seek_seconds > 0:
+                            target_player = player_id if player_id in ("A", "B") else self._selected_player_id()
+                            if hasattr(self, 'player_server') and self.player_server:
+                                self.player_server.send_command(
+                                    'FORWARD',
+                                    str(auto_seek_seconds),
+                                    player_id=target_player,
+                                )
+                                if hasattr(self, "player_controls"):
+                                    self.player_controls.panel(target_player).adjust_position(
+                                        auto_seek_seconds
+                                    )
+                                print(
+                                    f"UI: Auto-play started; sent FORWARD "
+                                    f"({auto_seek_seconds} seconds) to player "
+                                    f"{target_player} for video: {video_id}"
+                                )
+
+                    if self.last_clicked_video_id == video_id:
+                        self.last_clicked_video_id = None
+                        print(f"UI: Reset last_clicked_video_id after playing: {video_id}")
+                    self.current_playing_video_id = video_id
+                    if self.pending_play_video_id == video_id:
+                        self.pending_play_video_id = None
+
         except Exception as e:
             print(f"UI: Error handling player feedback: {e}")
-    
+            import traceback
+            print(f"UI: Traceback: {traceback.format_exc()}")
+
     def _update_youtube_video_state(self, state, video_id):
         """YouTube動画の状態を更新し、枠の色を変更"""
         self.youtube_video_state = state
@@ -1950,7 +2163,7 @@ class MainWindow(QMainWindow):
             return
         
         if hasattr(self, 'player_server') and self.player_server:
-            self.player_server.send_command('PRELOAD', video_id, track_info=self._current_track_info)
+            self._send_video_command('PRELOAD', video_id, self._find_video_data(video_id))
             self._update_youtube_video_state('preloading', video_id)
             print(f"UI: Sent PRELOAD command for video: {video_id}")
         else:
@@ -1978,6 +2191,8 @@ class MainWindow(QMainWindow):
             # メモリ監視タイマーを停止
             if hasattr(self, '_memory_check_timer'):
                 self._memory_check_timer.stop()
+            if hasattr(self, '_player_panel_timer'):
+                self._player_panel_timer.stop()
             
             # 強制メモリクリーンアップを実行
             self._force_memory_cleanup()
@@ -1991,8 +2206,10 @@ class MainWindow(QMainWindow):
                 print("UI: Hotkey service stopped")
             
             # MIDIサービスの停止
+            if hasattr(self, '_midi_watchdog'):
+                self._midi_watchdog.stop()
             if hasattr(self, 'midi_service'):
-                self.midi_service.stop()
+                self.midi_service.shutdown()
                 print("UI: Midi service stopped")
             
             # 履歴監視サービスの停止

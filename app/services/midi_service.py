@@ -2,7 +2,7 @@ import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import pygame
 import pygame.midi
-from PySide6.QtCore import QObject, Signal, QThread
+from PySide6.QtCore import QObject, Signal, QThread, QTimer
 
 class MidiServiceWorker(QThread):
     notes_received = Signal(int)
@@ -42,12 +42,14 @@ class MidiServiceWorker(QThread):
             print(f"MidiServiceWorker Error: {e}")
             self.device_disconnected.emit()
         finally:
+            self._running = False
             if self._midi_in:
                 try:
                     if pygame.midi.get_init():
                         self._midi_in.close()
                 except Exception:
                     pass
+            self._midi_in = None
             
     def stop(self):
         self._running = False
@@ -82,6 +84,12 @@ class MidiService(QObject):
         self._current_device_id = -1
         self._worker = None
         self._mappings = {} # {note: action_name}
+        self._device_name = ""
+        self._shutting_down = False
+        self._reconnect_timer = QTimer(self)
+        self._reconnect_timer.setSingleShot(True)
+        self._reconnect_timer.setInterval(1000)
+        self._reconnect_timer.timeout.connect(self.ensure_connected)
         
     def get_input_devices(self):
         """Returns list of tuples: [(id, name), ...]"""
@@ -99,43 +107,91 @@ class MidiService(QObject):
         return devices
 
     def set_config(self, device_name, mappings):
-        """mappings = dict of {note: action_name}"""
-        self._mappings = mappings
-        print(f"MidiService: Updating config. Mappings: {mappings}")
-        
-        # find device id by name
-        devices = self.get_input_devices()
-        new_id = -1
-        for d_id, name in devices:
-            if name == device_name:
-                new_id = d_id
-                break
-                
-        if new_id != self._current_device_id and new_id != -1:
-            self._connect(new_id)
-        elif new_id == -1 and device_name:
-            print(f"MidiService: Device '{device_name}' not found.")
-            self.stop()
-        elif not device_name:
-            self.stop()
-            
-    def _connect(self, device_id):
-        self.stop()
-        if device_id < 0:
+        """Apply mappings and keep the configured MIDI input connected."""
+        self._mappings = dict(mappings or {})
+        self._device_name = str(device_name or "")
+        self._shutting_down = False
+        print(f"MidiService: Updating config. Device='{self._device_name}', Mappings: {self._mappings}")
+        if not self._device_name:
+            self.stop(clear_device=True)
             return
-            
-        print(f"MidiService: Connecting to device ID {device_id}")
+        self.ensure_connected(force=True)
+
+    def _find_device_id(self):
+        devices = self.get_input_devices()
+        if devices:
+            print(f"MidiService: Available MIDI inputs: {[name for _, name in devices]}")
+        else:
+            print("MidiService: No MIDI input devices found")
+        for d_id, name in devices:
+            if name == self._device_name:
+                return d_id
+        return -1
+
+    def ensure_connected(self, force=False):
+        """Reconnect when the USB MIDI input disappeared or failed during startup."""
+        if self._shutting_down or not self._device_name:
+            return False
+
+        worker_alive = bool(self._worker and self._worker.isRunning())
+        if worker_alive and not force:
+            return True
+
+        new_id = self._find_device_id()
+        if new_id < 0:
+            print(f"MidiService: Device '{self._device_name}' not found; retrying in 1s")
+            self._current_device_id = -1
+            if not self._reconnect_timer.isActive():
+                self._reconnect_timer.start()
+            return False
+
+        if worker_alive and new_id == self._current_device_id:
+            return True
+
+        self._connect(new_id)
+        return True
+
+    def _connect(self, device_id):
+        self.stop(clear_device=False)
+        if device_id < 0 or self._shutting_down:
+            return
+
+        print(f"MidiService: Connecting to device ID {device_id} ({self._device_name})")
         self._current_device_id = device_id
-        self._worker = MidiServiceWorker(device_id)
-        self._worker.notes_received.connect(self._on_note_received)
-        self._worker.start()
-        
-    def stop(self):
-        if self._worker:
-            print("MidiService: Stopping worker...")
-            self._worker.stop()
-            self._worker = None
+        worker = MidiServiceWorker(device_id)
+        self._worker = worker
+        worker.notes_received.connect(self._on_note_received)
+        worker.device_disconnected.connect(self._on_device_disconnected)
+        worker.finished.connect(lambda: self._on_worker_finished(worker))
+        worker.start()
+
+    def _on_device_disconnected(self):
+        print("MidiService: MIDI worker reported a disconnect/error")
         self._current_device_id = -1
+        if not self._shutting_down and self._device_name and not self._reconnect_timer.isActive():
+            self._reconnect_timer.start()
+
+    def _on_worker_finished(self, worker):
+        if self._worker is worker:
+            self._worker = None
+        if not self._shutting_down and self._device_name and not self._reconnect_timer.isActive():
+            self._reconnect_timer.start()
+
+    def stop(self, clear_device=False):
+        if self._reconnect_timer.isActive():
+            self._reconnect_timer.stop()
+        worker = self._worker
+        self._worker = None
+        if worker:
+            print("MidiService: Stopping worker...")
+            worker.stop()
+        self._current_device_id = -1
+        if clear_device:
+            self._device_name = ""
+
+    def shutdown(self):
+        self._shutting_down = True
+        self.stop(clear_device=True)
 
     def _on_note_received(self, note):
         print(f"MidiService: Raw Note received: {note}")

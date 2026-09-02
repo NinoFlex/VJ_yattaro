@@ -24,6 +24,7 @@ class YouTubeListModel(QAbstractListModel):
                 'video_id': video.get('video_id', ''),
                 'title': video.get('title', ''),
                 'thumbnail': video.get('thumbnail', QPixmap()),
+                'thumbnail_url': video.get('thumbnail_url', ''),
                 'duration': video.get('duration', ''),
                 'url': video.get('url', '')
             }

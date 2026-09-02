@@ -38,9 +38,22 @@ class RightTableModel(QAbstractTableModel):
         return None
 
     def update_data(self, new_data):
+        """Replace table contents only when they actually changed.
+
+        QAbstractItemModel.reset invalidates QTableView's selection model.
+        HistoryWatcher polls periodically even when the DB contents are unchanged,
+        so avoiding a needless reset keeps the user's selected row intact.
+
+        Returns True when the model was reset, otherwise False.
+        """
+        normalized = list(new_data or [])[:self._max_rows]
+        if normalized == self._data:
+            return False
+
         self.beginResetModel()
-        self._data = list(new_data or [])[:self._max_rows]
+        self._data = normalized
         self.endResetModel()
+        return True
 
 
 class RightTableView(QTableView):
@@ -57,7 +70,7 @@ class RightTableView(QTableView):
         self.setAlternatingRowColors(True)
         self.setShowGrid(False)
         self.horizontalHeader().setHighlightSections(False)
-        self.verticalHeader().setDefaultSectionSize(32)
+        self.verticalHeader().setDefaultSectionSize(27)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
@@ -80,7 +93,7 @@ class RightTableView(QTableView):
                 outline: none;
             }}
             QTableView::item {{
-                padding: 5px;
+                padding: 3px 4px;
             }}
             QTableView::item:selected {{
                 background-color: {c['selection']};
@@ -92,7 +105,7 @@ class RightTableView(QTableView):
                 border: none;
                 border-right: 1px solid {c['border']};
                 border-bottom: 1px solid {c['border']};
-                padding: 5px;
+                padding: 3px 4px;
             }}
         """)
 
