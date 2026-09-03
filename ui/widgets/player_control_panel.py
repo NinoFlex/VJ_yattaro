@@ -1,7 +1,7 @@
 import math
 import time
 
-from PySide6.QtCore import Qt, QRectF, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QElapsedTimer, QLineF, QRectF, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
@@ -54,7 +54,9 @@ def _format_time(seconds, unknown="--:--"):
 
 
 class SpinnerPlaybackButton(QAbstractButton):
-    """Circular play/pause indicator with a rotating hand while playing."""
+    """Circular playback indicator with a continuously rotating hand."""
+
+    _DEGREES_PER_SECOND = 300.0
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -65,12 +67,18 @@ class SpinnerPlaybackButton(QAbstractButton):
         self._spinning = False
         self._theme = "dark"
         self._angle = 0.0
+        self._start_angle = 0.0
+        self._elapsed = QElapsedTimer()
+        self._ring_color = QColor("#1769aa")
+        self._panel_color = QColor("#25282b")
+        self._hand_color = QColor("#e8eaed")
 
-        # Draw the animation ourselves rather than depending on an animated GIF.
-        # This keeps the indicator moving reliably in PyInstaller builds too.
+        # The angle is derived from an elapsed monotonic clock instead of adding
+        # a fixed step on every timeout.  Delayed GUI frames therefore do not
+        # accumulate drift or create a visible hitch at revolution boundaries.
         self._animation_timer = QTimer(self)
         self._animation_timer.setTimerType(Qt.PreciseTimer)
-        self._animation_timer.setInterval(33)  # about 30 fps
+        self._animation_timer.setInterval(16)  # target about 60 fps
         self._animation_timer.timeout.connect(self._advance_animation)
 
     def is_spinning(self):
@@ -80,19 +88,112 @@ class SpinnerPlaybackButton(QAbstractButton):
         enabled = bool(enabled)
         if enabled == self._spinning:
             return
-        self._spinning = enabled
+
         if enabled:
-            if not self._animation_timer.isActive():
-                self._animation_timer.start()
+            self._spinning = True
+            self._start_angle = self._angle
+            self._elapsed.start()
+            self._animation_timer.start()
         else:
+            self._sync_angle()
+            self._spinning = False
             self._animation_timer.stop()
+            self._elapsed.invalidate()
         self.update()
 
+    def _sync_angle(self):
+        if not self._spinning or not self._elapsed.isValid():
+            return
+        elapsed_seconds = self._elapsed.nsecsElapsed() / 1_000_000_000.0
+        self._angle = (
+            self._start_angle + elapsed_seconds * self._DEGREES_PER_SECOND
+        ) % 360.0
+
     def _advance_animation(self):
-        # One revolution in roughly 1.2 seconds.  Keep the current angle when
-        # paused so the hand visibly freezes where playback stopped.
-        self._angle = (self._angle + 10.0) % 360.0
+        self._sync_angle()
         self.update()
+
+    def apply_theme(self, theme):
+        from ui.theme import colors
+
+        self._theme = theme
+        c = colors(theme)
+        self._ring_color = QColor(c["accent"])
+        self._panel_color = QColor(c["panel_alt"])
+        self._hand_color = QColor(c["text"])
+        self.update()
+
+    def paintEvent(self, event):
+        del event
+        self._sync_angle()
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        if not self.isEnabled():
+            painter.setOpacity(0.40)
+
+        ring = QRectF(self.rect()).adjusted(4, 4, -4, -4)
+        painter.setPen(QPen(self._ring_color, 3))
+        painter.setBrush(self._panel_color)
+        painter.drawEllipse(ring)
+
+        center = ring.center()
+        radius = ring.width() / 2.0
+        radians = math.radians(self._angle - 90.0)
+        inner = radius * 0.10
+        outer = radius * 0.72
+        x1 = center.x() + math.cos(radians) * inner
+        y1 = center.y() + math.sin(radians) * inner
+        x2 = center.x() + math.cos(radians) * outer
+        y2 = center.y() + math.sin(radians) * outer
+
+        painter.setPen(QPen(self._hand_color, 5, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(QLineF(x1, y1, x2, y2))
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self._hand_color)
+        painter.drawEllipse(center, 3.0, 3.0)
+
+
+class SystemStatusIndicator(QWidget):
+    """Tiny semantic status badge designed for the fixed-height control bar."""
+
+    _STATE_COLORS = {
+        "ok": "#2fbf71",
+        "warn": "#f0ad3d",
+        "error": "#e8515b",
+        "off": "#737a82",
+    }
+
+    def __init__(self, label, parent=None):
+        super().__init__(parent)
+        self._label = str(label or "").upper()
+        self._state = "off"
+        self._detail = ""
+        self._theme = "dark"
+        self.setFixedHeight(14)
+        self.setMinimumWidth(31)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        self.set_status("off", f"{self._label}: status unavailable")
+
+    def sizeHint(self):
+        return QSize(34, 14)
+
+    def set_status(self, state, detail=""):
+        state = str(state or "off").strip().lower()
+        if state not in self._STATE_COLORS:
+            state = "off"
+        detail = str(detail or "").strip()
+        changed = state != self._state or detail != self._detail
+        self._state = state
+        self._detail = detail
+        self.setToolTip(detail or f"{self._label}: {state}")
+        if changed:
+            self.update()
+
+    def state(self):
+        return self._state
 
     def apply_theme(self, theme):
         self._theme = theme
@@ -106,38 +207,22 @@ class SpinnerPlaybackButton(QAbstractButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
-        # Outer ring.
-        ring = QRectF(self.rect()).adjusted(4, 4, -4, -4)
-        painter.setPen(QPen(QColor(c["accent"]), 3))
-        painter.setBrush(QColor(c["panel_alt"]))
-        painter.drawEllipse(ring)
-
-        center = ring.center()
-        radius = ring.width() / 2.0
-
-        # Rotating hand: angle 0 points straight up.
-        radians = math.radians(self._angle - 90.0)
-        inner = radius * 0.10
-        outer = radius * 0.72
-        x1 = center.x() + math.cos(radians) * inner
-        y1 = center.y() + math.sin(radians) * inner
-        x2 = center.x() + math.cos(radians) * outer
-        y2 = center.y() + math.sin(radians) * outer
-
-        hand_color = QColor(c["text"])
-        painter.setPen(QPen(hand_color, 5, Qt.SolidLine, Qt.RoundCap))
-        painter.drawLine(int(x1), int(y1), int(x2), int(y2))
-
-        # Small hub makes the direction of the rotating hand easier to read.
+        dot_color = QColor(self._STATE_COLORS.get(self._state, self._STATE_COLORS["off"]))
         painter.setPen(Qt.NoPen)
-        painter.setBrush(hand_color)
-        painter.drawEllipse(center, 3.0, 3.0)
+        painter.setBrush(dot_color)
+        center_y = self.height() / 2.0
+        painter.drawEllipse(QRectF(1.0, center_y - 2.7, 5.4, 5.4))
 
-
+        font = painter.font()
+        font.setPointSize(7)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(c["text"] if self._state in ("ok", "warn", "error") else c["muted"]))
+        painter.drawText(QRectF(8.0, 0.0, max(1.0, self.width() - 8.0), self.height()), Qt.AlignLeft | Qt.AlignVCenter, self._label)
 
 
 class PlayerTargetToggle(QAbstractButton):
-    """A/B target selector. Unchecked selects A and checked selects B."""
+    """Two-segment A/B selector used for both display and control target."""
 
     target_changed = Signal(str)
 
@@ -146,44 +231,75 @@ class PlayerTargetToggle(QAbstractButton):
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.StrongFocus)
-        self.setFixedSize(100, 30)
+        self.setFixedSize(112, 30)
         self._theme = "dark"
-        self.toggled.connect(self._emit_target)
-        self._emit_target(False)
+        self.setChecked(False)
+        self._update_tooltip()
 
     def selected_player(self):
         return "B" if self.isChecked() else "A"
 
     def set_selected_player(self, player_id, notify=True):
         checked = str(player_id).upper() == "B"
-        if notify:
-            self.setChecked(checked)
+        if checked == self.isChecked():
+            self._update_tooltip()
+            self.update()
             return
 
-        # Synchronize the visual toggle to browser feedback without sending a
-        # SELECT_PLAYER command back to the browser.
-        previous = self.blockSignals(True)
-        try:
+        if notify:
             self.setChecked(checked)
-        finally:
-            self.blockSignals(previous)
-        selected = "B" if checked else "A"
-        self.setToolTip(f"Control target: Player {selected}")
+            self._emit_target()
+        else:
+            previous = self.blockSignals(True)
+            try:
+                self.setChecked(checked)
+            finally:
+                self.blockSignals(previous)
+            self._update_tooltip()
+            self.update()
+
+    def _emit_target(self):
+        self._update_tooltip()
+        self.target_changed.emit(self.selected_player())
         self.update()
 
-    def _emit_target(self, checked):
-        player_id = "B" if checked else "A"
-        self.setToolTip(f"Control target: Player {player_id}")
-        self.target_changed.emit(player_id)
-        self.update()
+    def _update_tooltip(self):
+        self.setToolTip(f"Display / control target: Player {self.selected_player()}")
 
     def apply_theme(self, theme):
         self._theme = theme
         self.update()
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.setDown(True)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.setDown(False)
+            player_id = "A" if event.position().x() < self.width() / 2 else "B"
+            self.set_selected_player(player_id, notify=True)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Left, Qt.Key_A):
+            self.set_selected_player("A", notify=True)
+            event.accept()
+            return
+        if event.key() in (Qt.Key_Right, Qt.Key_B):
+            self.set_selected_player("B", notify=True)
+            event.accept()
+            return
         if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
-            self.toggle()
+            self.set_selected_player(
+                "A" if self.selected_player() == "B" else "B",
+                notify=True,
+            )
             event.accept()
             return
         super().keyPressEvent(event)
@@ -195,31 +311,54 @@ class PlayerTargetToggle(QAbstractButton):
         c = colors(self._theme)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
+
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        radius = rect.height() / 2
+        radius = 7.0
         painter.setPen(QPen(QColor(c["border"]), 1))
         painter.setBrush(QColor(c["input"]))
         painter.drawRoundedRect(rect, radius, radius)
 
-        margin = 4
-        thumb_size = rect.height() - margin * 2
+        half_width = rect.width() / 2.0
         selected_b = self.isChecked()
-        thumb_x = rect.right() - margin - thumb_size if selected_b else rect.left() + margin
-        thumb_rect = QRectF(thumb_x, rect.top() + margin, thumb_size, thumb_size)
-        painter.setPen(QPen(QColor(c["accent"]), 1))
-        painter.setBrush(QColor(c["accent"]))
-        painter.drawEllipse(thumb_rect)
+        selected_rect = QRectF(
+            rect.left() + (half_width if selected_b else 0.0),
+            rect.top(),
+            half_width,
+            rect.height(),
+        )
+
+        # Draw a full rounded highlight clipped to the chosen half.  This keeps
+        # rounded outer corners and a clean, straight divider in the centre.
+        painter.save()
+        painter.setClipRect(selected_rect)
+        painter.setPen(Qt.NoPen)
+        selected_color = QColor(c["accent_hover"] if self.underMouse() else c["accent"])
+        if self.isDown():
+            selected_color = QColor(c["selection"])
+        painter.setBrush(selected_color)
+        painter.drawRoundedRect(rect, radius, radius)
+        painter.restore()
+
+        divider_x = rect.center().x()
+        painter.setPen(QPen(QColor(c["border_soft"]), 1))
+        painter.drawLine(QLineF(divider_x, rect.top() + 4, divider_x, rect.bottom() - 4))
 
         font = painter.font()
         font.setBold(True)
+        font.setPointSize(10)
         painter.setFont(font)
-        # Keep the A/B labels farther apart so the selected side reads at a glance.
-        left_rect = QRectF(rect.left() + 5, rect.top(), 38, rect.height())
-        right_rect = QRectF(rect.right() - 43, rect.top(), 38, rect.height())
-        painter.setPen(QColor(c["accent_text"] if not selected_b else c["text"]))
+        left_rect = QRectF(rect.left(), rect.top(), half_width, rect.height())
+        right_rect = QRectF(divider_x, rect.top(), half_width, rect.height())
+        painter.setPen(QColor(c["accent_text"] if not selected_b else c["muted"]))
         painter.drawText(left_rect, Qt.AlignCenter, "A")
-        painter.setPen(QColor(c["accent_text"] if selected_b else c["text"]))
+        painter.setPen(QColor(c["accent_text"] if selected_b else c["muted"]))
         painter.drawText(right_rect, Qt.AlignCenter, "B")
+
+        if self.hasFocus():
+            focus_rect = rect.adjusted(2, 2, -2, -2)
+            painter.setPen(QPen(QColor(c["accent"]), 1, Qt.DotLine))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(focus_rect, radius - 1, radius - 1)
 
 
 class PlayerControlPanel(QFrame):
@@ -239,6 +378,9 @@ class PlayerControlPanel(QFrame):
         self._anchor_position = 0.0
         self._anchor_monotonic = time.monotonic()
         self._active_output = False
+        self._selected_target = False
+        self.setProperty("activeOutput", False)
+        self.setProperty("selectedTarget", False)
         self._thumbnail_url = ""
         self._network = QNetworkAccessManager(self)
         self._network.finished.connect(self._on_thumbnail_finished)
@@ -324,6 +466,15 @@ class PlayerControlPanel(QFrame):
             self.style().polish(self)
             self.update()
 
+    def set_selected_target(self, selected):
+        selected = bool(selected)
+        if selected != self._selected_target:
+            self._selected_target = selected
+            self.setProperty("selectedTarget", selected)
+            self.style().unpolish(self)
+            self.style().polish(self)
+            self.update()
+
     def set_metadata(self, video_id=None, track_info=None, media_info=None):
         video_changed = False
         if video_id is not None:
@@ -402,15 +553,10 @@ class PlayerControlPanel(QFrame):
         if is_current is not None:
             self.set_active_output(bool(is_current))
 
-        # Keep the play indicator independent from transient player states.
-        # Only explicit PLAYING / PAUSED feedback is allowed to start or stop
-        # the rotation.  States such as buffering, ready, preloading, cued,
-        # heartbeat, etc. must not interrupt an animation that is already
-        # running (or restart one that is paused).
-        if self.state == "playing":
-            self.spinner_button.set_spinning(True)
-        elif self.state in ("paused", "pause"):
-            self.spinner_button.set_spinning(False)
+        # The indicator rotates only while the player is explicitly PLAYING.
+        # Buffering, ready, paused, ended and every other state show a stopped
+        # hand so the visual state always has one unambiguous meaning.
+        self.spinner_button.set_spinning(self.state == "playing")
 
         self._refresh_display(now)
 
@@ -448,6 +594,10 @@ class PlayerControlPanel(QFrame):
                 border-radius: 5px;
             }}
             QFrame#{self.objectName()}[activeOutput="true"] {{
+                background-color: {c['selection_soft']};
+            }}
+            QFrame#{self.objectName()}[selectedTarget="true"] {{
+                background-color: {c['selection_soft']};
                 border: 2px solid {c['accent']};
             }}
             QLabel#player_thumbnail {{
@@ -504,6 +654,7 @@ class PlayerControlPanel(QFrame):
             "unstarted": "WAITING",
             "preloading": "PRELOADING",
             "ready": "READY",
+            "starting": "STARTING...",
             "playing": "PLAYING",
             "paused": "PAUSED",
             "buffering": "BUFFERING",
@@ -578,10 +729,14 @@ class DualPlayerControlBar(QWidget):
 
         self.center_frame = QFrame(self)
         self.center_frame.setObjectName("player_control_center")
-        self.center_frame.setFixedSize(194, 56)
-        controls = QHBoxLayout(self.center_frame)
-        controls.setContentsMargins(5, 3, 5, 3)
-        controls.setSpacing(4)
+        self.center_frame.setFixedSize(206, 56)
+        center_layout = QVBoxLayout(self.center_frame)
+        center_layout.setContentsMargins(5, 2, 5, 2)
+        center_layout.setSpacing(1)
+
+        top_controls = QHBoxLayout()
+        top_controls.setContentsMargins(0, 0, 0, 0)
+        top_controls.setSpacing(4)
 
         # Kept as a hidden accessibility/status label; the A/B letters on the
         # toggle itself make a second visible row unnecessary.
@@ -596,11 +751,11 @@ class DualPlayerControlBar(QWidget):
         self.rewind_button.clicked.connect(
             lambda _checked=False: self.rewind_requested.emit()
         )
-        controls.addWidget(self.rewind_button)
+        top_controls.addWidget(self.rewind_button)
 
         self.target_toggle = PlayerTargetToggle(self.center_frame)
         self.target_toggle.target_changed.connect(self._on_target_changed)
-        controls.addWidget(self.target_toggle)
+        top_controls.addWidget(self.target_toggle)
 
         self.forward_button = QPushButton("\u25b6\u25b6")
         self.forward_button.setObjectName("panel_seek_button")
@@ -609,22 +764,47 @@ class DualPlayerControlBar(QWidget):
         self.forward_button.clicked.connect(
             lambda _checked=False: self.forward_requested.emit()
         )
-        controls.addWidget(self.forward_button)
+        top_controls.addWidget(self.forward_button)
+        center_layout.addLayout(top_controls)
+
+        # Five status badges share the existing 56 px centre panel.  They add no
+        # vertical height to the application; hover tooltips carry the details.
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(2)
+        self.status_indicators = {}
+        for key, label in (("web", "WEB"), ("midi", "MIDI"), ("db", "DB"), ("mic", "MIC"), ("api", "API")):
+            indicator = SystemStatusIndicator(label, self.center_frame)
+            self.status_indicators[key] = indicator
+            status_row.addWidget(indicator, 1)
+        center_layout.addLayout(status_row)
         layout.addWidget(self.center_frame, 0)
         layout.addWidget(self.panel_b, 1)
         self.apply_theme(self._theme)
+        self.set_selected_player("A", notify=False)
 
     def selected_player(self):
         return self.target_toggle.selected_player()
 
     def set_selected_player(self, player_id, notify=True):
+        player_id = "B" if str(player_id).upper() == "B" else "A"
         self.target_toggle.set_selected_player(player_id, notify=notify)
+        self._apply_target_highlight(player_id)
 
     def panel(self, player_id):
         return self.panel_b if str(player_id).upper() == "B" else self.panel_a
 
     def panels(self):
         return (self.panel_a, self.panel_b)
+
+    def set_system_status(self, key, state, detail=""):
+        indicator = self.status_indicators.get(str(key or "").lower())
+        if indicator is not None:
+            indicator.set_status(state, detail)
+
+    def system_status(self, key):
+        indicator = self.status_indicators.get(str(key or "").lower())
+        return indicator.state() if indicator is not None else "off"
 
     def interactive_widgets(self):
         return (
@@ -634,6 +814,11 @@ class DualPlayerControlBar(QWidget):
             self.forward_button,
             self.target_toggle,
         )
+
+    def set_browser_available(self, available):
+        available = bool(available)
+        self.panel_a.spinner_button.setEnabled(available)
+        self.panel_b.spinner_button.setEnabled(available)
 
     def tick(self):
         now = time.monotonic()
@@ -648,7 +833,7 @@ class DualPlayerControlBar(QWidget):
         self.setStyleSheet(f"""
             QWidget#dual_player_control_bar {{
                 background-color: {c['panel']};
-                border-bottom: 1px solid {c['border_soft']};
+                border-top: 1px solid {c['border_soft']};
             }}
             QFrame#player_control_center {{
                 background-color: {c['panel_alt']};
@@ -681,7 +866,16 @@ class DualPlayerControlBar(QWidget):
         self.panel_a.apply_theme(self._theme)
         self.panel_b.apply_theme(self._theme)
         self.target_toggle.apply_theme(self._theme)
+        for indicator in self.status_indicators.values():
+            indicator.apply_theme(self._theme)
+        self._apply_target_highlight(self.selected_player())
+
+    def _apply_target_highlight(self, player_id):
+        player_id = "B" if str(player_id).upper() == "B" else "A"
+        self.panel_a.set_selected_target(player_id == "A")
+        self.panel_b.set_selected_target(player_id == "B")
 
     def _on_target_changed(self, player_id):
+        self._apply_target_highlight(player_id)
         self.target_label.setText(f"Control target: {player_id}")
         self.target_changed.emit(player_id)

@@ -29,7 +29,7 @@ build.bat
 手動で実行する場合:
 
 ```powershell
-py -3.12 -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --add-data="assets;assets" --collect-all shazamio --collect-all shazamio_core --collect-all aiohttp_retry --collect-all sounddevice --collect-all _sounddevice_data main.py
+py -3.12 -m PyInstaller --windowed --name="VJ_yattaro" --icon="assets\vj_yattaro.ico" --add-data="web;web" --add-data="assets;assets" --collect-all shazamio --collect-all shazamio_core --collect-all aiohttp_retry --collect-all sounddevice --collect-all _sounddevice_data main.py
 Copy-Item config.json dist\VJ_yattaro\
 Copy-Item -Recurse -Force web dist\VJ_yattaro\web
 Copy-Item -Recurse -Force assets dist\VJ_yattaro\assets
@@ -101,9 +101,11 @@ dist\VJ_yattaro\_internal\_sounddevice_data\portaudio-binaries\libportaudio64bit
 `py -3.12 -m sounddevice` 自体で入力デバイスが出ない場合は、Windowsの「設定 > プライバシーとセキュリティ > マイク」でデスクトップアプリのマイクアクセスが許可されているか、デバイスマネージャー上で対象マイクが有効かを確認してください。
 ## A/Bプレイヤー操作パネル
 
-- アプリ上部にPlayer A / Player Bの状態、サムネイル、楽曲情報、再生時間を表示します。
-- 左右の回転アイコンは各物理プレイヤーの再生・一時停止操作です。
-- 中央のA/Bトグルで、巻き戻し・早送りを送る対象プレイヤーを選択します。
+- Player A / Player Bの操作パネルは、検索結果と履歴表の下側に表示します。
+- 中央はA/Bのセグメントスイッチです。選択した側のパネル枠も強調され、表示・操作対象が同時に切り替わります。
+- 左右の円形インジケーターは各物理プレイヤーの再生・一時停止操作です。`PLAYING` の間だけ60fps相当で回転し、それ以外の状態では停止します。
+- 回転角は単調経過時間から毎フレーム算出するため、タイマー遅延や周回境界による引っ掛かりを蓄積しません。
 - シーケンスバーは表示専用です。ブラウザからは状態変化時だけ現在位置と総時間を取得し、その後はアプリ側の単調時計で表示を進めます。
-- `assets/player_spinner.gif` は操作パネル用のアニメーションです。
+- `assets/vj_yattaro.ico` はWindows実行ファイル、タスクバー、ウィンドウへ適用するアプリアイコンです。
+- `assets/vj_yattaro_icon.png` はアイコンの高解像度原稿です。
 

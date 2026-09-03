@@ -1,13 +1,16 @@
+import atexit
 import os
+import queue
 import sys
 import threading
 from datetime import datetime
-from typing import Optional, List
 from enum import IntEnum
+from typing import Optional
 
 
 class LogLevel(IntEnum):
     """ログレベル"""
+
     DEBUG = 10
     INFO = 20
     WARNING = 30
@@ -15,198 +18,285 @@ class LogLevel(IntEnum):
 
 
 class Logger:
-    """パフォーマンス最適化されたロガー（スレッドセーフ）"""
-    
+    """Non-blocking application logger with a single background file writer."""
+
+    MAX_LOG_BYTES = 5 * 1024 * 1024
+    BACKUP_COUNT = 4
+    QUEUE_MAX = 10000
+    BATCH_MAX = 256
+
     def __init__(self, name: str = "VJ_yattaro"):
         self.name = name
-        self._level = LogLevel.INFO  # デフォルトはINFO
+        self._level = LogLevel.INFO
         self._enabled = True
         self._stdout = sys.stdout
         self._stderr = sys.stderr
         self._redirected = False
-        
-        # ファイル書き込みをスレッドセーフにするためのロック
-        self._file_lock = threading.Lock()
-        
-        # ログファイルのパス（プロジェクトルート）
-        if getattr(sys, 'frozen', False):
+        self._shutdown = False
+
+        if getattr(sys, "frozen", False):
             base_dir = os.path.dirname(sys.executable)
         else:
             from pathlib import Path
+
             base_dir = Path(__file__).parent.parent.parent
         self._log_file_path = os.path.join(base_dir, "vj_yattaro.log")
-    
+
+        self._queue = queue.Queue(maxsize=self.QUEUE_MAX)
+        self._stop_token = object()
+        self._dropped_count = 0
+        self._dropped_lock = threading.Lock()
+        self._writer_thread = threading.Thread(
+            target=self._writer_loop,
+            name="VJLogWriter",
+            daemon=True,
+        )
+        self._writer_thread.start()
+
     def set_level(self, level: LogLevel):
-        """ログレベルを設定"""
         self._level = level
-    
+
     def set_enabled(self, enabled: bool):
-        """ログ出力を有効/無効化"""
-        self._enabled = enabled
-    
+        self._enabled = bool(enabled)
+
     def _should_log(self, level: LogLevel) -> bool:
-        """ログを出力すべきか判定"""
         return self._enabled and level >= self._level
-    
-    def _log_to_file(self, formatted_message: str):
-        """ファイルにログを記録（スレッドセーフ）"""
-        if not self._enabled:
+
+    def _enqueue_line(self, formatted_message: str):
+        if not self._enabled or self._shutdown:
             return
-            
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        line = f"[{timestamp}] {formatted_message}\n"
         try:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            # ロックを取得してから書き込む（複数スレッドの同時書き込みによる混入を防ぐ）
-            with self._file_lock:
-                with open(self._log_file_path, "a", encoding="utf-8") as f:
-                    f.write(f"[{timestamp}] {formatted_message}\n")
-        except:
-            # ファイル書き込み失敗は無視する（無限ループ防止）
+            self._queue.put_nowait(line)
+        except queue.Full:
+            # Logging must never block playback/UI. Drop the oldest queued line and keep the
+            # newest diagnostic information instead.
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except queue.Empty:
+                pass
+            try:
+                self._queue.put_nowait(line)
+            except queue.Full:
+                pass
+            with self._dropped_lock:
+                self._dropped_count += 1
+
+    # Backwards-compatible name used by LoggerStream.
+    def _log_to_file(self, formatted_message: str):
+        self._enqueue_line(formatted_message)
+
+    def _rotation_needed(self, extra_bytes: int) -> bool:
+        try:
+            return os.path.getsize(self._log_file_path) + extra_bytes > self.MAX_LOG_BYTES
+        except OSError:
+            return False
+
+    def _rotate_files(self):
+        try:
+            oldest = f"{self._log_file_path}.{self.BACKUP_COUNT}"
+            if os.path.exists(oldest):
+                os.remove(oldest)
+            for index in range(self.BACKUP_COUNT - 1, 0, -1):
+                src = f"{self._log_file_path}.{index}"
+                dst = f"{self._log_file_path}.{index + 1}"
+                if os.path.exists(src):
+                    os.replace(src, dst)
+            if os.path.exists(self._log_file_path):
+                os.replace(self._log_file_path, f"{self._log_file_path}.1")
+        except OSError:
+            # Logging failures must never affect the player.
+            pass
+
+    def _write_batch(self, batch):
+        if not batch:
+            return
+
+        with self._dropped_lock:
+            dropped = self._dropped_count
+            self._dropped_count = 0
+        if dropped:
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            batch.insert(0, f"[{stamp}] Logger: dropped {dropped} queued log line(s)\n")
+
+        payload = "".join(batch)
+        encoded_size = len(payload.encode("utf-8", errors="replace"))
+        try:
+            if self._rotation_needed(encoded_size):
+                self._rotate_files()
+            with open(self._log_file_path, "a", encoding="utf-8") as log_file:
+                log_file.write(payload)
+        except OSError:
+            pass
+
+    def _writer_loop(self):
+        while True:
+            try:
+                item = self._queue.get(timeout=0.5)
+            except queue.Empty:
+                if self._shutdown:
+                    break
+                continue
+
+            if item is self._stop_token:
+                self._queue.task_done()
+                break
+
+            batch = [item]
+            self._queue.task_done()
+            while len(batch) < self.BATCH_MAX:
+                try:
+                    item = self._queue.get_nowait()
+                except queue.Empty:
+                    break
+                if item is self._stop_token:
+                    self._queue.task_done()
+                    self._shutdown = True
+                    break
+                batch.append(item)
+                self._queue.task_done()
+
+            self._write_batch(batch)
+            if self._shutdown:
+                break
+
+        # Final drain on normal application exit.
+        remaining = []
+        while len(remaining) < self.QUEUE_MAX:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is not self._stop_token:
+                remaining.append(item)
+            self._queue.task_done()
+        self._write_batch(remaining)
+
+    def _console_write(self, formatted: str, error=False):
+        stream = self._stderr if error else self._stdout
+        try:
+            if stream and hasattr(stream, "write"):
+                stream.write(formatted + "\n")
+        except Exception:
             pass
 
     def debug(self, message: str, prefix: Optional[str] = None):
-        """DEBUGレベルログ"""
         if self._should_log(LogLevel.DEBUG):
-            prefix = prefix or self.name
-            formatted = f"{prefix}: {message}"
-            if self._redirected:
-                if self._stdout:
-                    self._stdout.write(formatted + "\n")
-            else:
-                try:
-                    print(formatted)
-                except:
-                    pass
-            self._log_to_file(formatted)
-    
+            formatted = f"{prefix or self.name}: {message}"
+            self._console_write(formatted)
+            self._enqueue_line(formatted)
+
     def info(self, message: str, prefix: Optional[str] = None):
-        """INFOレベルログ"""
         if self._should_log(LogLevel.INFO):
-            prefix = prefix or self.name
-            formatted = f"{prefix}: {message}"
-            if self._redirected:
-                if self._stdout:
-                    self._stdout.write(formatted + "\n")
-            else:
-                try:
-                    print(formatted)
-                except:
-                    pass
-            self._log_to_file(formatted)
-    
+            formatted = f"{prefix or self.name}: {message}"
+            self._console_write(formatted)
+            self._enqueue_line(formatted)
+
     def warning(self, message: str, prefix: Optional[str] = None):
-        """WARNINGレベルログ"""
         if self._should_log(LogLevel.WARNING):
-            prefix = prefix or self.name
-            formatted = f"{prefix}: {message}"
-            if self._redirected:
-                if self._stdout:
-                    self._stdout.write(formatted + "\n")
-            else:
-                try:
-                    print(formatted)
-                except:
-                    pass
-            self._log_to_file(formatted)
-    
+            formatted = f"{prefix or self.name}: {message}"
+            self._console_write(formatted)
+            self._enqueue_line(formatted)
+
     def error(self, message: str, prefix: Optional[str] = None):
-        """ERRORレベルログ"""
         if self._should_log(LogLevel.ERROR):
-            prefix = prefix or self.name
-            formatted = f"{prefix}: {message}"
-            if self._redirected:
-                if self._stderr:
-                    self._stderr.write(formatted + "\n")
-            else:
-                try:
-                    print(formatted, file=sys.stderr)
-                except:
-                    pass
-            self._log_to_file(formatted)
+            formatted = f"{prefix or self.name}: {message}"
+            self._console_write(formatted, error=True)
+            self._enqueue_line(formatted)
 
     def redirect_stdout(self):
-        """標準出力をロガーにリダイレクト"""
         if not self._redirected:
             sys.stdout = LoggerStream(self, LogLevel.INFO)
             sys.stderr = LoggerStream(self, LogLevel.ERROR)
             self._redirected = True
 
     def restore_stdout(self):
-        """標準出力を元に戻す"""
         if self._redirected:
             sys.stdout = self._stdout
             sys.stderr = self._stderr
             self._redirected = False
 
+    def shutdown(self, timeout=1.5):
+        if self._shutdown:
+            return
+        self._shutdown = True
+        self.restore_stdout()
+        try:
+            self._queue.put_nowait(self._stop_token)
+        except queue.Full:
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+                self._queue.put_nowait(self._stop_token)
+            except (queue.Empty, queue.Full):
+                pass
+        if self._writer_thread.is_alive() and threading.current_thread() is not self._writer_thread:
+            self._writer_thread.join(timeout=timeout)
+
 
 class LoggerStream:
-    """sys.stdout/stderr をロガーにリダイレクトするためのストリームクラス（スレッドセーフ）
-    
-    line_buffer を threading.local にすることで、複数スレッドが同時に write() しても
-    各スレッド固有のバッファを使用し、行データの混入（race condition）を防ぐ。
-    """
+    """stdout/stderr proxy that keeps a per-thread line buffer."""
+
     def __init__(self, logger: Logger, level: LogLevel):
         self.logger = logger
         self.level = level
-        # スレッドごとに独立したバッファを持つ（他スレッドのバッファに干渉しない）
         self._local = threading.local()
 
     @property
     def line_buffer(self) -> str:
-        """現在のスレッド固有のバッファを返す"""
-        if not hasattr(self._local, 'buffer'):
+        if not hasattr(self._local, "buffer"):
             self._local.buffer = ""
         return self._local.buffer
 
     @line_buffer.setter
     def line_buffer(self, value: str):
-        """現在のスレッド固有のバッファに書き込む"""
         self._local.buffer = value
 
     def write(self, data):
         if not data:
-            return
-        
-        # self.line_buffer はスレッドローカルなので他スレッドと干渉しない
-        self.line_buffer += data
+            return 0
+        self.line_buffer += str(data)
         if "\n" in self.line_buffer:
             lines = self.line_buffer.split("\n")
             for line in lines[:-1]:
-                # 空行やインデントされた行も重要なのでそのまま記録する
-                self.logger._log_to_file(line)
-                
-                # 元のストリームにも出力（デバッグ用などに元のコンソールが生きている場合）
+                self.logger._enqueue_line(line)
                 try:
-                    if self.level == LogLevel.ERROR:
-                        if self.logger._stderr and hasattr(self.logger._stderr, 'write'):
-                            self.logger._stderr.write(line + "\n")
-                    else:
-                        if self.logger._stdout and hasattr(self.logger._stdout, 'write'):
-                            self.logger._stdout.write(line + "\n")
-                except:
+                    stream = self.logger._stderr if self.level == LogLevel.ERROR else self.logger._stdout
+                    if stream and hasattr(stream, "write"):
+                        stream.write(line + "\n")
+                except Exception:
                     pass
             self.line_buffer = lines[-1]
+        return len(str(data))
 
     def flush(self):
         try:
-            if self.level == LogLevel.ERROR:
-                if self.logger._stderr and hasattr(self.logger._stderr, 'flush'):
-                    self.logger._stderr.flush()
-            else:
-                if self.logger._stdout and hasattr(self.logger._stdout, 'flush'):
-                    self.logger._stdout.flush()
-        except:
+            stream = self.logger._stderr if self.level == LogLevel.ERROR else self.logger._stdout
+            if stream and hasattr(stream, "flush"):
+                stream.flush()
+        except Exception:
             pass
 
+    def isatty(self):
+        try:
+            stream = self.logger._stderr if self.level == LogLevel.ERROR else self.logger._stdout
+            return bool(stream and hasattr(stream, "isatty") and stream.isatty())
+        except Exception:
+            return False
 
-# グローバルロガーインスタンス
+
 _logger = Logger()
+atexit.register(_logger.shutdown)
+
 
 def get_logger() -> Logger:
-    """グローバルロガーを取得"""
     return _logger
 
+
 def configure_logging(level: LogLevel = LogLevel.INFO, enabled: bool = True, redirect: bool = False):
-    """ログ設定を構成"""
     _logger.set_level(level)
     _logger.set_enabled(enabled)
     if enabled and redirect:
@@ -214,19 +304,22 @@ def configure_logging(level: LogLevel = LogLevel.INFO, enabled: bool = True, red
     else:
         _logger.restore_stdout()
 
-# 便利関数
+
+def shutdown_logging():
+    _logger.shutdown()
+
+
 def debug(message: str, prefix: Optional[str] = None):
-    """DEBUGログ出力"""
     _logger.debug(message, prefix)
 
+
 def info(message: str, prefix: Optional[str] = None):
-    """INFOログ出力"""
     _logger.info(message, prefix)
 
+
 def warning(message: str, prefix: Optional[str] = None):
-    """WARNINGログ出力"""
     _logger.warning(message, prefix)
 
+
 def error(message: str, prefix: Optional[str] = None):
-    """ERRORログ出力"""
     _logger.error(message, prefix)

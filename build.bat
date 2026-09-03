@@ -25,7 +25,7 @@ if errorlevel 1 exit /b 1
 if errorlevel 1 exit /b 1
 
 echo 3. Building with PyInstaller
-%PY% -m PyInstaller --windowed --name="VJ_yattaro" --add-data="web;web" --add-data="assets;assets" --collect-all shazamio --collect-all shazamio_core --collect-all aiohttp_retry --collect-all pygame --collect-all sounddevice --collect-all _sounddevice_data main.py
+%PY% -m PyInstaller --windowed --name="VJ_yattaro" --icon="assets\vj_yattaro.ico" --add-data="web;web" --add-data="assets;assets" --collect-all shazamio --collect-all shazamio_core --collect-all aiohttp_retry --collect-all pygame --collect-all sounddevice --collect-all _sounddevice_data main.py
 if errorlevel 1 exit /b 1
 
 echo 4. Verifying Shazam runtime dependencies
@@ -58,7 +58,7 @@ echo.
 echo Distribution folder contains:
 echo - VJ_yattaro.exe (main executable)
 echo - web/ (YouTube player folder)
-echo - assets/ (UI animation assets)
+echo - assets/ (application icon and UI assets)
 echo - config.json (configuration file)
 echo - shazam_history.json (Shazam history, max 50 entries at runtime)
 echo - _internal/ (internal libraries folder)

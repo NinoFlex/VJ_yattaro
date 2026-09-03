@@ -38,6 +38,16 @@ html, body {
     border: none;
 }
 
+/* A failed deck stays black until a new video is explicitly loaded into it. */
+.player-container.playback-error {
+    background: #000;
+}
+
+.player-container.playback-error iframe,
+.player-container.playback-error video {
+    visibility: hidden !important;
+}
+
 /* YouTubeプレイヤーのUI要素を非表示（VJ向け） */
 .player-container iframe ~ * {
     display: none !important;

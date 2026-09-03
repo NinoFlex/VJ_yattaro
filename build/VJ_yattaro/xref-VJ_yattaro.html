@@ -15,7 +15,7 @@
 
 <div class="node">
   <a name="main.py"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/main.py" type="text/plain"><tt>main.py</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/main.py" type="text/plain"><tt>main.py</tt></a>
 <span class="moduletype">Script</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -35,6 +35,7 @@ imports:
  &#8226;   <a href="#app.services.midi_service">app.services.midi_service</a>
  &#8226;   <a href="#app.services.player_http_server">app.services.player_http_server</a>
  &#8226;   <a href="#app.services.shazam_service">app.services.shazam_service</a>
+ &#8226;   <a href="#app.services.youtube_api_key_store">app.services.youtube_api_key_store</a>
  &#8226;   <a href="#app.services.youtube_service">app.services.youtube_service</a>
  &#8226;   <a href="#app.utils.logger">app.utils.logger</a>
  &#8226;   <a href="#codecs">codecs</a>
@@ -178,6 +179,7 @@ imports:
  &#8226;   <a href="#ntpath">ntpath</a>
  &#8226;   <a href="#operator">operator</a>
  &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#pathlib">pathlib</a>
  &#8226;   <a href="#posixpath">posixpath</a>
  &#8226;   <a href="#psutil">psutil</a>
  &#8226;   <a href="#pygame">pygame</a>
@@ -395,7 +397,6 @@ imports:
  &#8226;   <a href="#pyi_rth_pkgutil.py">pyi_rth_pkgutil.py</a>
  &#8226;   <a href="#pyi_rth_pyside6.py">pyi_rth_pyside6.py</a>
  &#8226;   <a href="#pyi_rth_setuptools.py">pyi_rth_setuptools.py</a>
- &#8226;   <a href="#random">random</a>
  &#8226;   <a href="#re">re</a>
  &#8226;   <a href="#re._casefix">re._casefix</a>
  &#8226;   <a href="#re._compiler">re._compiler</a>
@@ -459,6 +460,7 @@ imports:
  &#8226;   <a href="#ui.widgets.player_control_panel">ui.widgets.player_control_panel</a>
  &#8226;   <a href="#ui.widgets.right_table_view">ui.widgets.right_table_view</a>
  &#8226;   <a href="#ui.widgets.youtube_list_view">ui.widgets.youtube_list_view</a>
+ &#8226;   <a href="#urllib.parse">urllib.parse</a>
  &#8226;   <a href="#warnings">warnings</a>
  &#8226;   <a href="#weakref">weakref</a>
  &#8226;   <a href="#webbrowser">webbrowser</a>
@@ -6018,7 +6020,7 @@ imported by:
 
 <div class="node">
   <a name="app"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/__init__.py" type="text/plain"><tt>app</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/__init__.py" type="text/plain"><tt>app</tt></a>
 <span class="moduletype">Package</span>  <div class="import">
 imported by:
     <a href="#app.services">app.services</a>
@@ -6054,7 +6056,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.config_service"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/config_service.py" type="text/plain"><tt>app.services.config_service</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/config_service.py" type="text/plain"><tt>app.services.config_service</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#app.services">app.services</a>
@@ -6081,7 +6083,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.history_watcher"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/history_watcher.py" type="text/plain"><tt>app.services.history_watcher</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/history_watcher.py" type="text/plain"><tt>app.services.history_watcher</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -6089,7 +6091,7 @@ imports:
  &#8226;   <a href="#app.services.config_service">app.services.config_service</a>
  &#8226;   <a href="#app.services.rekordbox_service">app.services.rekordbox_service</a>
  &#8226;   <a href="#os">os</a>
- &#8226;   <a href="#traceback">traceback</a>
+ &#8226;   <a href="#threading">threading</a>
 
   </div>
   <div class="import">
@@ -6102,7 +6104,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.hotkey_service"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/hotkey_service.py" type="text/plain"><tt>app.services.hotkey_service</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/hotkey_service.py" type="text/plain"><tt>app.services.hotkey_service</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -6124,7 +6126,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.midi_service"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/midi_service.py" type="text/plain"><tt>app.services.midi_service</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/midi_service.py" type="text/plain"><tt>app.services.midi_service</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -6145,7 +6147,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.player_http_server"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/player_http_server.py" type="text/plain"><tt>app.services.player_http_server</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/player_http_server.py" type="text/plain"><tt>app.services.player_http_server</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -6157,8 +6159,8 @@ imports:
  &#8226;   <a href="#sys">sys</a>
  &#8226;   <a href="#threading">threading</a>
  &#8226;   <a href="#time">time</a>
- &#8226;   <a href="#traceback">traceback</a>
  &#8226;   <a href="#urllib.parse">urllib.parse</a>
+ &#8226;   <a href="#uuid">uuid</a>
 
   </div>
   <div class="import">
@@ -6171,7 +6173,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.rekordbox_service"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/rekordbox_service.py" type="text/plain"><tt>app.services.rekordbox_service</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/rekordbox_service.py" type="text/plain"><tt>app.services.rekordbox_service</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#app.services">app.services</a>
@@ -6195,7 +6197,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.shazam_service"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/shazam_service.py" type="text/plain"><tt>app.services.shazam_service</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/shazam_service.py" type="text/plain"><tt>app.services.shazam_service</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -6228,7 +6230,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.youtube_api_key_store"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/youtube_api_key_store.py" type="text/plain"><tt>app.services.youtube_api_key_store</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/youtube_api_key_store.py" type="text/plain"><tt>app.services.youtube_api_key_store</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#app.services">app.services</a>
@@ -6239,6 +6241,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#app.services.youtube_service">app.services.youtube_service</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#ui.dialogs.settings_dialog">ui.dialogs.settings_dialog</a>
 
   </div>
@@ -6247,7 +6250,7 @@ imported by:
 
 <div class="node">
   <a name="app.services.youtube_service"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/services/youtube_service.py" type="text/plain"><tt>app.services.youtube_service</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/services/youtube_service.py" type="text/plain"><tt>app.services.youtube_service</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -6289,14 +6292,16 @@ imported by:
 
 <div class="node">
   <a name="app.utils.logger"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/app/utils/logger.py" type="text/plain"><tt>app.utils.logger</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/app/utils/logger.py" type="text/plain"><tt>app.utils.logger</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#app.utils">app.utils</a>
+ &#8226;   <a href="#atexit">atexit</a>
  &#8226;   <a href="#datetime">datetime</a>
  &#8226;   <a href="#enum">enum</a>
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#queue">queue</a>
  &#8226;   <a href="#sys">sys</a>
  &#8226;   <a href="#threading">threading</a>
  &#8226;   <a href="#typing">typing</a>
@@ -7448,6 +7453,7 @@ imported by:
   <tt>atexit</tt> <span class="moduletype"><i>(builtin module)</i></span>  <div class="import">
 imported by:
     <a href="#_pyi_rth_utils.qt">_pyi_rth_utils.qt</a>
+ &#8226;   <a href="#app.utils.logger">app.utils.logger</a>
  &#8226;   <a href="#certifi.core">certifi.core</a>
  &#8226;   <a href="#logging">logging</a>
  &#8226;   <a href="#multiprocessing.util">multiprocessing.util</a>
@@ -26053,6 +26059,7 @@ imported by:
  &#8226;   <a href="#importlib.resources._legacy">importlib.resources._legacy</a>
  &#8226;   <a href="#importlib.resources.abc">importlib.resources.abc</a>
  &#8226;   <a href="#importlib.resources.readers">importlib.resources.readers</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#numpy">numpy</a>
  &#8226;   <a href="#numpy.f2py._backends._meson">numpy.f2py._backends._meson</a>
  &#8226;   <a href="#numpy.f2py.crackfortran">numpy.f2py.crackfortran</a>
@@ -36370,6 +36377,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#app.services.shazam_service">app.services.shazam_service</a>
+ &#8226;   <a href="#app.utils.logger">app.utils.logger</a>
  &#8226;   <a href="#concurrent.futures.process">concurrent.futures.process</a>
  &#8226;   <a href="#concurrent.futures.thread">concurrent.futures.thread</a>
  &#8226;   <a href="#multiprocessing.dummy">multiprocessing.dummy</a>
@@ -36434,7 +36442,6 @@ imported by:
  &#8226;   <a href="#altgraph.GraphUtil">altgraph.GraphUtil</a>
  &#8226;   <a href="#email.generator">email.generator</a>
  &#8226;   <a href="#email.utils">email.utils</a>
- &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#pygame.examples.aliens">pygame.examples.aliens</a>
  &#8226;   <a href="#pygame.examples.go_over_there">pygame.examples.go_over_there</a>
  &#8226;   <a href="#pygame.examples.mask">pygame.examples.mask</a>
@@ -53203,6 +53210,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#_threading_local">_threading_local</a>
+ &#8226;   <a href="#app.services.history_watcher">app.services.history_watcher</a>
  &#8226;   <a href="#app.services.hotkey_service">app.services.hotkey_service</a>
  &#8226;   <a href="#app.services.player_http_server">app.services.player_http_server</a>
  &#8226;   <a href="#app.services.shazam_service">app.services.shazam_service</a>
@@ -53682,8 +53690,6 @@ imported by:
  &#8226;   <a href="#aiohttp.client_reqrep">aiohttp.client_reqrep</a>
  &#8226;   <a href="#aiohttp.connector">aiohttp.connector</a>
  &#8226;   <a href="#aiohttp.web_protocol">aiohttp.web_protocol</a>
- &#8226;   <a href="#app.services.history_watcher">app.services.history_watcher</a>
- &#8226;   <a href="#app.services.player_http_server">app.services.player_http_server</a>
  &#8226;   <a href="#app.services.rekordbox_service">app.services.rekordbox_service</a>
  &#8226;   <a href="#asyncio.base_events">asyncio.base_events</a>
  &#8226;   <a href="#asyncio.base_tasks">asyncio.base_tasks</a>
@@ -54751,7 +54757,7 @@ imported by:
 
 <div class="node">
   <a name="ui"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/ui/__init__.py" type="text/plain"><tt>ui</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/ui/__init__.py" type="text/plain"><tt>ui</tt></a>
 <span class="moduletype">Package</span>  <div class="import">
 imported by:
     <a href="#ui.dialogs">ui.dialogs</a>
@@ -54780,7 +54786,7 @@ imported by:
 
 <div class="node">
   <a name="ui.dialogs.settings_dialog"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/ui/dialogs/settings_dialog.py" type="text/plain"><tt>ui.dialogs.settings_dialog</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/ui/dialogs/settings_dialog.py" type="text/plain"><tt>ui.dialogs.settings_dialog</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -54806,7 +54812,7 @@ imported by:
 
 <div class="node">
   <a name="ui.theme"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/ui/theme.py" type="text/plain"><tt>ui.theme</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/ui/theme.py" type="text/plain"><tt>ui.theme</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtGui">PySide6.QtGui</a>
@@ -54828,7 +54834,7 @@ imported by:
 
 <div class="node">
   <a name="ui.widgets"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/ui/widgets/__init__.py" type="text/plain"><tt>ui.widgets</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/ui/widgets/__init__.py" type="text/plain"><tt>ui.widgets</tt></a>
 <span class="moduletype">Package</span>  <div class="import">
 imports:
     <a href="#ui">ui</a>
@@ -54847,7 +54853,7 @@ imported by:
 
 <div class="node">
   <a name="ui.widgets.player_control_panel"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/ui/widgets/player_control_panel.py" type="text/plain"><tt>ui.widgets.player_control_panel</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/ui/widgets/player_control_panel.py" type="text/plain"><tt>ui.widgets.player_control_panel</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -54870,7 +54876,7 @@ imported by:
 
 <div class="node">
   <a name="ui.widgets.right_table_view"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/ui/widgets/right_table_view.py" type="text/plain"><tt>ui.widgets.right_table_view</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/ui/widgets/right_table_view.py" type="text/plain"><tt>ui.widgets.right_table_view</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -54889,7 +54895,7 @@ imported by:
 
 <div class="node">
   <a name="ui.widgets.youtube_delegate"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/ui/widgets/youtube_delegate.py" type="text/plain"><tt>ui.widgets.youtube_delegate</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/ui/widgets/youtube_delegate.py" type="text/plain"><tt>ui.widgets.youtube_delegate</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -54909,7 +54915,7 @@ imported by:
 
 <div class="node">
   <a name="ui.widgets.youtube_list_view"></a>
-  <a target="code" href="///C:/Users/NINO/Downloads/app_play_animation_state_fix/ui/widgets/youtube_list_view.py" type="text/plain"><tt>ui.widgets.youtube_list_view</tt></a>
+  <a target="code" href="///C:/Users/NINO/Downloads/app_status_indicators_hover/ui/widgets/youtube_list_view.py" type="text/plain"><tt>ui.widgets.youtube_list_view</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#PySide6.QtCore">PySide6.QtCore</a>
@@ -55408,6 +55414,7 @@ imported by:
  &#8226;   <a href="#http.client">http.client</a>
  &#8226;   <a href="#http.cookiejar">http.cookiejar</a>
  &#8226;   <a href="#http.server">http.server</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#mimetypes">mimetypes</a>
  &#8226;   <a href="#nturl2path">nturl2path</a>
  &#8226;   <a href="#numpy.lib._datasource">numpy.lib._datasource</a>
@@ -56634,6 +56641,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#aiohttp.multipart">aiohttp.multipart</a>
+ &#8226;   <a href="#app.services.player_http_server">app.services.player_http_server</a>
  &#8226;   <a href="#dataclass_factory.schema_helpers">dataclass_factory.schema_helpers</a>
  &#8226;   <a href="#pefile">pefile</a>
  &#8226;   <a href="#pydantic._internal._generate_schema">pydantic._internal._generate_schema</a>

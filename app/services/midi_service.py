@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, Signal, QThread, QTimer
 
 class MidiServiceWorker(QThread):
     notes_received = Signal(int)
+    device_connected = Signal()
     device_disconnected = Signal()
     
     def __init__(self, device_id):
@@ -20,6 +21,7 @@ class MidiServiceWorker(QThread):
                 pygame.midi.init()
             self._midi_in = pygame.midi.Input(self.device_id)
             self._running = True
+            self.device_connected.emit()
             print(f"MidiServiceWorker: Started listening to device ID {self.device_id}")
             
             while self._running:
@@ -69,6 +71,7 @@ class MidiService(QObject):
     search_triggered = Signal()
     rewind_triggered = Signal()
     forward_triggered = Signal()
+    status_changed = Signal(str, str)
 
     def __new__(cls):
         if cls._instance is None:
@@ -86,11 +89,25 @@ class MidiService(QObject):
         self._mappings = {} # {note: action_name}
         self._device_name = ""
         self._shutting_down = False
+        self._connection_state = "off"
+        self._connection_detail = "MIDI: disabled (no input device configured)"
         self._reconnect_timer = QTimer(self)
         self._reconnect_timer.setSingleShot(True)
         self._reconnect_timer.setInterval(1000)
         self._reconnect_timer.timeout.connect(self.ensure_connected)
         
+    def _set_status(self, state, detail):
+        state = str(state or "off").lower()
+        detail = str(detail or "")
+        if state == self._connection_state and detail == self._connection_detail:
+            return
+        self._connection_state = state
+        self._connection_detail = detail
+        self.status_changed.emit(state, detail)
+
+    def connection_status(self):
+        return self._connection_state, self._connection_detail
+
     def get_input_devices(self):
         """Returns list of tuples: [(id, name), ...]"""
         devices = []
@@ -114,6 +131,7 @@ class MidiService(QObject):
         print(f"MidiService: Updating config. Device='{self._device_name}', Mappings: {self._mappings}")
         if not self._device_name:
             self.stop(clear_device=True)
+            self._set_status("off", "MIDI: disabled (no input device configured)")
             return
         self.ensure_connected(force=True)
 
@@ -131,16 +149,24 @@ class MidiService(QObject):
     def ensure_connected(self, force=False):
         """Reconnect when the USB MIDI input disappeared or failed during startup."""
         if self._shutting_down or not self._device_name:
+            if not self._device_name:
+                self._set_status("off", "MIDI: disabled (no input device configured)")
             return False
 
         worker_alive = bool(self._worker and self._worker.isRunning())
         if worker_alive and not force:
+            if self._connection_state != "ok":
+                self._set_status("ok", f"MIDI: connected to {self._device_name}")
             return True
 
         new_id = self._find_device_id()
         if new_id < 0:
             print(f"MidiService: Device '{self._device_name}' not found; retrying in 1s")
             self._current_device_id = -1
+            self._set_status(
+                "error",
+                f"MIDI: configured device not found\nDevice: {self._device_name}\nRetrying automatically",
+            )
             if not self._reconnect_timer.isActive():
                 self._reconnect_timer.start()
             return False
@@ -158,16 +184,33 @@ class MidiService(QObject):
 
         print(f"MidiService: Connecting to device ID {device_id} ({self._device_name})")
         self._current_device_id = device_id
+        self._set_status(
+            "warn",
+            f"MIDI: connecting\nDevice: {self._device_name}\nPort ID: {device_id}",
+        )
         worker = MidiServiceWorker(device_id)
         self._worker = worker
         worker.notes_received.connect(self._on_note_received)
+        worker.device_connected.connect(self._on_device_connected)
         worker.device_disconnected.connect(self._on_device_disconnected)
         worker.finished.connect(lambda: self._on_worker_finished(worker))
         worker.start()
 
+    def _on_device_connected(self):
+        if self._worker is None:
+            return
+        self._set_status(
+            "ok",
+            f"MIDI: connected\nDevice: {self._device_name}\nPort ID: {self._current_device_id}",
+        )
+
     def _on_device_disconnected(self):
         print("MidiService: MIDI worker reported a disconnect/error")
         self._current_device_id = -1
+        self._set_status(
+            "error",
+            f"MIDI: disconnected/error\nDevice: {self._device_name}\nRetrying automatically",
+        )
         if not self._shutting_down and self._device_name and not self._reconnect_timer.isActive():
             self._reconnect_timer.start()
 
@@ -188,6 +231,7 @@ class MidiService(QObject):
         self._current_device_id = -1
         if clear_device:
             self._device_name = ""
+            self._set_status("off", "MIDI: disabled (no input device configured)")
 
     def shutdown(self):
         self._shutting_down = True

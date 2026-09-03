@@ -15,6 +15,11 @@ class VJPlayer {
         this.pollingPort = Number.isFinite(pagePort) ? pagePort : 8080;
         this.pollingUrl = `${window.location.protocol}//${window.location.hostname}:${this.pollingPort}/poll`;
         this.feedbackUrl = `${window.location.protocol}//${window.location.hostname}:${this.pollingPort}/feedback`;
+        // The desktop app creates a new token on every server start. Only the browser tab
+        // opened for that token can poll commands, so old tabs cannot consume new-session input.
+        this.sessionId = this.getControllerSessionFromQuery();
+        this._pollInFlight = false;
+        this._sessionMismatchShown = false;
 
         // デフォルト動画（起動時に自動再生）
         // player側で固定値を持たず、ツール側が player.html のクエリで渡す
@@ -22,12 +27,12 @@ class VJPlayer {
         this.defaultVideoId = this.getDefaultVideoIdFromQuery();
 
         // エラーループ抑止
-        this._fallbackAttempts = { A: 0, B: 0 };
         this._lastErrorAtMs = { A: 0, B: 0 };
         this._errorBurstCount = { A: 0, B: 0 };
         this._lastErrorCode = { A: null, B: null };
         this._lastPlayerState = { A: null, B: null };
         this._lastPlayingAtMs = { A: 0, B: 0 };
+        this.failedVideoIds = { A: null, B: null };
 
         // 楽曲情報の管理
         this.currentTrackInfo = null;
@@ -188,6 +193,17 @@ class VJPlayer {
         }, 3000);
     }
 
+    getControllerSessionFromQuery() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const value = params.get('controllerSession');
+            return value && value.trim() ? value.trim() : '';
+        } catch (e) {
+            console.warn('Failed to parse controllerSession from query:', e);
+            return '';
+        }
+    }
+
     getDefaultVideoIdFromQuery() {
         try {
             const params = new URLSearchParams(window.location.search);
@@ -307,6 +323,14 @@ class VJPlayer {
     onPlayerStateChange(playerId, event) {
         const state = event.data;
         this._lastPlayerState[playerId] = state;
+        const stateVideoId = this.getVideoIdForPlayer(playerId);
+        if (this.failedVideoIds[playerId] && stateVideoId === this.failedVideoIds[playerId]) {
+            // stopVideo() after an error may emit ENDED/UNSTARTED. Do not let those states
+            // overwrite the ERROR panel or restart the failed loop.
+            if (state !== YT.PlayerState.PLAYING) {
+                return;
+            }
+        }
         if (state === YT.PlayerState.PLAYING) {
             this._lastPlayingAtMs[playerId] = Date.now();
         }
@@ -340,104 +364,61 @@ class VJPlayer {
     }
 
     onPlayerError(playerId, event) {
-        console.error(`Player ${playerId} error:`, event);
-        console.error(`Error code: ${event.data}`);
-        this.sendFeedback('error', this.getVideoIdForPlayer(playerId), playerId, {
-            errorCode: event.data,
-            includeTiming: false
-        });
-
-        // エラーコードの詳細
+        const errorCode = Number(event && event.data);
+        const videoId = this.getVideoIdForPlayer(playerId);
         const errorCodes = {
             2: 'Invalid parameter',
             5: 'HTML5 player error',
             100: 'Video not found or removed',
             101: 'Video not embeddable',
-            150: 'HTML5 player error',
-            153: 'HTML5 player error - video may not be embeddable or has restrictions'
+            150: 'Video not embeddable',
+            153: 'Video not embeddable or restricted'
         };
+        const description = errorCodes[errorCode] || 'Unknown error';
+        console.error(`Player ${playerId} failed: code=${errorCode} ${description}`);
 
-        console.error(`Error description: ${errorCodes[event.data] || 'Unknown error'}`);
-
-        // 150/153はフォールバックしても改善しないことが多く、黒画面ループの原因になる。
-        // この環境では埋め込み再生が成立しない可能性が高いので、通知を表示
-        if (event.data === 150 || event.data === 153) {
-            console.error(`Embed playback failed (code ${event.data}). Attempt iframe fallback.`);
-            // 埋め込み制限が疑われる場合、iframe 直接埋め込みでフォールバックを試みる
-            const vid = this.currentVideoId || this.nextVideoId || null;
-            if (vid) {
-                const alreadyAttempted = this._fallbackAttempts[playerId] && this._fallbackAttempts[playerId] > 0;
-                if (!alreadyAttempted) {
-                    this._fallbackAttempts[playerId] = (this._fallbackAttempts[playerId] || 0) + 1;
-                    this.tryEmbedFallback(playerId, vid);
-                    return;
-                }
-            }
-            // フォールバック失敗なら通知
-            console.error(`Embed playback failed (code ${event.data}). Showing notification.`);
-            this.showErrorNotification('この動画は再生できません（埋め込み制限）');
-            return;
-        }
-
-        // 再生中なら(特に150/153)は無視する。実際に再生は継続しているケースがある。
-        const recentlyPlaying = (Date.now() - (this._lastPlayingAtMs[playerId] || 0)) < 2500;
-        if ((this._lastPlayerState[playerId] === YT.PlayerState.PLAYING || recentlyPlaying) && (event.data === 150 || event.data === 153)) {
-            console.log(`Ignore error while playing (player ${playerId}, code ${event.data})`);
-            return;
-        }
-
-        // エラー2は環境依存で出ることがあるため、フォールバック連打を避ける
-        if (event.data === 2) {
-            console.error('Error 2 (Invalid parameter) detected. Skip fallback and keep running.');
-            return;
-        }
-
-        // 短時間の連続エラー(バースト)を検知
-        const now = Date.now();
-        const delta = now - (this._lastErrorAtMs[playerId] || 0);
-        if (delta < 1500 && this._lastErrorCode[playerId] === event.data) {
-            this._errorBurstCount[playerId] = (this._errorBurstCount[playerId] || 0) + 1;
-        } else {
-            this._errorBurstCount[playerId] = 1;
-        }
-        this._lastErrorAtMs[playerId] = now;
-        this._lastErrorCode[playerId] = event.data;
-
-        // 連続エラーが続く場合は手動モードへ
-        if (this._errorBurstCount[playerId] >= 3) {
-            console.error(`Too many repeated errors on player ${playerId}. Switching to manual playback.`);
-            this.showManualPlayback();
-            return;
-        }
-
-        // フォールバックは最大1回だけ試す
-        if ((this._fallbackAttempts[playerId] || 0) >= 1) {
-            console.error(`Fallback already attempted on player ${playerId}. Switching to manual playback.`);
-            this.showManualPlayback();
-            return;
-        }
-
-        console.log(`Attempting fallback video for error ${event.data}...`);
-        this.tryFallbackVideo(playerId);
+        // Never replace a failed request with an unrelated video. Stop only the failed
+        // physical player, black its output, and report the original video as unavailable.
+        this.markPlaybackFailed(playerId, videoId, errorCode);
     }
 
-    tryFallbackVideo(playerId) {
-        // 埋め込み確実な代替動画を試す
-        const fallbackVideoId = 'dQw4w9WgXcQ'; // Rick Roll
+    markPlaybackFailed(playerId, videoId, errorCode) {
+        const targetPlayer = this.normalizePlayerId(playerId);
+        this.isReady[targetPlayer] = false;
+        this.failedVideoIds[targetPlayer] = videoId || this.playerVideoIds[targetPlayer] || null;
 
-        this._fallbackAttempts[playerId] = (this._fallbackAttempts[playerId] || 0) + 1;
+        if (this.nextPlayer === targetPlayer && this.nextVideoId === videoId) {
+            // This also terminates waitForReadyAndSwitch() because its request is now stale.
+            this.nextVideoId = null;
+        }
 
-        try {
-            this.players[playerId].loadVideoById({
-                videoId: fallbackVideoId,
-                startSeconds: 0,
-                suggestedQuality: 'medium' // 品質を下げて安定性を向上
-            });
-            console.log(`Fallback video loaded for player ${playerId}: ${fallbackVideoId}`);
-        } catch (error) {
-            console.error(`Fallback video failed for player ${playerId}:`, error);
-            // 代替動画も失敗した場合は手動再生案内を表示
-            this.showManualPlayback();
+        const player = this.players[targetPlayer];
+        if (player && typeof player.stopVideo === 'function') {
+            try {
+                player.stopVideo();
+            } catch (e) {
+                console.warn(`Failed to stop player ${targetPlayer} after playback error:`, e);
+            }
+        }
+
+        const container = document.getElementById(`player${targetPlayer}Container`);
+        if (container) {
+            container.classList.add('playback-error');
+        }
+
+        this.sendFeedback('error', videoId || '', targetPlayer, {
+            errorCode: errorCode,
+            includeTiming: false
+        });
+        this.showErrorNotification(`Player ${targetPlayer}: この動画は再生できません`);
+    }
+
+    clearPlaybackError(playerId) {
+        const targetPlayer = this.normalizePlayerId(playerId);
+        this.failedVideoIds[targetPlayer] = null;
+        const container = document.getElementById(`player${targetPlayer}Container`);
+        if (container) {
+            container.classList.remove('playback-error');
         }
     }
 
@@ -631,35 +612,84 @@ class VJPlayer {
 
     // コマンドポーリング開始
     startPolling() {
+        if (!this.sessionId) {
+            console.error('Controller session token is missing.');
+            this.showErrorNotification('コントローラーとの接続情報がありません。プレイヤーをツールから開き直してください。');
+            return;
+        }
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+        }
         console.log('Starting command polling...');
         this._lastHeartbeatAt = 0;
         this.pollingInterval = setInterval(() => {
             this.pollCommands();
-        }, 100); // 100msごとにポーリング
+        }, 100);
     }
 
-    // コマンドポーリング
+    stopPollingForSessionMismatch() {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+            this.pollingInterval = null;
+        }
+        if (!this._sessionMismatchShown) {
+            this._sessionMismatchShown = true;
+            this.showErrorNotification('このプレイヤータブは古いセッションです。ツールから開いた新しいタブを使用してください。');
+        }
+    }
+
+    // コマンドポーリング。前回のHTTP要求が終わるまで次要求を出さない。
     async pollCommands() {
+        if (this._pollInFlight || !this.sessionId) {
+            return;
+        }
+        this._pollInFlight = true;
         try {
-            // 定期的に生存信号（Heartbeat）を送信（5秒に1回）
             const now = Date.now();
             if (now - this._lastHeartbeatAt > 5000) {
                 this.sendFeedback('HEARTBEAT', this.currentVideoId || '', this.currentPlayer, { includeTiming: false, includeMetadata: false });
                 this._lastHeartbeatAt = now;
             }
 
-            const response = await fetch(this.pollingUrl);
+            const pollUrl = `${this.pollingUrl}?sessionId=${encodeURIComponent(this.sessionId)}`;
+            const response = await fetch(pollUrl, { cache: 'no-store' });
             const data = await response.json();
 
+            if (data.sessionMismatch) {
+                this.stopPollingForSessionMismatch();
+                return;
+            }
+
             if (data.cmd && data.cmd.trim()) {
-                console.log('Received command:', data);
-                this.processCommand(data);
+                console.log('Received command:', data.cmd, data.commandId || '');
+                let status = 'accepted';
+                let errorMessage = '';
+                try {
+                    this.processCommand(data);
+                } catch (error) {
+                    status = 'error';
+                    errorMessage = error && error.message ? error.message : String(error);
+                    console.error('Command processing error:', error);
+                }
+                if (data.commandId) {
+                    this.sendCommandAck(data, status, errorMessage);
+                }
             }
         } catch (error) {
-            // ポーリングエラーを詳細表示
             console.error('Polling error:', error.message);
-            console.log('Polling URL:', this.pollingUrl);
+        } finally {
+            this._pollInFlight = false;
         }
+    }
+
+    sendCommandAck(command, status = 'accepted', errorMessage = '') {
+        return this.sendFeedback('command_ack', command.videoId || '', command.playerId || null, {
+            includeTiming: false,
+            includeMetadata: false,
+            commandId: command.commandId || '',
+            commandStatus: status,
+            commandError: errorMessage || ''
+        });
     }
 
     // コマンド処理
@@ -716,6 +746,7 @@ class VJPlayer {
         }
 
         console.log(`Preloading video ${videoId} into player ${targetPlayer}`);
+        this.clearPlaybackError(targetPlayer);
         this.nextVideoId = videoId;
         this.playerVideoIds[targetPlayer] = videoId;
         if (trackInfo) {
@@ -772,6 +803,7 @@ class VJPlayer {
 
         const targetPlayer = this.nextPlayer;
         console.log(`Playing video ${videoId} on target player ${targetPlayer}`);
+        this.clearPlaybackError(targetPlayer);
         this.playerVideoIds[targetPlayer] = videoId;
         if (trackInfo) {
             this.nextTrackInfo = trackInfo;
@@ -1031,6 +1063,7 @@ class VJPlayer {
 
     switchAndPlay(videoId, targetPlayer = null) {
         const selectedPlayer = targetPlayer || this.nextPlayer;
+        this.clearPlaybackError(selectedPlayer);
         console.log(`Switching to player ${selectedPlayer} with video: ${videoId}`);
 
         const oldPlayer = this.currentPlayer;
@@ -1168,7 +1201,8 @@ class VJPlayer {
                 videoId: videoId || '',
                 timestamp: Date.now(),
                 currentPlayer: this.currentPlayer,
-                nextPlayer: this.nextPlayer
+                nextPlayer: this.nextPlayer,
+                sessionId: this.sessionId
             };
 
             if (normalizedPlayer) {
@@ -1187,6 +1221,11 @@ class VJPlayer {
             }
             if (options.errorCode !== undefined) {
                 feedbackData.errorCode = options.errorCode;
+            }
+            if (options.commandId) {
+                feedbackData.commandId = options.commandId;
+                feedbackData.commandStatus = options.commandStatus || 'accepted';
+                if (options.commandError) feedbackData.commandError = options.commandError;
             }
 
             const response = await fetch(this.feedbackUrl, {

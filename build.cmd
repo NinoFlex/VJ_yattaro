@@ -25,6 +25,7 @@ py -3.12 -m PyInstaller ^
     --clean ^
     --windowed ^
     --name="VJ_yattaro" ^
+    --icon="assets\vj_yattaro.ico" ^
     --add-data="web;web" ^
     --add-data="assets;assets" ^
     --collect-all shazamio ^

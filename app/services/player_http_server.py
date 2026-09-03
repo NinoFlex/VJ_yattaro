@@ -1,87 +1,216 @@
-"""
-HTTPサーバーサービス
-YouTubeプレイヤーへのコマンド送信を管理
-"""
+"""Local HTTP bridge between the desktop controller and the browser player."""
 
 import json
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
-import time
 import os
 import sys
+import threading
+import time
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
 from PySide6.QtCore import QObject, Signal
 
 
 class FeedbackSignals(QObject):
-    """プレイヤーからのフィードバックを通知する信号"""
     feedback_received = Signal(dict)
 
 
-# グローバル信号インスタンス
 feedback_signals = FeedbackSignals()
 
 
-class PlayerCommandHandler(BaseHTTPRequestHandler):
-    """プレイヤーコマンド用HTTPリクエストハンドラ"""
-    
-    # コマンドキュー（スレッド間共有）
-    command_queue = []
-    queue_lock = threading.Lock()
-    # 状態フィードバック用のコールバック
-    state_callback = None
-    # 静的ファイル配信用（/web 配下）
-    web_root = None
-    
-    def log_message(self, format, *args):
-        """ログ出力を抑制"""
-        pass
-    
-    def do_OPTIONS(self):
-        """OPTIONSリクエスト処理（CORS対応）"""
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-    
-    def do_GET(self):
-        """GETリクエスト処理"""
-        parsed_path = urlparse(self.path)
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
 
-        if parsed_path.path == '/poll':
-            self.handle_poll()
-        elif parsed_path.path == '/status':
+
+class PlayerCommandHandler(BaseHTTPRequestHandler):
+    command_queue = []
+    pending_commands = {}
+    queue_lock = threading.Lock()
+    state_callback = None
+    web_root = None
+    session_id = ""
+    _last_poll_time = 0.0
+    _last_feedback_time = 0.0
+
+    MAX_QUEUE_SIZE = 64
+    COMMAND_TTL_SECONDS = {
+        "PRELOAD": 20.0,
+        "PLAY": 12.0,
+        "PAUSE_PLAYER": 4.0,
+        "RESUME_PLAYER": 4.0,
+        "SELECT_PLAYER": 4.0,
+        "REWIND": 4.0,
+        "FORWARD": 4.0,
+        "REQUEST_PLAYER_STATE": 5.0,
+        "SET_CONFIG": 30.0,
+    }
+
+    def log_message(self, format, *args):
+        pass
+
+    @classmethod
+    def reset_state(cls, session_id):
+        with cls.queue_lock:
+            cls.command_queue.clear()
+            cls.pending_commands.clear()
+            cls.session_id = str(session_id or "")
+            cls._last_poll_time = 0.0
+            cls._last_feedback_time = 0.0
+
+    @classmethod
+    def _purge_expired_locked(cls, now=None):
+        now = time.time() if now is None else now
+        cls.command_queue[:] = [
+            cmd for cmd in cls.command_queue if float(cmd.get("_expiresAt", now + 1)) > now
+        ]
+        expired_pending = [
+            command_id
+            for command_id, meta in cls.pending_commands.items()
+            if float(meta.get("expiresAt", now + 1)) <= now
+        ]
+        for command_id in expired_pending:
+            cls.pending_commands.pop(command_id, None)
+
+    @classmethod
+    def _coalesce_key(cls, command):
+        cmd = str(command.get("cmd", "") or "").upper()
+        player = str(command.get("playerId", "") or "").upper()
+        if cmd in ("SELECT_PLAYER", "REQUEST_PLAYER_STATE", "SET_CONFIG"):
+            return (cmd, "")
+        if cmd in ("PAUSE_PLAYER", "RESUME_PLAYER"):
+            return ("PLAYER_TRANSPORT", player)
+        return None
+
+    @classmethod
+    def enqueue_command(cls, command):
+        now = time.time()
+        command = dict(command or {})
+        cmd = str(command.get("cmd", "") or "").upper()
+        command["cmd"] = cmd
+        command.setdefault("commandId", uuid.uuid4().hex)
+        command.setdefault("timestamp", now)
+        command["sessionId"] = cls.session_id
+        ttl = cls.COMMAND_TTL_SECONDS.get(cmd, 8.0)
+        command["_expiresAt"] = now + ttl
+
+        dropped = None
+        with cls.queue_lock:
+            cls._purge_expired_locked(now)
+
+            # A new deck selection supersedes queued transport actions for the other deck.
+            # This preserves the intended SELECT -> RESUME order on rapid A/B clicks.
+            if cmd == "SELECT_PLAYER":
+                selected_player = str(command.get("playerId", "") or "").upper()
+                if selected_player in ("A", "B"):
+                    cls.command_queue[:] = [
+                        existing
+                        for existing in cls.command_queue
+                        if not (
+                            str(existing.get("cmd", "") or "").upper()
+                            in ("PAUSE_PLAYER", "RESUME_PLAYER")
+                            and str(existing.get("playerId", "") or "").upper()
+                            != selected_player
+                        )
+                    ]
+
+            coalesce_key = cls._coalesce_key(command)
+            replaced = False
+            if coalesce_key is not None:
+                for index, existing in enumerate(cls.command_queue):
+                    if cls._coalesce_key(existing) == coalesce_key:
+                        # Replace in place so coalescing does not reorder related commands.
+                        cls.command_queue[index] = command
+                        replaced = True
+                        break
+
+            if not replaced:
+                while len(cls.command_queue) >= cls.MAX_QUEUE_SIZE:
+                    dropped = cls.command_queue.pop(0)
+                cls.command_queue.append(command)
+
+        if dropped:
+            print(
+                "PlayerHttpServer: Command queue full; dropped oldest command "
+                f"{dropped.get('cmd')} ({dropped.get('commandId')})"
+            )
+        return command["commandId"]
+
+    @classmethod
+    def acknowledge_command(cls, command_id, status="accepted"):
+        if not command_id:
+            return
+        with cls.queue_lock:
+            meta = cls.pending_commands.pop(str(command_id), None)
+        if meta is not None:
+            print(
+                f"PlayerHttpServer: ACK {command_id} status={status} "
+                f"cmd={meta.get('cmd', '')}"
+            )
+
+    @classmethod
+    def _public_command(cls, command):
+        return {key: value for key, value in command.items() if not key.startswith("_")}
+
+    @classmethod
+    def _session_matches(cls, supplied):
+        return bool(cls.session_id) and str(supplied or "") == cls.session_id
+
+    def _send_json(self, status_code, data):
+        payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def do_GET(self):
+        parsed_path = urlparse(self.path)
+        if parsed_path.path == "/poll":
+            self.handle_poll(parsed_path)
+        elif parsed_path.path == "/status":
             self.handle_status()
-        elif parsed_path.path == '/' or parsed_path.path.startswith('/web/') or parsed_path.path.endswith('.html') or parsed_path.path.endswith('.js') or parsed_path.path.endswith('.css'):
+        elif (
+            parsed_path.path == "/"
+            or parsed_path.path.startswith("/web/")
+            or parsed_path.path.endswith(".html")
+            or parsed_path.path.endswith(".js")
+            or parsed_path.path.endswith(".css")
+        ):
             self.handle_static(parsed_path.path)
         else:
             self.send_error(404, "Not Found")
 
     def handle_static(self, request_path: str):
-        """web/ 配下の静的ファイルを配信"""
         try:
             if not self.web_root:
                 self.send_error(500, "Web root not configured")
                 return
-
-            # '/' は player.html にリダイレクト
-            if request_path == '/':
+            if request_path == "/":
                 self.send_response(302)
-                self.send_header('Location', '/player.html')
-                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header("Location", "/player.html")
+                self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 return
 
-            # '/web/xxx' を 'xxx' に変換、'/player.html' 等も許可
-            rel = request_path.lstrip('/')
-            if rel.startswith('web/'):
-                rel = rel[len('web/'):]
-
-            # パストラバーサル対策
+            rel = request_path.lstrip("/")
+            if rel.startswith("web/"):
+                rel = rel[len("web/") :]
             rel_path = Path(rel)
-            if rel_path.is_absolute() or '..' in rel_path.parts:
+            if rel_path.is_absolute() or ".." in rel_path.parts:
                 self.send_error(400, "Invalid path")
                 return
 
@@ -90,263 +219,239 @@ class PlayerCommandHandler(BaseHTTPRequestHandler):
             if web_root_resolved not in file_path.parents and file_path != web_root_resolved:
                 self.send_error(400, "Invalid path")
                 return
-
             if not file_path.exists() or not file_path.is_file():
                 self.send_error(404, "Not Found")
                 return
 
             ext = file_path.suffix.lower()
-            content_type = 'application/octet-stream'
-            if ext == '.html':
-                content_type = 'text/html; charset=utf-8'
-            elif ext == '.js':
-                content_type = 'application/javascript; charset=utf-8'
-            elif ext == '.css':
-                content_type = 'text/css; charset=utf-8'
+            content_type = "application/octet-stream"
+            if ext == ".html":
+                content_type = "text/html; charset=utf-8"
+            elif ext == ".js":
+                content_type = "application/javascript; charset=utf-8"
+            elif ext == ".css":
+                content_type = "text/css; charset=utf-8"
+            elif ext == ".png":
+                content_type = "image/png"
+            elif ext == ".ico":
+                content_type = "image/x-icon"
 
             data = file_path.read_bytes()
-
             self.send_response(200)
-            self.send_header('Content-Type', content_type)
-            self.send_header('Content-Length', str(len(data)))
-            self.send_header('Cache-Control', 'no-store')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(data)
+        except Exception as exc:
+            print(f"PlayerCommandHandler: Error in static handler: {exc}")
+            self.send_error(500, "Internal Server Error")
 
-        except Exception as e:
-            print(f"PlayerCommandHandler: Error in static handler: {e}")
-            self.send_error(500, "Internal Server Error")
-    
-    def handle_poll(self):
-        """コマンドポーリング処理"""
-        # ポーリング時刻を更新
+    def handle_poll(self, parsed_path):
         try:
-            import time
-            PlayerCommandHandler._last_poll_time = time.time()
-        except:
-            pass
-            
-        try:
+            query = parse_qs(parsed_path.query or "")
+            supplied_session = (query.get("sessionId") or [""])[0]
+            if not self._session_matches(supplied_session):
+                self._send_json(
+                    200,
+                    {
+                        "cmd": "",
+                        "videoId": "",
+                        "sessionMismatch": True,
+                    },
+                )
+                return
+
+            now = time.time()
+            PlayerCommandHandler._last_poll_time = now
             with self.queue_lock:
+                self._purge_expired_locked(now)
                 if self.command_queue:
-                    # キューからコマンドを取得
                     command = self.command_queue.pop(0)
-                    response_data = command
+                    command_id = str(command.get("commandId", "") or "")
+                    if command_id:
+                        self.pending_commands[command_id] = {
+                            "cmd": command.get("cmd", ""),
+                            "expiresAt": now + 10.0,
+                        }
+                    response_data = self._public_command(command)
                 else:
-                    # コマンドがない場合は空レスポンス
                     response_data = {"cmd": "", "videoId": ""}
-            
-            # JSONレスポンスを送信
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-            self.end_headers()
-            
-            response_json = json.dumps(response_data)
-            self.wfile.write(response_json.encode('utf-8'))
-            
-        except Exception as e:
-            print(f"PlayerCommandHandler: Error in poll: {e}")
+
+            self._send_json(200, response_data)
+        except Exception as exc:
+            print(f"PlayerCommandHandler: Error in poll: {exc}")
             self.send_error(500, "Internal Server Error")
-    
+
     def handle_status(self):
-        """ステータス確認処理"""
         try:
+            now = time.time()
             with self.queue_lock:
+                self._purge_expired_locked(now)
                 queue_size = len(self.command_queue)
-            
-            status_data = {
-                "status": "running",
-                "queue_size": queue_size,
-                "timestamp": time.time()
-            }
-            
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
-            response_json = json.dumps(status_data)
-            self.wfile.write(response_json.encode('utf-8'))
-            
-        except Exception as e:
-            print(f"PlayerCommandHandler: Error in status: {e}")
+                pending_acks = len(self.pending_commands)
+            self._send_json(
+                200,
+                {
+                    "status": "running",
+                    "queue_size": queue_size,
+                    "pending_acks": pending_acks,
+                    "session_id": self.session_id,
+                    "last_poll_age_s": (
+                        max(0.0, now - self._last_poll_time)
+                        if self._last_poll_time
+                        else None
+                    ),
+                    "timestamp": now,
+                },
+            )
+        except Exception as exc:
+            print(f"PlayerCommandHandler: Error in status: {exc}")
             self.send_error(500, "Internal Server Error")
-    
+
     def do_POST(self):
-        """POSTリクエスト処理"""
         parsed_path = urlparse(self.path)
-        print(f"PlayerCommandHandler: Received POST request for {parsed_path.path}")
-        
-        if parsed_path.path == '/command':
+        if parsed_path.path == "/command":
             self.handle_command()
-        elif parsed_path.path == '/feedback':
+        elif parsed_path.path == "/feedback":
             self.handle_feedback()
         else:
-            print(f"PlayerCommandHandler: Unknown POST path: {parsed_path.path}")
             self.send_error(404, "Not Found")
-    
+
+    def _read_json_body(self):
+        content_length = int(self.headers.get("Content-Length", "0") or 0)
+        if content_length <= 0 or content_length > 1024 * 1024:
+            raise ValueError("invalid Content-Length")
+        post_data = self.rfile.read(content_length)
+        return json.loads(post_data.decode("utf-8"))
+
     def handle_command(self):
-        """コマンド受信処理"""
         try:
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            command_data = json.loads(post_data.decode('utf-8'))
-            
-            # コマンドをキューに追加
-            with self.queue_lock:
-                self.command_queue.append(command_data)
-            
-            print(f"PlayerCommandHandler: Received command: {command_data}")
-            
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
-            response = {"status": "success", "message": "Command received"}
-            response_json = json.dumps(response)
-            self.wfile.write(response_json.encode('utf-8'))
-            
-        except Exception as e:
-            print(f"PlayerCommandHandler: Error in command: {e}")
+            command_data = self._read_json_body()
+            if not self._session_matches(command_data.get("sessionId", "")):
+                self._send_json(403, {"status": "session_mismatch"})
+                return
+            command_id = self.enqueue_command(command_data)
+            self._send_json(
+                200,
+                {
+                    "status": "success",
+                    "message": "Command received",
+                    "commandId": command_id,
+                },
+            )
+        except Exception as exc:
+            print(f"PlayerCommandHandler: Error in command: {exc}")
             self.send_error(500, "Internal Server Error")
-    
+
     def handle_feedback(self):
-        """プレイヤーからの状態フィードバック処理"""
         try:
-            print(f"PlayerCommandHandler: Starting feedback processing...")
-            
-            content_length = int(self.headers['Content-Length'])
-            print(f"PlayerCommandHandler: Content-Length: {content_length}")
-            
-            post_data = self.rfile.read(content_length)
-            print(f"PlayerCommandHandler: Raw post data: {post_data}")
-            
-            feedback_data = json.loads(post_data.decode('utf-8'))
-            print(f"PlayerCommandHandler: Parsed feedback data: {feedback_data}")
-            
-            # 信号をエミット（スレッドセーフなGUI更新のため）
-            feedback_signals.feedback_received.emit(feedback_data)
-            
-            # 互換性のためコールバックも維持（ただし、MainWindow側でこれを使わないように修正する）
-            if self.state_callback:
-                self.state_callback(feedback_data)
-            
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-            self.end_headers()
-            
-            response = {"status": "success", "message": "Feedback received"}
-            response_json = json.dumps(response)
-            self.wfile.write(response_json.encode('utf-8'))
-            
-            print(f"PlayerCommandHandler: Feedback response sent successfully")
-            
-        except Exception as e:
-            print(f"PlayerCommandHandler: Error in feedback: {e}")
-            import traceback
-            print(f"PlayerCommandHandler: Traceback: {traceback.format_exc()}")
+            feedback_data = self._read_json_body()
+            supplied_session = feedback_data.get("sessionId", "")
+            if not self._session_matches(supplied_session):
+                self._send_json(409, {"status": "session_mismatch"})
+                return
+
+            PlayerCommandHandler._last_feedback_time = time.time()
+            state = str(feedback_data.get("state", "") or "")
+            if state == "command_ack":
+                self.acknowledge_command(
+                    feedback_data.get("commandId"),
+                    feedback_data.get("commandStatus", "accepted"),
+                )
+            else:
+                # Qt signals safely marshal the update back to the GUI thread.
+                feedback_signals.feedback_received.emit(feedback_data)
+                if self.state_callback:
+                    self.state_callback(feedback_data)
+
+            self._send_json(200, {"status": "success"})
+        except Exception as exc:
+            print(f"PlayerCommandHandler: Error in feedback: {exc}")
             self.send_error(500, "Internal Server Error")
 
 
 class PlayerHttpServer:
-    """YouTubeプレイヤー用HTTPサーバー"""
-    
-    def __init__(self, host='localhost', port=8080):
+    def __init__(self, host="localhost", port=8080):
         self.host = host
         self.port = port
         self.server = None
         self.server_thread = None
         self.is_running = False
-        
-    def start(self):
-        """サーバー起動"""
-        if self.is_running:
-            print(f"PlayerHttpServer: Server already running on {self.host}:{self.port}")
-            return
-        
-        try:
-            # web ルート（exeの場合は実行ファイルと同じ階層のwebフォルダを参照）
-            if getattr(sys, 'frozen', False):
-                # exe化されている場合
-                exe_dir = Path(sys.executable).parent
-                web_dir = (exe_dir / 'web').resolve()
-            else:
-                # 開発環境の場合
-                services_dir = Path(__file__).resolve().parent
-                project_root = services_dir.parent.parent
-                web_dir = (project_root / 'web').resolve()
-            
-            PlayerCommandHandler.web_root = str(web_dir)
+        self.session_id = ""
 
-            self.server = HTTPServer((self.host, self.port), PlayerCommandHandler)
-            self.is_running = True
-            
-            # 別スレッドでサーバーを実行
-            self.server_thread = threading.Thread(target=self._run_server, daemon=True)
-            self.server_thread.start()
-            
-            print(f"PlayerHttpServer: Server started on http://{self.host}:{self.port}")
-            
-        except Exception as e:
-            print(f"PlayerHttpServer: Failed to start server: {e}")
-            self.is_running = False
-    
-    def _run_server(self):
-        """サーバーメインループ"""
+    def start(self):
+        if self.is_running:
+            return
         try:
-            self.server.serve_forever()
-        except Exception as e:
-            print(f"PlayerHttpServer: Server error: {e}")
-    
+            if getattr(sys, "frozen", False):
+                web_dir = (Path(sys.executable).parent / "web").resolve()
+            else:
+                services_dir = Path(__file__).resolve().parent
+                web_dir = (services_dir.parent.parent / "web").resolve()
+
+            self.session_id = uuid.uuid4().hex
+            PlayerCommandHandler.web_root = str(web_dir)
+            PlayerCommandHandler.reset_state(self.session_id)
+            self.server = ReusableThreadingHTTPServer(
+                (self.host, self.port), PlayerCommandHandler
+            )
+            self.is_running = True
+            self.server_thread = threading.Thread(
+                target=self._run_server,
+                name="VJPlayerHTTP",
+                daemon=True,
+            )
+            self.server_thread.start()
+            print(
+                f"PlayerHttpServer: Server started on http://{self.host}:{self.port} "
+                f"session={self.session_id[:8]}"
+            )
+        except Exception as exc:
+            print(f"PlayerHttpServer: Failed to start server: {exc}")
+            self.is_running = False
+
+    def _run_server(self):
+        try:
+            self.server.serve_forever(poll_interval=0.2)
+        except Exception as exc:
+            if self.is_running:
+                print(f"PlayerHttpServer: Server error: {exc}")
+
     def stop(self):
-        """サーバー停止"""
         if not self.is_running:
             return
-        
         self.is_running = False
-        
         try:
             if self.server:
-                # shutdown()がブロックする場合があるため別スレッドで実行
-                shutdown_thread = threading.Thread(target=self._shutdown_server, daemon=True)
+                shutdown_thread = threading.Thread(
+                    target=self._shutdown_server,
+                    name="VJPlayerHTTPShutdown",
+                    daemon=True,
+                )
                 shutdown_thread.start()
-                shutdown_thread.join(timeout=2)  # 最大2秒待機
-                
+                shutdown_thread.join(timeout=2.0)
                 if shutdown_thread.is_alive():
-                    print("PlayerHttpServer: Shutdown timed out, forcing close")
                     try:
                         self.server.server_close()
                     except Exception:
                         pass
-            
+            PlayerCommandHandler.reset_state("")
             print("PlayerHttpServer: Server stopped")
-            
-        except Exception as e:
-            print(f"PlayerHttpServer: Error stopping server: {e}")
-    
+        except Exception as exc:
+            print(f"PlayerHttpServer: Error stopping server: {exc}")
+
     def _shutdown_server(self):
-        """サーバーのシャットダウン処理（別スレッドで実行）"""
         try:
             self.server.shutdown()
             self.server.server_close()
-        except Exception as e:
-            print(f"PlayerHttpServer: Error in shutdown thread: {e}")
-    
+        except Exception as exc:
+            print(f"PlayerHttpServer: Error in shutdown thread: {exc}")
+
     def set_state_callback(self, callback):
-        """状態フィードバック用のコールバックを設定"""
         PlayerCommandHandler.state_callback = callback
-        print("PlayerHttpServer: State callback set")
-    
+
     def send_command(
         self,
         cmd,
@@ -356,7 +461,6 @@ class PlayerHttpServer:
         media_info=None,
         value=None,
     ):
-        """Add a command to the browser queue."""
         try:
             command = {
                 "cmd": cmd,
@@ -373,49 +477,39 @@ class PlayerHttpServer:
             if value is not None:
                 command["value"] = value
 
-            with PlayerCommandHandler.queue_lock:
-                PlayerCommandHandler.command_queue.append(command)
-
+            command_id = PlayerCommandHandler.enqueue_command(command)
             target = f" player={normalized_player}" if normalized_player else ""
-            print(f"PlayerHttpServer: Sent command: {cmd} - {video_id}{target}")
-
-        except Exception as e:
-            print(f"PlayerHttpServer: Error sending command: {e}")
+            print(
+                f"PlayerHttpServer: Queued command {cmd} id={command_id[:8]} "
+                f"video={video_id}{target}"
+            )
+            return command_id
+        except Exception as exc:
+            print(f"PlayerHttpServer: Error sending command: {exc}")
+            return None
 
     def clear_queue(self):
-        """コマンドキューをクリア"""
-        try:
-            with PlayerCommandHandler.queue_lock:
-                PlayerCommandHandler.command_queue.clear()
-            print("PlayerHttpServer: Command queue cleared")
-            
-        except Exception as e:
-            print(f"PlayerHttpServer: Error clearing queue: {e}")
-    
+        with PlayerCommandHandler.queue_lock:
+            PlayerCommandHandler.command_queue.clear()
+            PlayerCommandHandler.pending_commands.clear()
+
     def get_queue_size(self):
-        """キューのサイズを取得"""
-        try:
-            with PlayerCommandHandler.queue_lock:
-                return len(PlayerCommandHandler.command_queue)
-        except Exception as e:
-            print(f"PlayerHttpServer: Error getting queue size: {e}")
-            return 0
+        with PlayerCommandHandler.queue_lock:
+            PlayerCommandHandler._purge_expired_locked()
+            return len(PlayerCommandHandler.command_queue)
 
 
-# グローバルインスタンス
 player_server = None
 
 
 def get_player_server():
-    """プレイヤーサーバーインスタンスを取得"""
     global player_server
     if player_server is None:
         player_server = PlayerHttpServer()
     return player_server
 
 
-def start_player_server(host='localhost', port=8080):
-    """プレイヤーサーバーを起動"""
+def start_player_server(host="localhost", port=8080):
     server = get_player_server()
     server.host = host
     server.port = port
@@ -424,7 +518,6 @@ def start_player_server(host='localhost', port=8080):
 
 
 def stop_player_server():
-    """プレイヤーサーバーを停止"""
     global player_server
     if player_server:
         player_server.stop()

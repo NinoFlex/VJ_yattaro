@@ -15,6 +15,7 @@ class YouTubeItemDelegate(QStyledItemDelegate):
         self.preloaded_state = None  # preloading/ready
         self.preloaded_video_id = None
         self.playing_video_id = None
+        self.unavailable_video_ids = set()
         self._theme = "light"
 
     def apply_theme(self, theme):
@@ -30,13 +31,26 @@ class YouTubeItemDelegate(QStyledItemDelegate):
 
         if state == 'playing':
             self.playing_video_id = video_id
+            if video_id:
+                self.unavailable_video_ids.discard(video_id)
         elif state in ['preloading', 'ready']:
             self.preloaded_state = state
             self.preloaded_video_id = video_id
+            if video_id:
+                self.unavailable_video_ids.discard(video_id)
+        elif state == 'error':
+            if video_id:
+                self.unavailable_video_ids.add(video_id)
+            if self.preloaded_video_id == video_id:
+                self.preloaded_state = None
+                self.preloaded_video_id = None
+            if self.playing_video_id == video_id:
+                self.playing_video_id = None
         elif state is None:
             self.preloaded_state = None
             self.preloaded_video_id = None
             self.playing_video_id = None
+            self.unavailable_video_ids.clear()
         
         # 親ウィジェット（QListView）を取得して全アイテムを再描画
         parent_widget = self.parent()
@@ -232,3 +246,26 @@ class YouTubeItemDelegate(QStyledItemDelegate):
             # 白抜き文字でテキストを描画
             painter.setPen(QColor(255, 255, 255))  # 白色
             painter.drawText(status_rect, Qt.AlignCenter, status_text)
+
+        if video_id in self.unavailable_video_ids:
+            border_color = QColor(220, 53, 69)
+            status_text = "UNAVAILABLE"
+            painter.setPen(QPen(border_color, 4))
+            painter.drawRect(option.rect.adjusted(2, 2, -2, -2))
+            font = QFont()
+            font.setPointSize(10)
+            font.setBold(True)
+            painter.setFont(font)
+            text_width = painter.fontMetrics().horizontalAdvance(status_text)
+            text_height = painter.fontMetrics().height()
+            padding = 4
+            status_rect = QRect(
+                option.rect.left() + 8,
+                option.rect.bottom() - text_height - padding * 2 - 8,
+                text_width + padding * 2,
+                text_height + padding * 2
+            )
+            painter.fillRect(status_rect, border_color)
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(status_rect, Qt.AlignCenter, status_text)
+

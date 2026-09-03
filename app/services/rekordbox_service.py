@@ -17,6 +17,7 @@ class RekordboxService:
         self.db_dir = None
         self.db_name = None
         self.local_db_path = None
+        self.last_query_succeeded = False
         
         # pyrekordbox の設定を自動で行う (キーなどが未設定の場合の対策)
         self._setup_pyrekordbox_config()
@@ -103,6 +104,7 @@ class RekordboxService:
                 self.db = None
 
     def get_latest_history(self, limit=50):
+        self.last_query_succeeded = False
         # 同期のために一度接続を閉じる (Windowsのファイルロック回避)
         self._close_db()
 
@@ -152,6 +154,7 @@ class RekordboxService:
             )
             
             results = query.all()
+            self.last_query_succeeded = True
             # テーブルに渡しやすい形式 (Title, Artist, Comment) に変換
             return [(r[0], r[1], r[2] if r[2] else "") for r in results]
             

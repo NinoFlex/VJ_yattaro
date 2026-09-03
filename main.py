@@ -1,11 +1,12 @@
 import sys
 import webbrowser
+from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QEvent, QRectF, QSize
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
     QFrame, QPushButton, QLabel, QLineEdit, QAbstractButton
 )
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen
 
 
 class ImeAwareLineEdit(QLineEdit):
@@ -35,6 +36,12 @@ class ImeAwareLineEdit(QLineEdit):
 
 
 from ui.widgets.right_table_view import RightTableView, RightTableModel
+
+
+def _resource_path(*parts):
+    """Resolve bundled PyInstaller data and source-tree assets uniformly."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base.joinpath(*parts)
 
 
 class SourceToggleSwitch(QAbstractButton):
@@ -127,8 +134,19 @@ class TitleBar(QWidget):
 
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 0, 0)
+        layout.setContentsMargins(6, 0, 0, 0)
         layout.setSpacing(0)
+
+        # Frameless windows do not show the native application icon, so display
+        # the same icon used by the executable and taskbar in the custom bar.
+        self.app_icon_label = QLabel(self)
+        self.app_icon_label.setObjectName("app_icon_label")
+        self.app_icon_label.setFixedSize(26, 28)
+        self.app_icon_label.setAlignment(Qt.AlignCenter)
+        icon_pixmap = self._main_window.windowIcon().pixmap(20, 20)
+        if not icon_pixmap.isNull():
+            self.app_icon_label.setPixmap(icon_pixmap)
+        layout.addWidget(self.app_icon_label)
 
         # ⚙ 詳細設定ボタン (左側)
         self.settings_button = QPushButton("⚙ 詳細設定")
@@ -290,6 +308,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("VJ_yattaro")
+        app_icon = QIcon(str(_resource_path("assets", "vj_yattaro.ico")))
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
         # Default height is sized to the title bar + compact player controls +
         # the 180 px main panes, avoiding unused vertical space.
         self.resize(1920, 285)
@@ -310,6 +331,10 @@ class MainWindow(QMainWindow):
         # プレイヤー接続状態
         import time
         self._last_player_feedback_time = 0
+        self._youtube_search_error_message = ""
+        self._youtube_api_last_success_time = 0.0
+        self._youtube_api_last_error_time = 0.0
+        self._last_shazam_status = "Shazam: stopped"
         
         # メモリ管理
         self._memory_check_timer = QTimer(self)
@@ -358,7 +383,13 @@ class MainWindow(QMainWindow):
         self.player_controls.rewind_requested.connect(self.rewind_video)
         self.player_controls.forward_requested.connect(self.forward_video)
         self.player_controls.target_changed.connect(self._on_player_target_changed)
-        self.root_layout.addWidget(self.player_controls)
+        self.player_controls.set_system_status("web", "warn", "Browser: waiting for player connection")
+        self.player_controls.set_system_status("midi", "off", "MIDI: initializing")
+        self.player_controls.set_system_status("db", "warn", "Rekordbox DB: initializing")
+        self.player_controls.set_system_status("mic", "off", "Shazam microphone: inactive")
+        self.player_controls.set_system_status("api", "warn", "YouTube API: checking configuration")
+        # Added to the root layout after the main content so the controller
+        # stays along the bottom edge.
 
         # Local progress clock. Browser timing is sampled only on state changes.
         self._player_panel_timer = QTimer(self)
@@ -407,6 +438,9 @@ class MainWindow(QMainWindow):
             QLineEdit:focus {
                 border: 2px solid #4CAF50;
             }
+            QLineEdit[searchError="true"] {
+                border: 2px solid #d9534f;
+            }
         """)
         self.youtube_search_box.returnPressed.connect(self.search_youtube_from_box)
         right_layout.addWidget(self.youtube_search_box)
@@ -420,6 +454,9 @@ class MainWindow(QMainWindow):
         self.right_table.setFocusPolicy(Qt.StrongFocus)
         
         content_layout.addWidget(right_container, 2, Qt.AlignTop)
+
+        # Keep the dual-player controller under both content columns.
+        self.root_layout.addWidget(self.player_controls)
         
         self.auto_play_top_result = bool(self.config_service.get("auto_play_top_result", False))
         self.title_bar.set_auto_play_checked(self.auto_play_top_result)
@@ -432,10 +469,10 @@ class MainWindow(QMainWindow):
         from app.services.history_watcher import HistoryWatcher
         self.watcher = HistoryWatcher()
         
-        # 初期データの取得とモデル設定
-        initial_history = self.watcher.service.get_latest_history(limit=10)
+        # Rekordboxの初回DBコピー/検索もHistoryWorkerで非同期実行する。
+        # GUIスレッドでは空モデルを先に作り、結果は watcher.updated で受け取る。
         self.rekordbox_table_model = RightTableModel(
-            initial_history,
+            [],
             headers=["トラックタイトル", "アーティスト", "コメント"],
             max_rows=10,
         )
@@ -454,6 +491,7 @@ class MainWindow(QMainWindow):
         # 信号の接続
         self.watcher.updated.connect(self.on_history_updated)
         self.watcher.new_track_detected.connect(self.on_new_track_detected)
+        self.watcher.status_changed.connect(self._on_db_status_changed)
         self.shazam_service.history_updated.connect(self.on_shazam_history_updated)
         self.shazam_service.new_track_detected.connect(self.on_shazam_new_track_detected)
         self.shazam_service.status_changed.connect(self.on_shazam_status_changed)
@@ -491,7 +529,11 @@ class MainWindow(QMainWindow):
         # MIDIサービスの初期化
         from app.services.midi_service import MidiService
         self.midi_service = MidiService()
+        self.midi_service.status_changed.connect(self._on_midi_status_changed)
         self.reload_midi_config()
+        # set_config may already have established an initial cached state.
+        midi_state, midi_detail = self.midi_service.connection_status()
+        self._on_midi_status_changed(midi_state, midi_detail)
         
         # MIDIのシグナルを接続
         self.midi_service.move_up_triggered.connect(self.move_selection_up)
@@ -536,6 +578,14 @@ class MainWindow(QMainWindow):
         from app.services.player_http_server import feedback_signals
         feedback_signals.feedback_received.connect(self._handle_player_feedback)
         print("UI: Player HTTP server started")
+
+        # Compact connection indicators.  Refreshing cached timestamps/config is
+        # intentionally lightweight and does not perform device or network scans.
+        self._connection_status_timer = QTimer(self)
+        self._connection_status_timer.setInterval(1000)
+        self._connection_status_timer.timeout.connect(self._refresh_connection_statuses)
+        self._connection_status_timer.start()
+        self._refresh_connection_statuses()
 
         # イベントフィルターをインストール（フォーカス管理やタイマー制御用）
         # すべての操作可能な領域に対してフィルターを設定し、クリックを確実に捕捉する
@@ -611,7 +661,13 @@ class MainWindow(QMainWindow):
                 port = int(self.config_service.get("player_port", 8080))
                 default_video_id = "eyUUHfVm8Ik"
                 track_info_pos = self.config_service.get("player_track_info_position", "top-right")
-                url = f"http://localhost:{port}/player.html?defaultVideoId={default_video_id}&trackInfoPosition={track_info_pos}"
+                from urllib.parse import quote
+                controller_session = quote(str(getattr(self.player_server, "session_id", "") or ""))
+                url = (
+                    f"http://localhost:{port}/player.html?defaultVideoId={default_video_id}"
+                    f"&trackInfoPosition={quote(str(track_info_pos))}"
+                    f"&controllerSession={controller_session}"
+                )
                 webbrowser.open(url, new=1, autoraise=True)
                 self._player_browser_opened = True
                 info(f"Opened player in browser: {url}", "UI")
@@ -657,6 +713,158 @@ class MainWindow(QMainWindow):
             print(f"UI: Player operation/display target -> {player_id}")
         else:
             print(f"UI: Player operation target -> {player_id} (server not ready)")
+
+    def _set_connection_status(self, key, state, detail):
+        if hasattr(self, "player_controls"):
+            self.player_controls.set_system_status(key, state, detail)
+
+    @staticmethod
+    def _format_age(seconds):
+        try:
+            seconds = max(0.0, float(seconds))
+        except (TypeError, ValueError):
+            return "unknown"
+        if seconds < 1.0:
+            return f"{seconds:.1f}s ago"
+        if seconds < 60.0:
+            return f"{seconds:.0f}s ago"
+        return f"{seconds / 60.0:.1f}min ago"
+
+    def _on_midi_status_changed(self, state, detail):
+        self._set_connection_status("midi", state, detail)
+
+    def _on_db_status_changed(self, state, detail):
+        # In Shazam mode the watcher is intentionally paused, not broken.
+        if getattr(self, "source_mode", "rekordbox") == "shazam":
+            self._set_connection_status(
+                "db",
+                "off",
+                "Rekordbox DB: monitoring paused\nReason: Shazam input mode is active",
+            )
+            return
+        self._set_connection_status("db", state, detail)
+
+    def _refresh_connection_statuses(self):
+        """Refresh five tiny badges without changing the window geometry."""
+        import time
+
+        now = time.time()
+
+        # WEB: a real player tab polls every ~100 ms.  Use activity timestamps
+        # rather than making an extra HTTP request from the GUI.
+        try:
+            from app.services.player_http_server import PlayerCommandHandler
+
+            server_running = bool(
+                getattr(self, "player_server", None)
+                and getattr(self.player_server, "is_running", False)
+            )
+            last_poll = float(getattr(PlayerCommandHandler, "_last_poll_time", 0.0) or 0.0)
+            last_feedback = float(getattr(PlayerCommandHandler, "_last_feedback_time", 0.0) or 0.0)
+            activity = max(last_poll, last_feedback)
+            activity_age = (now - activity) if activity > 0 else None
+            session = str(getattr(getattr(self, "player_server", None), "session_id", "") or "")
+            port = int(getattr(self, "_player_port", self.config_service.get("player_port", 8080)))
+            queue_size = self.player_server.get_queue_size() if server_running else 0
+
+            if not server_running:
+                web_state = "error"
+                web_summary = "Browser bridge: HTTP server is stopped"
+            elif activity_age is None:
+                web_state = "warn"
+                web_summary = "Browser: waiting for player tab"
+            elif activity_age <= 3.0:
+                web_state = "ok"
+                web_summary = "Browser: connected"
+            else:
+                web_state = "error"
+                web_summary = "Browser: player tab is not responding"
+
+            poll_text = self._format_age(now - last_poll) if last_poll else "never"
+            feedback_text = self._format_age(now - last_feedback) if last_feedback else "never"
+            self._set_connection_status(
+                "web",
+                web_state,
+                f"{web_summary}\nPort: {port}\nLast poll: {poll_text}\nLast feedback: {feedback_text}\nQueued commands: {queue_size}\nSession: {session[:8] or '-'}",
+            )
+            if hasattr(self, "player_controls"):
+                self.player_controls.set_browser_available(web_state == "ok")
+        except Exception as exc:
+            self._set_connection_status("web", "error", f"Browser status error\n{exc}")
+            if hasattr(self, "player_controls"):
+                self.player_controls.set_browser_available(False)
+
+        # MIC: only active/required in Shazam mode. Recognition result (match/no
+        # match) does not change microphone health.
+        try:
+            shazam_mode = getattr(self, "source_mode", "rekordbox") == "shazam"
+            active = bool(
+                hasattr(self, "shazam_service") and self.shazam_service.is_active()
+            )
+            last_status = str(getattr(self, "_last_shazam_status", "Shazam: stopped") or "")
+            configured_device = self.config_service.get("shazam_input_device", None)
+            device_text = "Windows default input" if configured_device in (None, "", -1) else f"Device ID {configured_device}"
+            if not shazam_mode:
+                mic_state = "off"
+                mic_summary = "Shazam microphone: inactive (Rekordbox mode)"
+            elif active:
+                mic_state = "ok"
+                mic_summary = "Shazam microphone: capturing"
+            elif "failed" in last_status.lower() or "error" in last_status.lower():
+                mic_state = "error"
+                mic_summary = "Shazam microphone: failed to start"
+            else:
+                mic_state = "warn"
+                mic_summary = "Shazam microphone: not capturing"
+            self._set_connection_status(
+                "mic",
+                mic_state,
+                f"{mic_summary}\nInput: {device_text}\nStatus: {last_status}",
+            )
+        except Exception as exc:
+            self._set_connection_status("mic", "error", f"Microphone status error\n{exc}")
+
+        # API: never expose the key itself.  A configured key is shown as ready;
+        # the tooltip also reports whether a search succeeded in this session.
+        try:
+            from app.services.youtube_api_key_store import YouTubeApiKeyStore
+
+            keys, active_index = YouTubeApiKeyStore(self.config_service).load()
+            if not keys or active_index < 0:
+                api_state = "error"
+                api_detail = "YouTube API: no API key configured"
+            else:
+                active_no = active_index + 1
+                last_error = str(getattr(self, "_youtube_search_error_message", "") or "")
+                last_success = float(getattr(self, "_youtube_api_last_success_time", 0.0) or 0.0)
+                if last_error:
+                    api_state = "error"
+                    api_summary = "YouTube API: last search failed"
+                elif last_success > 0:
+                    api_state = "ok"
+                    api_summary = "YouTube API: last search succeeded"
+                else:
+                    api_state = "ok"
+                    api_summary = "YouTube API: configured"
+                success_text = self._format_age(now - last_success) if last_success else "not tested this session"
+                api_detail = (
+                    f"{api_summary}\nActive key: {active_no}/{len(keys)}\n"
+                    f"Last success: {success_text}"
+                )
+                if last_error:
+                    api_detail += f"\nLast error: {last_error}"
+            self._set_connection_status("api", api_state, api_detail)
+        except Exception as exc:
+            self._set_connection_status("api", "error", f"YouTube API status error\n{exc}")
+
+        # DB normally arrives asynchronously from HistoryWorker.  Keep the badge
+        # explicitly neutral while that service is intentionally disabled.
+        if getattr(self, "source_mode", "rekordbox") == "shazam":
+            self._set_connection_status(
+                "db",
+                "off",
+                "Rekordbox DB: monitoring paused\nReason: Shazam input mode is active",
+            )
 
     def _selected_player_id(self):
         if hasattr(self, "player_controls"):
@@ -723,13 +931,13 @@ class MainWindow(QMainWindow):
             # SELECT_PLAYER first, then RESUME_PLAYER is queued immediately after.
             self.player_controls.set_selected_player(player_id)
             command = "RESUME_PLAYER"
-            panel.set_state("playing", is_current=True)
+            panel.set_state("starting", is_current=True)
         elif panel.state in ("playing", "buffering"):
             command = "PAUSE_PLAYER"
             panel.set_state("paused")
         else:
             command = "RESUME_PLAYER"
-            panel.set_state("playing")
+            panel.set_state("starting")
 
         self.player_server.send_command(command, player_id=player_id)
         print(f"UI: Sent {command} to player {player_id}")
@@ -828,6 +1036,9 @@ class MainWindow(QMainWindow):
                 QLineEdit:focus {{
                     border: 2px solid {c['accent']};
                 }}
+                QLineEdit[searchError="true"] {{
+                    border: 2px solid #d9534f;
+                }}
             """)
 
         if hasattr(self, "left_pane") and hasattr(self.left_pane, "apply_theme"):
@@ -888,6 +1099,9 @@ class MainWindow(QMainWindow):
             self.youtube_search_box.setPlaceholderText("YouTube検索 (Enterで実行)")
             self.watcher.start()
             print("UI: Source mode -> Rekordbox")
+
+        if hasattr(self, "player_controls"):
+            self._refresh_connection_statuses()
 
     def _get_track_search_fields(self, row):
         if row < 0 or row >= self.table_model.rowCount():
@@ -1037,8 +1251,11 @@ class MainWindow(QMainWindow):
         self.search_youtube(track_title or "", artist or "", "", from_list=True)
 
     def on_shazam_status_changed(self, status):
+        self._last_shazam_status = str(status or "")
         if hasattr(self, "title_bar") and hasattr(self.title_bar, "source_toggle"):
             self.title_bar.source_toggle.setToolTip(status)
+        if hasattr(self, "player_controls"):
+            self._refresh_connection_statuses()
     
     def move_selection_up(self):
         """選択行を1つ上に移動する（右ペイン専用）"""
@@ -1562,9 +1779,14 @@ class MainWindow(QMainWindow):
 
         youtube_service = YouTubeService()
         
+        # New attempt clears the previous inline error without touching old valid results.
+        self._youtube_search_error_message = ""
+
         # APIキーが設定されているかチェック
         if not youtube_service.is_configured():
             error("YouTube API key not configured", "UI")
+            self._set_youtube_search_error("YouTube APIキーが設定されていません")
+            self._refresh_connection_statuses()
             return
         
         # 検索クエリを作成
@@ -1594,28 +1816,50 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             error(f"YouTube search error: {e}", "UI")
-            # エラー時はダミー結果を表示
-            self._set_searching_state(False)
-            self._show_dummy_youtube_results()
+            self._set_youtube_search_error(str(e))
     
+    def _set_youtube_search_error(self, message):
+        """Show a compact inline error while preserving the last valid result list."""
+        message = str(message or "YouTube検索に失敗しました")
+        self._youtube_search_error_message = message
+        if hasattr(self, "youtube_search_box"):
+            self.youtube_search_box.setProperty("searchError", True)
+            self.youtube_search_box.setToolTip(f"YouTube検索失敗: {message}")
+            self.youtube_search_box.style().unpolish(self.youtube_search_box)
+            self.youtube_search_box.style().polish(self.youtube_search_box)
+        self._set_searching_state(False)
+
     def _set_searching_state(self, is_searching):
-        """検索中のUI状態を設定（検索ボックスのみ無効化）"""
+        """検索中/失敗状態を同じ30px検索欄内だけで表現する。"""
         if is_searching:
-            # 検索中は検索ボックスのみ無効化してインジケーター表示
+            self.youtube_search_box.setProperty("searchError", False)
+            self.youtube_search_box.setToolTip("")
             self.youtube_search_box.setEnabled(False)
             self.youtube_search_box.setPlaceholderText("検索中...")
-            # カーソルを待機カーソルに変更（検索ボックスのみ）*
             from PySide6.QtGui import QCursor
             self.youtube_search_box.setCursor(QCursor(Qt.WaitCursor))
+            self.youtube_search_box.style().unpolish(self.youtube_search_box)
+            self.youtube_search_box.style().polish(self.youtube_search_box)
             print("UI: Search started - search box disabled")
         else:
-            # 検索完了で検索ボックスを有効化
             self.youtube_search_box.setEnabled(True)
-            self.youtube_search_box.setPlaceholderText("YouTube検索 (Enterで実行)")
-            # カーソルを通常に戻す
+            error_message = str(getattr(self, "_youtube_search_error_message", "") or "")
+            has_error = bool(error_message)
+            self.youtube_search_box.setProperty("searchError", has_error)
+            if has_error:
+                self.youtube_search_box.setPlaceholderText("検索失敗 - 詳細はマウスを合わせて確認")
+                self.youtube_search_box.setToolTip(f"YouTube検索失敗: {error_message}")
+            else:
+                if getattr(self, "source_mode", "rekordbox") == "shazam":
+                    self.youtube_search_box.setPlaceholderText("YouTube検索 / Shazam履歴から選択")
+                else:
+                    self.youtube_search_box.setPlaceholderText("YouTube検索 (Enterで実行)")
+                self.youtube_search_box.setToolTip("")
             self.youtube_search_box.unsetCursor()
+            self.youtube_search_box.style().unpolish(self.youtube_search_box)
+            self.youtube_search_box.style().polish(self.youtube_search_box)
             print("UI: Search completed - search box enabled")
-    
+
     def _on_search_finished(self):
         """検索QThreadが実際に終了した後だけ参照を解放する。
         保留中の検索があれば 1秒後に実行する。
@@ -1694,7 +1938,16 @@ class MainWindow(QMainWindow):
     def on_youtube_search_completed(self, videos):
         """YouTube検索完了時のコールバック"""
         from app.utils.logger import info, debug
+
+        self._youtube_search_error_message = ""
+        import time as _time
+        self._youtube_api_last_success_time = _time.time()
+        self._youtube_api_last_error_time = 0.0
+        if hasattr(self, "youtube_search_box"):
+            self.youtube_search_box.setProperty("searchError", False)
         
+        self._refresh_connection_statuses()
+
         if not videos:
             info("No YouTube videos found", "UI")
             self.left_pane.clear_results()
@@ -1946,31 +2199,13 @@ class MainWindow(QMainWindow):
             self._thumbnail_manager = None
     
     def on_youtube_search_error(self, error_message):
-        """YouTube検索エラー時のコールバック"""
+        """検索失敗時も直前の正常結果を残し、偽のクリック可能結果は作らない。"""
         print(f"UI: YouTube search error: {error_message}")
-        # UI状態をリセット
-        self._set_searching_state(False)
-        # エラー時はダミー結果を表示
-        self._show_dummy_youtube_results()
-    
-    def _show_dummy_youtube_results(self):
-        """ダミーのYouTube検索結果を表示（テスト用）"""
-        import random
-        
-        dummy_videos = []
-        for i in range(5):
-            dummy_videos.append({
-                'video_id': f'dummy_{i}',
-                'title': f'取得失敗しました。APIキーを確認してください。',
-                'thumbnail': None,  # 後でサムネイルを設定
-                'thumbnail_url': '',
-                'duration': f'{random.randint(2,10)}:{random.randint(10,59):02d}',
-                'url': f'https://youtube.com/watch?v=dummy_{i}'
-            })
-        
-        self.left_pane.set_search_results(dummy_videos)
-        print("UI: Displaying dummy YouTube results")
-    
+        import time as _time
+        self._youtube_api_last_error_time = _time.time()
+        self._set_youtube_search_error(error_message)
+        self._refresh_connection_statuses()
+
     def on_youtube_double_click(self, index):
         """YouTube動画のダブルクリック処理"""
         try:
@@ -2032,15 +2267,14 @@ class MainWindow(QMainWindow):
 
             import time
             self._last_player_feedback_time = time.time()
-            self._update_player_control_panel(feedback_data)
+            if state.upper() == 'HEARTBEAT':
+                return
 
+            self._update_player_control_panel(feedback_data)
             print(
                 f"UI: Player feedback received - state: {state}, "
                 f"player: {player_id or '-'}, video: {video_id}"
             )
-
-            if state.upper() == 'HEARTBEAT':
-                return
 
             # ready/preloading identify the prepared next video even though it is not visible yet.
             if state == 'ready':
@@ -2104,6 +2338,21 @@ class MainWindow(QMainWindow):
                     self.current_playing_video_id = video_id
                     if self.pending_play_video_id == video_id:
                         self.pending_play_video_id = None
+
+            elif state == 'error':
+                # Browser has already stopped/blackened the failed physical player.
+                # Reflect the failure on the original search result without switching videos.
+                if self.pending_play_video_id == video_id:
+                    self.pending_play_video_id = None
+                if self.pending_auto_seek_video_id == video_id:
+                    self.pending_auto_seek_video_id = None
+                if self.preloaded_video_id == video_id:
+                    self.preloaded_video_id = None
+                if self.current_playing_video_id == video_id and is_current is not False:
+                    self.current_playing_video_id = None
+                    self.youtube_video_state = 'error'
+                self._update_youtube_border_color('error', video_id)
+                print(f"UI: Marked video unavailable after player error: {video_id}")
 
         except Exception as e:
             print(f"UI: Error handling player feedback: {e}")
@@ -2193,6 +2442,8 @@ class MainWindow(QMainWindow):
                 self._memory_check_timer.stop()
             if hasattr(self, '_player_panel_timer'):
                 self._player_panel_timer.stop()
+            if hasattr(self, '_connection_status_timer'):
+                self._connection_status_timer.stop()
             
             # 強制メモリクリーンアップを実行
             self._force_memory_cleanup()
@@ -2214,7 +2465,7 @@ class MainWindow(QMainWindow):
             
             # 履歴監視サービスの停止
             if hasattr(self, 'watcher'):
-                self.watcher.stop()
+                self.watcher.shutdown()
                 print("UI: History watcher stopped")
 
             # Shazamサービスの停止
@@ -2280,7 +2531,19 @@ def main():
         configure_logging(enabled=enable_logging, redirect=True)
         
         print("UI: Starting application...")
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "VJ_yattaro.DualPlayerController"
+                )
+            except Exception as exc:
+                print(f"UI: Could not set Windows AppUserModelID: {exc}")
+
         app = QApplication(sys.argv)
+        app_icon = QIcon(str(_resource_path("assets", "vj_yattaro.ico")))
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
         
         # アプリケーション全体でホバー色をデフォルトに設定
         app.setStyleSheet("""
