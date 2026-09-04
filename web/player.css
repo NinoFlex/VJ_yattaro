@@ -36,6 +36,12 @@ html, body {
     width: 100vw;
     height: 100vh;
     border: none;
+
+    /* The YouTube UI lives inside a cross-origin iframe and cannot be hidden
+       reliably from this stylesheet. Prevent direct hover/click interaction so
+       YouTube does not re-open its center play/pause overlay. All playback
+       controls in this app are sent through the IFrame API instead. */
+    pointer-events: none;
 }
 
 /* A failed deck stays black until a new video is explicitly loaded into it. */

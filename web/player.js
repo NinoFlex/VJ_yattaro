@@ -79,6 +79,7 @@ class VJPlayer {
                 playerVars: {
                     autoplay: 0,
                     controls: 0,
+                    disablekb: 1,
                     enablejsapi: 1,
                     mute: 1,
                     playsinline: 1,
@@ -105,6 +106,7 @@ class VJPlayer {
                 playerVars: {
                     autoplay: 0,
                     controls: 0,
+                    disablekb: 1,
                     enablejsapi: 1,
                     mute: 1,
                     playsinline: 1,
@@ -232,6 +234,17 @@ class VJPlayer {
         this.isReady[playerId] = true;
         this.forceCaptionsOff(playerId);
 
+        // Use a one-item playlist for each video and let YouTube loop it natively.
+        // This avoids ENDED -> playVideo(), which can make YouTube show its
+        // center play/pause overlay again at every loop boundary.
+        try {
+            if (event && event.target && typeof event.target.setLoop === 'function') {
+                event.target.setLoop(true);
+            }
+        } catch (e) {
+            console.warn(`Failed to enable native loop for player ${playerId}:`, e);
+        }
+
         // 両方のプレイヤーが準備完了したら
         if (this.isReady.A && this.isReady.B) {
             console.log('Both players are ready');
@@ -296,11 +309,7 @@ class VJPlayer {
         console.log(`Playing default video: ${this.defaultVideoId}`);
 
         try {
-            this.players.A.loadVideoById({
-                videoId: this.defaultVideoId,
-                startSeconds: 0,
-                suggestedQuality: 'medium'
-            });
+            this.players.A.loadPlaylist([this.defaultVideoId], 0, 0);
 
             this.currentVideoId = this.defaultVideoId;
             this.currentPlayer = 'A';
@@ -357,10 +366,9 @@ class VJPlayer {
             this.sendFeedback(feedbackState, this.getVideoIdForPlayer(playerId), playerId);
         }
 
-        // Loop only the player currently visible on the output.
-        if (state === YT.PlayerState.ENDED && playerId === this.currentPlayer) {
-            this.players[playerId].playVideo();
-        }
+        // Looping is handled by YouTube's single-item playlist + setLoop(true).
+        // Do not call playVideo() from ENDED: that call can re-show YouTube's
+        // center play/pause overlay at every loop boundary.
     }
 
     onPlayerError(playerId, event) {
@@ -441,7 +449,7 @@ class VJPlayer {
             // iframe を作成して直接埋め込む
             const iframe = document.createElement('iframe');
             const origin = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
-            const src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
+            const src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&mute=1&playsinline=1&rel=0&controls=0&disablekb=1&fs=0&cc_load_policy=0&loop=1&playlist=${encodeURIComponent(videoId)}&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
             iframe.setAttribute('src', src);
             iframe.setAttribute('frameborder', '0');
             iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
@@ -530,7 +538,7 @@ class VJPlayer {
                     }
 
                     if (vid) {
-                        const baseParams = `autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
+                        const baseParams = `autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&controls=0&disablekb=1&fs=0&cc_load_policy=0&loop=1&playlist=${encodeURIComponent(vid)}&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
                         const extras = extraParams.length ? `&${extraParams.join('&')}` : '';
                         const src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}?${baseParams}${extras}`;
                         candidates.push({ src });
@@ -541,9 +549,9 @@ class VJPlayer {
             }
 
             // デフォルト候補
-            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
-            candidates.push({ src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
-            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(window.location.href)}` });
+            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&controls=0&disablekb=1&fs=0&cc_load_policy=0&loop=1&playlist=${encodeURIComponent(videoId)}&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
+            candidates.push({ src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&controls=0&disablekb=1&fs=0&cc_load_policy=0&loop=1&playlist=${encodeURIComponent(videoId)}&enablejsapi=0&origin=${encodeURIComponent(origin)}` });
+            candidates.push({ src: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&controls=0&disablekb=1&fs=0&cc_load_policy=0&loop=1&playlist=${encodeURIComponent(videoId)}&enablejsapi=0&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(window.location.href)}` });
 
             const applySrc = (srcUrl) => {
                 if (iframe) {
@@ -567,7 +575,7 @@ class VJPlayer {
             if (iframe && iframe.src && iframe.src.indexOf(`/embed/${encodeURIComponent(videoId)}`) !== -1) {
                 if (autoplay) {
                     // 強制的に src を差し替えて autoplay を適用
-                    const primary = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
+                    const primary = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=${autoplayParam}&mute=1&playsinline=1&rel=0&controls=0&disablekb=1&fs=0&cc_load_policy=0&loop=1&playlist=${encodeURIComponent(videoId)}&enablejsapi=0&origin=${encodeURIComponent(origin)}`;
                     iframe.src = primary;
                 }
                 container.dataset.embedFallback = '1';
@@ -762,13 +770,9 @@ class VJPlayer {
         this.isReady[targetPlayer] = false;
 
         const nextPlayerObj = this.players[targetPlayer];
-        if (nextPlayerObj && typeof nextPlayerObj.cueVideoById === 'function') {
+        if (nextPlayerObj && typeof nextPlayerObj.cuePlaylist === 'function') {
             try {
-                nextPlayerObj.cueVideoById({
-                    videoId: videoId,
-                    startSeconds: 0,
-                    suggestedQuality: 'hd720'
-                });
+                nextPlayerObj.cuePlaylist([videoId], 0, 0);
 
                 // Some browsers delay or omit CUED; keep a one-shot fallback notification.
                 setTimeout(() => {
@@ -778,7 +782,7 @@ class VJPlayer {
                     }
                 }, 1000);
             } catch (e) {
-                console.warn('cueVideoById failed, falling back to iframe:', e);
+                console.warn('cuePlaylist failed, falling back to iframe:', e);
                 if (this.ensureIframeFor(targetPlayer, videoId, false)) {
                     this.sendFeedback('ready', videoId, targetPlayer, { includeTiming: false });
                 } else {
@@ -822,15 +826,11 @@ class VJPlayer {
         this.nextVideoId = videoId;
         this.isReady[targetPlayer] = false;
         const nextPlayerObj = this.players[targetPlayer];
-        if (nextPlayerObj && typeof nextPlayerObj.loadVideoById === 'function') {
+        if (nextPlayerObj && typeof nextPlayerObj.loadPlaylist === 'function') {
             try {
-                nextPlayerObj.loadVideoById({
-                    videoId: videoId,
-                    startSeconds: 0,
-                    suggestedQuality: 'hd720'
-                });
+                nextPlayerObj.loadPlaylist([videoId], 0, 0);
             } catch (e) {
-                console.warn('loadVideoById failed, falling back to iframe:', e);
+                console.warn('loadPlaylist failed, falling back to iframe:', e);
                 if (this.ensureIframeFor(targetPlayer, videoId, true)) {
                     this.isReady[targetPlayer] = true;
                 }
