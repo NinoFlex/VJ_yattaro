@@ -1,0 +1,554 @@
+[2026-09-04 15:39:59.940] UI: Starting application...
+[2026-09-04 15:40:00.031] UI: Creating main window...
+[2026-09-04 15:40:00.083] UI: Theme -> dark
+[2026-09-04 15:40:00.083] UI: Logging configured at level INFO (Redirection active)
+[2026-09-04 15:40:01.057] HistoryWatcher: Started monitoring every 3.0s
+[2026-09-04 15:40:01.059] HotkeyService: Initialized using Win32 RegisterHotKey
+[2026-09-04 15:40:01.059] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'up' (ID:1, VK:0x26, Mod:0x0)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'down' (ID:2, VK:0x28, Mod:0x0)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'left' (ID:3, VK:0x25, Mod:0x0)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'right' (ID:4, VK:0x27, Mod:0x0)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:5, VK:0x6f, Mod:0x2)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:6, VK:0xbf, Mod:0x2)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'ctrl+\' (ID:7, VK:0xe2, Mod:0x2)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:8, VK:0x6e, Mod:0x2)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:9, VK:0xbe, Mod:0x2)
+[2026-09-04 15:40:01.160] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:10, VK:0xbb, Mod:0x2)
+[2026-09-04 15:40:01.161] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:11, VK:0x6b, Mod:0x2)
+[2026-09-04 15:40:01.161] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:12, VK:0xba, Mod:0x2)
+[2026-09-04 15:40:01.161] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:13, VK:0x6a, Mod:0x2)
+[2026-09-04 15:40:01.161] UI: Hotkeys reloaded - Up: up, Down: down, Left: left, Right: right, Preload: ctrl+/, Play: ctrl+\, Search: ctrl+., Rewind: ctrl+;, Forward: ctrl+:
+[2026-09-04 15:40:01.843] MidiService: Updating config. Device='LPD8 mk2', Mappings: {43: 'move_up', 39: 'move_down', 41: 'move_left', 42: 'move_right', 36: 'play', 40: 'search', 37: 'rewind', 38: 'forward'}
+[2026-09-04 15:40:01.867] MidiService: No MIDI input devices found
+[2026-09-04 15:40:01.867] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:01.867] UI: MIDI config reloaded - Device: LPD8 mk2
+[2026-09-04 15:40:01.904] PlayerHttpServer: Server started on http://localhost:8080 session=ebb5d302
+[2026-09-04 15:40:01.904] UI: Player HTTP server started
+[2026-09-04 15:40:01.908] UI: YouTube border color updated to theme default
+[2026-09-04 15:40:01.908] UI: YouTube state reset to default
+[2026-09-04 15:40:02.240] UI: Starting event loop...
+[2026-09-04 15:40:02.242] UI: Initial top track set: ('ドラム式探査機', '田所あずさ', '神達に拾われた男2\u3000ED')
+[2026-09-04 15:40:02.242] HistoryWatcher: Initial track loaded: ('ドラム式探査機', '田所あずさ', '神達に拾われた男2\u3000ED')
+[2026-09-04 15:40:02.870] MidiService: No MIDI input devices found
+[2026-09-04 15:40:02.870] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:03.453] UI: Opened player in browser: http://localhost:8080/player.html?defaultVideoId=eyUUHfVm8Ik&trackInfoPosition=scroll&controllerSession=ebb5d302636d4517ab774021d0359689
+[2026-09-04 15:40:03.857] MidiService: No MIDI input devices found
+[2026-09-04 15:40:03.857] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:04.924] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-04 15:40:04.924] MidiService: Updating config. Device='LPD8 mk2', Mappings: {}
+[2026-09-04 15:40:04.924] MidiService: No MIDI input devices found
+[2026-09-04 15:40:04.924] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:04.924] SettingsDialog: Hotkeys and MIDI triggers disabled while settings dialog is open
+[2026-09-04 15:40:04.957] MidiService: No MIDI input devices found
+[2026-09-04 15:40:04.957] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:04.957] MidiService: No MIDI input devices found
+[2026-09-04 15:40:04.957] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:04.957] PlayerHttpServer: Queued command SET_CONFIG id=6f6cac5f video={"trackInfoPosition": "scroll"}
+[2026-09-04 15:40:04.957] UI: Sent SET_CONFIG to player - trackInfoPosition: scroll
+[2026-09-04 15:40:05.029] PlayerHttpServer: ACK 6f6cac5f786049e98e3d8ee750b7af37 status=accepted cmd=SET_CONFIG
+[2026-09-04 15:40:05.309] PlayerHttpServer: Queued command REQUEST_PLAYER_STATE id=cbc41380 video=
+[2026-09-04 15:40:05.309] UI: Requested one-shot A/B player state snapshots
+[2026-09-04 15:40:05.436] PlayerHttpServer: ACK cbc4138033e4468093f5311240b34f01 status=accepted cmd=REQUEST_PLAYER_STATE
+[2026-09-04 15:40:05.437] UI: Player feedback received - state: idle, player: A, video: 
+[2026-09-04 15:40:05.437] UI: Player feedback received - state: idle, player: B, video: 
+[2026-09-04 15:40:05.955] MidiService: No MIDI input devices found
+[2026-09-04 15:40:05.955] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:06.280] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:06.280] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:06.280] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:06.280] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:06.280] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:06.280] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:06.280] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:06.288] UI: Player feedback received - state: unstarted, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:06.288] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:06.599] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:06.599] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:06.599] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:06.599] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:06.599] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:06.599] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:06.599] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:06.950] MidiService: No MIDI input devices found
+[2026-09-04 15:40:06.950] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:07.861] MidiService: No MIDI input devices found
+[2026-09-04 15:40:07.861] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:07.949] MidiService: No MIDI input devices found
+[2026-09-04 15:40:07.949] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:08.950] MidiService: No MIDI input devices found
+[2026-09-04 15:40:08.950] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:09.950] MidiService: No MIDI input devices found
+[2026-09-04 15:40:09.950] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:10.856] MidiService: No MIDI input devices found
+[2026-09-04 15:40:10.856] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:10.950] MidiService: No MIDI input devices found
+[2026-09-04 15:40:10.950] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:11.563] UI: Player feedback received - state: ended, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.578] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.579] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.579] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:11.579] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:11.579] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:11.579] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:11.579] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.581] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.589] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.589] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.589] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:11.589] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:11.589] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:11.589] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:11.589] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.760] UI: Player feedback received - state: paused, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:11.961] MidiService: No MIDI input devices found
+[2026-09-04 15:40:11.961] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:12.960] MidiService: No MIDI input devices found
+[2026-09-04 15:40:12.960] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:13.869] MidiService: No MIDI input devices found
+[2026-09-04 15:40:13.869] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:13.963] MidiService: No MIDI input devices found
+[2026-09-04 15:40:13.963] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:14.963] MidiService: No MIDI input devices found
+[2026-09-04 15:40:14.963] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:15.952] MidiService: No MIDI input devices found
+[2026-09-04 15:40:15.952] MidiService: Device 'LPD8 mk2' not found; retrying in 1s
+[2026-09-04 15:40:15.962] Settings: Saving DB Path: C:/Users/NINO/git/master.db, Interval: 3
+[2026-09-04 15:40:15.962] Settings: Saving Hotkeys - Up: up, Down: down, Left: left, Right: right
+[2026-09-04 15:40:15.962] Settings: Saving YouTube Hotkeys - Preload: ctrl+/, Play: ctrl+\, Search: ctrl+., Rewind: ctrl+;, Forward: ctrl+:
+[2026-09-04 15:40:15.962] Settings: Saving Window Placement - AlwaysOnTop: False, HotkeyFront: True, SearchFront: True, DelayS: 3
+[2026-09-04 15:40:15.962] Settings: Saving Seek Settings - Rewind: 3s, Forward: 4s, AutoPlaySeek: 0s
+[2026-09-04 15:40:15.962] Settings: Saving YouTube API Keys: 1 key(s), active=1
+[2026-09-04 15:40:15.962] Settings: Saving YouTube Search Template: %tracktitle% %comment%
+[2026-09-04 15:40:15.962] Settings: Saving Shazam recording duration: 6s
+[2026-09-04 15:40:15.962] ConfigService: Config saved to C:\Users\NINO\Downloads\app_v1_commfix_test\dist\VJ_yattaro\config.json
+[2026-09-04 15:40:15.963] YouTubeApiKeyStore: Saved 1 key(s), active=1 to config.json
+[2026-09-04 15:40:15.963] ConfigService: Config saved to C:\Users\NINO\Downloads\app_v1_commfix_test\dist\VJ_yattaro\config.json
+[2026-09-04 15:40:15.963] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'up' (ID:14, VK:0x26, Mod:0x0)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'down' (ID:15, VK:0x28, Mod:0x0)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'left' (ID:16, VK:0x25, Mod:0x0)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'right' (ID:17, VK:0x27, Mod:0x0)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:18, VK:0x6f, Mod:0x2)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:19, VK:0xbf, Mod:0x2)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+\' (ID:20, VK:0xe2, Mod:0x2)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:21, VK:0x6e, Mod:0x2)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:22, VK:0xbe, Mod:0x2)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:23, VK:0xbb, Mod:0x2)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:24, VK:0x6b, Mod:0x2)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:25, VK:0xba, Mod:0x2)
+[2026-09-04 15:40:16.064] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:26, VK:0x6a, Mod:0x2)
+[2026-09-04 15:40:16.064] SettingsDialog: Hotkeys restored
+[2026-09-04 15:40:16.064] MidiService: Updating config. Device='', Mappings: {43: 'move_up', 39: 'move_down', 41: 'move_left', 42: 'move_right', 36: 'play', 40: 'search', 37: 'rewind', 38: 'forward'}
+[2026-09-04 15:40:16.071] UI: Settings dialog accepted. Reflecting changes...
+[2026-09-04 15:40:16.147] UI: Theme -> dark
+[2026-09-04 15:40:16.147] HistoryWatcher: Settings reloaded (interval=3.0s)
+[2026-09-04 15:40:16.147] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'up' (ID:27, VK:0x26, Mod:0x0)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'down' (ID:28, VK:0x28, Mod:0x0)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'left' (ID:29, VK:0x25, Mod:0x0)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'right' (ID:30, VK:0x27, Mod:0x0)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:31, VK:0x6f, Mod:0x2)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:32, VK:0xbf, Mod:0x2)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'ctrl+\' (ID:33, VK:0xe2, Mod:0x2)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:34, VK:0x6e, Mod:0x2)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:35, VK:0xbe, Mod:0x2)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:36, VK:0xbb, Mod:0x2)
+[2026-09-04 15:40:16.248] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:37, VK:0x6b, Mod:0x2)
+[2026-09-04 15:40:16.249] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:38, VK:0xba, Mod:0x2)
+[2026-09-04 15:40:16.249] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:39, VK:0x6a, Mod:0x2)
+[2026-09-04 15:40:16.249] UI: Hotkeys reloaded - Up: up, Down: down, Left: left, Right: right, Preload: ctrl+/, Play: ctrl+\, Search: ctrl+., Rewind: ctrl+;, Forward: ctrl+:
+[2026-09-04 15:40:16.249] MidiService: Updating config. Device='', Mappings: {43: 'move_up', 39: 'move_down', 41: 'move_left', 42: 'move_right', 36: 'play', 40: 'search', 37: 'rewind', 38: 'forward'}
+[2026-09-04 15:40:16.249] UI: MIDI config reloaded - Device: 
+[2026-09-04 15:40:16.249] PlayerHttpServer: Queued command SET_CONFIG id=059cc65b video={"trackInfoPosition": "scroll"}
+[2026-09-04 15:40:16.249] UI: Sent SET_CONFIG to player - trackInfoPosition: scroll
+[2026-09-04 15:40:16.339] HistoryWatcher: Initial track loaded: ('ドラム式探査機', '田所あずさ', '神達に拾われた男2\u3000ED')
+[2026-09-04 15:40:16.379] PlayerHttpServer: ACK 059cc65bffe243419abfe3238cc85e86 status=accepted cmd=SET_CONFIG
+[2026-09-04 15:40:16.568] PlayerHttpServer: Queued command REQUEST_PLAYER_STATE id=15f1bab2 video=
+[2026-09-04 15:40:16.568] UI: Requested one-shot A/B player state snapshots
+[2026-09-04 15:40:17.398] PlayerHttpServer: ACK 15f1bab29d5744b798f716508a23cc42 status=accepted cmd=REQUEST_PLAYER_STATE
+[2026-09-04 15:40:17.398] UI: Player feedback received - state: paused, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:17.398] UI: Player feedback received - state: idle, player: B, video: 
+[2026-09-04 15:40:18.518] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:18.781] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:18.781] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:18.781] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:18.781] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:18.781] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:18.781] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:18.782] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:23.391] UI: Player feedback received - state: ended, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:23.399] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:23.399] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:23.399] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:23.399] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:23.399] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:23.399] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:23.399] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:23.399] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:23.404] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:23.404] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:23.404] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:23.404] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:23.404] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:23.404] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:23.404] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:25.341] UI: Double clicked on track: ドラム式探査機 by 田所あずさ
+[2026-09-04 15:40:25.410] UI: Track info saved - title: ドラム式探査機, artist: 田所あずさ, comment: 神達に拾われた男2　ED
+[2026-09-04 15:40:25.410] UI: Searching YouTube for: ドラム式探査機 神達に拾われた男2 ED
+[2026-09-04 15:40:25.411] UI: Search started - search box disabled
+[2026-09-04 15:40:26.286] UI: Window already active, current _user_has_clicked_since_front is True
+[2026-09-04 15:40:26.308] UI: Successfully brought window to front using Windows API
+[2026-09-04 15:40:26.308] UI: User has interacted with the window, skipping bring-to-back timer
+[2026-09-04 15:40:26.308] UI: Brought window to front after search completion
+[2026-09-04 15:40:26.310] UI: Found 17 YouTube videos (showing 5 immediately)
+[2026-09-04 15:40:26.310] UI: Auto-play skipped - manual YouTube search
+[2026-09-04 15:40:26.311] UI: skipping _schedule_bring_to_back because window is active or recently clicked
+[2026-09-04 15:40:26.312] UI: Search completed - search box enabled
+[2026-09-04 15:40:26.421] UI: Finalized bring to front operation
+[2026-09-04 15:40:26.513] UI: Selected first YouTube video after search
+[2026-09-04 15:40:26.617] YouTubeListModel: Updated thumbnail for video w0g4L4YblCo at index 0
+[2026-09-04 15:40:26.617] UI: Thumbnail loaded for video w0g4L4YblCo
+[2026-09-04 15:40:26.811] UI: Added 12 remaining videos to list
+[2026-09-04 15:40:26.812] UI: Restored selection to video w0g4L4YblCo at index 0
+[2026-09-04 15:40:26.921] YouTubeListModel: Updated thumbnail for video cRfrliQxCcw at index 1
+[2026-09-04 15:40:26.921] UI: Thumbnail loaded for video cRfrliQxCcw
+[2026-09-04 15:40:27.158] YouTubeListView: Selected video at index 0
+[2026-09-04 15:40:27.221] YouTubeListModel: Updated thumbnail for video 539S9JZIpgs at index 2
+[2026-09-04 15:40:27.221] UI: Thumbnail loaded for video 539S9JZIpgs
+[2026-09-04 15:40:27.236] UI: YouTube double-click event received for index <PySide6.QtCore.QModelIndex(0,0,0x0,YouTubeListModel(0x1daeefcd7d0)) at 0x000001DA8D329500>
+[2026-09-04 15:40:27.236] UI: Video data extracted - ID: w0g4L4YblCo, Title: 田所あずさ 「ドラム式探査機」MusicVideo
+[2026-09-04 15:40:27.237] UI: YouTube video double-clicked: 田所あずさ 「ドラム式探査機」MusicVideo (w0g4L4YblCo)
+[2026-09-04 15:40:27.237] UI: Current last_clicked_video_id: None
+[2026-09-04 15:40:27.237] UI: First click detected - sending PRELOAD for w0g4L4YblCo
+[2026-09-04 15:40:27.237] PlayerHttpServer: Queued command PRELOAD id=54029f49 video=w0g4L4YblCo
+[2026-09-04 15:40:27.237] UI: YouTube video state updated to preloading for video: w0g4L4YblCo
+[2026-09-04 15:40:27.237] UI: Updating delegate - state: preloading, video_id: w0g4L4YblCo
+[2026-09-04 15:40:27.237] Delegate: set_video_state called - state: preloading, video_id: w0g4L4YblCo
+[2026-09-04 15:40:27.237] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:27.237] UI: Selected thumbnail border color updated for state: preloading, video: w0g4L4YblCo
+[2026-09-04 15:40:27.237] UI: Sent PRELOAD command for video: w0g4L4YblCo
+[2026-09-04 15:40:27.237] UI: YouTube double-click processing completed successfully
+[2026-09-04 15:40:27.333] PlayerHttpServer: ACK 54029f493946408dbb0db747ffed372f status=accepted cmd=PRELOAD
+[2026-09-04 15:40:27.334] UI: Player feedback received - state: preloading, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:27.334] UI: YouTube video state updated to preloading for video: w0g4L4YblCo
+[2026-09-04 15:40:27.334] UI: Updating delegate - state: preloading, video_id: w0g4L4YblCo
+[2026-09-04 15:40:27.334] Delegate: set_video_state called - state: preloading, video_id: w0g4L4YblCo
+[2026-09-04 15:40:27.334] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:27.334] UI: Selected thumbnail border color updated for state: preloading, video: w0g4L4YblCo
+[2026-09-04 15:40:27.497] YouTubeListModel: Updated thumbnail for video VABohEWhyJE at index 3
+[2026-09-04 15:40:27.497] UI: Thumbnail loaded for video VABohEWhyJE
+[2026-09-04 15:40:27.506] UI: Player feedback received - state: unstarted, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:27.506] UI: Player feedback received - state: ready, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:27.506] UI: YouTube video state updated to ready for video: w0g4L4YblCo
+[2026-09-04 15:40:27.507] UI: Updating delegate - state: ready, video_id: w0g4L4YblCo
+[2026-09-04 15:40:27.507] Delegate: set_video_state called - state: ready, video_id: w0g4L4YblCo
+[2026-09-04 15:40:27.507] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:27.507] UI: Selected thumbnail border color updated for state: ready, video: w0g4L4YblCo
+[2026-09-04 15:40:27.507] UI: Checking auto-play - pending_play_video_id: None, video_id: w0g4L4YblCo
+[2026-09-04 15:40:27.800] YouTubeListModel: Updated thumbnail for video yUqxRhArL-M at index 4
+[2026-09-04 15:40:27.800] UI: Thumbnail loaded for video yUqxRhArL-M
+[2026-09-04 15:40:28.183] YouTubeListModel: Updated thumbnail for video OfxwsUclrQc at index 5
+[2026-09-04 15:40:28.183] UI: Thumbnail loaded for video OfxwsUclrQc
+[2026-09-04 15:40:28.332] UI: Player feedback received - state: ready, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:28.332] UI: YouTube video state updated to ready for video: w0g4L4YblCo
+[2026-09-04 15:40:28.332] UI: Updating delegate - state: ready, video_id: w0g4L4YblCo
+[2026-09-04 15:40:28.332] Delegate: set_video_state called - state: ready, video_id: w0g4L4YblCo
+[2026-09-04 15:40:28.332] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:28.332] UI: Selected thumbnail border color updated for state: ready, video: w0g4L4YblCo
+[2026-09-04 15:40:28.332] UI: Checking auto-play - pending_play_video_id: None, video_id: w0g4L4YblCo
+[2026-09-04 15:40:28.472] UI: Player feedback received - state: ended, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:28.483] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:28.483] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:28.483] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:28.483] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:28.483] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:28.483] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:28.483] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:28.483] UI: Player feedback received - state: buffering, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:28.491] YouTubeListModel: Updated thumbnail for video n4mI4vvCRGc at index 6
+[2026-09-04 15:40:28.491] UI: Thumbnail loaded for video n4mI4vvCRGc
+[2026-09-04 15:40:28.491] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:28.491] UI: YouTube video state updated to playing for video: eyUUHfVm8Ik
+[2026-09-04 15:40:28.491] UI: Set current_playing_video_id to: eyUUHfVm8Ik
+[2026-09-04 15:40:28.491] UI: Updating delegate - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:28.491] Delegate: set_video_state called - state: playing, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:28.491] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:28.492] UI: Selected thumbnail border color updated for state: playing, video: eyUUHfVm8Ik
+[2026-09-04 15:40:28.600] YouTubeListView: Selected video at index 0
+[2026-09-04 15:40:28.725] UI: YouTube double-click event received for index <PySide6.QtCore.QModelIndex(0,0,0x0,YouTubeListModel(0x1daeefcd7d0)) at 0x000001DAAE28FFC0>
+[2026-09-04 15:40:28.725] UI: Video data extracted - ID: w0g4L4YblCo, Title: 田所あずさ 「ドラム式探査機」MusicVideo
+[2026-09-04 15:40:28.725] UI: YouTube video double-clicked: 田所あずさ 「ドラム式探査機」MusicVideo (w0g4L4YblCo)
+[2026-09-04 15:40:28.725] UI: Current last_clicked_video_id: w0g4L4YblCo
+[2026-09-04 15:40:28.725] UI: Second click detected - sending PLAY for w0g4L4YblCo
+[2026-09-04 15:40:28.725] PlayerHttpServer: Queued command PLAY id=37d88645 video=w0g4L4YblCo
+[2026-09-04 15:40:28.725] UI: YouTube video state updated to playing for video: w0g4L4YblCo
+[2026-09-04 15:40:28.725] UI: Set current_playing_video_id to: w0g4L4YblCo
+[2026-09-04 15:40:28.725] UI: Updating delegate - state: playing, video_id: w0g4L4YblCo
+[2026-09-04 15:40:28.725] Delegate: set_video_state called - state: playing, video_id: w0g4L4YblCo
+[2026-09-04 15:40:28.725] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:28.725] UI: Selected thumbnail border color updated for state: playing, video: w0g4L4YblCo
+[2026-09-04 15:40:28.725] UI: Sent PLAY command for video: w0g4L4YblCo
+[2026-09-04 15:40:28.725] UI: YouTube double-click processing completed successfully
+[2026-09-04 15:40:28.809] YouTubeListModel: Updated thumbnail for video SUMIWGmRvNM at index 7
+[2026-09-04 15:40:28.809] UI: Thumbnail loaded for video SUMIWGmRvNM
+[2026-09-04 15:40:28.834] UI: Player feedback received - state: playing, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:28.834] UI: YouTube video state updated to playing for video: w0g4L4YblCo
+[2026-09-04 15:40:28.834] UI: Set current_playing_video_id to: w0g4L4YblCo
+[2026-09-04 15:40:28.834] UI: Updating delegate - state: playing, video_id: w0g4L4YblCo
+[2026-09-04 15:40:28.834] Delegate: set_video_state called - state: playing, video_id: w0g4L4YblCo
+[2026-09-04 15:40:28.834] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:28.834] UI: Selected thumbnail border color updated for state: playing, video: w0g4L4YblCo
+[2026-09-04 15:40:28.834] UI: Reset last_clicked_video_id after playing: w0g4L4YblCo
+[2026-09-04 15:40:28.835] PlayerHttpServer: ACK 37d886451dbc4a94b460df505cfe0b8c status=accepted cmd=PLAY
+[2026-09-04 15:40:28.848] UI: Player feedback received - state: unstarted, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:28.864] UI: Player feedback received - state: buffering, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:29.123] YouTubeListModel: Updated thumbnail for video FcNzaPr4TpU at index 8
+[2026-09-04 15:40:29.123] UI: Thumbnail loaded for video FcNzaPr4TpU
+[2026-09-04 15:40:29.207] UI: Player feedback received - state: playing, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:29.207] UI: YouTube video state updated to playing for video: w0g4L4YblCo
+[2026-09-04 15:40:29.207] UI: Set current_playing_video_id to: w0g4L4YblCo
+[2026-09-04 15:40:29.207] UI: Updating delegate - state: playing, video_id: w0g4L4YblCo
+[2026-09-04 15:40:29.207] Delegate: set_video_state called - state: playing, video_id: w0g4L4YblCo
+[2026-09-04 15:40:29.207] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:29.207] UI: Selected thumbnail border color updated for state: playing, video: w0g4L4YblCo
+[2026-09-04 15:40:29.396] UI: Player feedback received - state: playing, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:29.397] UI: Player feedback received - state: playing, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:29.397] UI: YouTube video state updated to playing for video: w0g4L4YblCo
+[2026-09-04 15:40:29.397] UI: Set current_playing_video_id to: w0g4L4YblCo
+[2026-09-04 15:40:29.398] UI: Updating delegate - state: playing, video_id: w0g4L4YblCo
+[2026-09-04 15:40:29.398] Delegate: set_video_state called - state: playing, video_id: w0g4L4YblCo
+[2026-09-04 15:40:29.398] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:29.398] UI: Selected thumbnail border color updated for state: playing, video: w0g4L4YblCo
+[2026-09-04 15:40:29.405] UI: Player feedback received - state: unstarted, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:29.405] UI: Player feedback received - state: ready, player: A, video: eyUUHfVm8Ik
+[2026-09-04 15:40:29.405] UI: YouTube video state updated to ready for video: eyUUHfVm8Ik
+[2026-09-04 15:40:29.406] UI: Updating delegate - state: ready, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:29.406] Delegate: set_video_state called - state: ready, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:29.406] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:29.406] UI: Selected thumbnail border color updated for state: ready, video: eyUUHfVm8Ik
+[2026-09-04 15:40:29.406] UI: Checking auto-play - pending_play_video_id: None, video_id: eyUUHfVm8Ik
+[2026-09-04 15:40:29.435] YouTubeListModel: Updated thumbnail for video YvtHGcnMCQg at index 9
+[2026-09-04 15:40:29.435] UI: Thumbnail loaded for video YvtHGcnMCQg
+[2026-09-04 15:40:29.734] YouTubeListModel: Updated thumbnail for video dhdvPbfkqwk at index 10
+[2026-09-04 15:40:29.734] UI: Thumbnail loaded for video dhdvPbfkqwk
+[2026-09-04 15:40:30.039] YouTubeListModel: Updated thumbnail for video AQ2A1q84E-M at index 11
+[2026-09-04 15:40:30.039] UI: Thumbnail loaded for video AQ2A1q84E-M
+[2026-09-04 15:40:30.357] YouTubeListModel: Updated thumbnail for video 65PQ0IbcGYo at index 12
+[2026-09-04 15:40:30.357] UI: Thumbnail loaded for video 65PQ0IbcGYo
+[2026-09-04 15:40:30.680] YouTubeListModel: Updated thumbnail for video vlOt8eLp7rw at index 13
+[2026-09-04 15:40:30.680] UI: Thumbnail loaded for video vlOt8eLp7rw
+[2026-09-04 15:40:30.986] YouTubeListModel: Updated thumbnail for video 08U9oSnJmwY at index 14
+[2026-09-04 15:40:30.987] UI: Thumbnail loaded for video 08U9oSnJmwY
+[2026-09-04 15:40:31.233] YouTubeListModel: Updated thumbnail for video OWhP3q73D50 at index 15
+[2026-09-04 15:40:31.234] UI: Thumbnail loaded for video OWhP3q73D50
+[2026-09-04 15:40:31.527] YouTubeListModel: Updated thumbnail for video QAsV2p3ns1s at index 16
+[2026-09-04 15:40:31.527] UI: Thumbnail loaded for video QAsV2p3ns1s
+[2026-09-04 15:40:35.265] YouTubeListView: Selected video at index 1
+[2026-09-04 15:40:35.345] UI: YouTube double-click event received for index <PySide6.QtCore.QModelIndex(1,0,0x0,YouTubeListModel(0x1daeefcd7d0)) at 0x000001DA8D333F80>
+[2026-09-04 15:40:35.345] UI: Video data extracted - ID: cRfrliQxCcw, Title: TVアニメ『神達に拾われた男２』ノンクレジットエンディング映像│♪「ドラム式探査機」田所あずさ
+[2026-09-04 15:40:35.345] UI: YouTube video double-clicked: TVアニメ『神達に拾われた男２』ノンクレジットエンディング映像│♪「ドラム式探査機」田所あずさ (cRfrliQxCcw)
+[2026-09-04 15:40:35.345] UI: Current last_clicked_video_id: None
+[2026-09-04 15:40:35.345] UI: First click detected - sending PRELOAD for cRfrliQxCcw
+[2026-09-04 15:40:35.345] PlayerHttpServer: Queued command PRELOAD id=1286530c video=cRfrliQxCcw
+[2026-09-04 15:40:35.345] UI: YouTube video state updated to preloading for video: cRfrliQxCcw
+[2026-09-04 15:40:35.345] UI: Updating delegate - state: preloading, video_id: cRfrliQxCcw
+[2026-09-04 15:40:35.345] Delegate: set_video_state called - state: preloading, video_id: cRfrliQxCcw
+[2026-09-04 15:40:35.345] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:35.345] UI: Selected thumbnail border color updated for state: preloading, video: cRfrliQxCcw
+[2026-09-04 15:40:35.345] UI: Sent PRELOAD command for video: cRfrliQxCcw
+[2026-09-04 15:40:35.345] UI: YouTube double-click processing completed successfully
+[2026-09-04 15:40:35.422] PlayerHttpServer: ACK 1286530c1c2d49fb97a5a9c0e51a25cf status=accepted cmd=PRELOAD
+[2026-09-04 15:40:35.422] UI: Player feedback received - state: preloading, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:35.422] UI: YouTube video state updated to preloading for video: cRfrliQxCcw
+[2026-09-04 15:40:35.422] UI: Updating delegate - state: preloading, video_id: cRfrliQxCcw
+[2026-09-04 15:40:35.422] Delegate: set_video_state called - state: preloading, video_id: cRfrliQxCcw
+[2026-09-04 15:40:35.422] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:35.422] UI: Selected thumbnail border color updated for state: preloading, video: cRfrliQxCcw
+[2026-09-04 15:40:35.534] UI: Player feedback received - state: unstarted, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:35.535] UI: Player feedback received - state: ready, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:35.535] UI: YouTube video state updated to ready for video: cRfrliQxCcw
+[2026-09-04 15:40:35.535] UI: Updating delegate - state: ready, video_id: cRfrliQxCcw
+[2026-09-04 15:40:35.535] Delegate: set_video_state called - state: ready, video_id: cRfrliQxCcw
+[2026-09-04 15:40:35.535] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:35.535] UI: Selected thumbnail border color updated for state: ready, video: cRfrliQxCcw
+[2026-09-04 15:40:35.535] UI: Checking auto-play - pending_play_video_id: None, video_id: cRfrliQxCcw
+[2026-09-04 15:40:36.422] UI: Player feedback received - state: ready, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:36.422] UI: YouTube video state updated to ready for video: cRfrliQxCcw
+[2026-09-04 15:40:36.422] UI: Updating delegate - state: ready, video_id: cRfrliQxCcw
+[2026-09-04 15:40:36.422] Delegate: set_video_state called - state: ready, video_id: cRfrliQxCcw
+[2026-09-04 15:40:36.422] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:36.422] UI: Selected thumbnail border color updated for state: ready, video: cRfrliQxCcw
+[2026-09-04 15:40:36.422] UI: Checking auto-play - pending_play_video_id: None, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.026] YouTubeListView: Selected video at index 1
+[2026-09-04 15:40:37.090] UI: YouTube double-click event received for index <PySide6.QtCore.QModelIndex(1,0,0x0,YouTubeListModel(0x1daeefcd7d0)) at 0x000001DAF2496D00>
+[2026-09-04 15:40:37.090] UI: Video data extracted - ID: cRfrliQxCcw, Title: TVアニメ『神達に拾われた男２』ノンクレジットエンディング映像│♪「ドラム式探査機」田所あずさ
+[2026-09-04 15:40:37.090] UI: YouTube video double-clicked: TVアニメ『神達に拾われた男２』ノンクレジットエンディング映像│♪「ドラム式探査機」田所あずさ (cRfrliQxCcw)
+[2026-09-04 15:40:37.090] UI: Current last_clicked_video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.090] UI: Second click detected - sending PLAY for cRfrliQxCcw
+[2026-09-04 15:40:37.091] PlayerHttpServer: Queued command PLAY id=5ea1ec00 video=cRfrliQxCcw
+[2026-09-04 15:40:37.091] UI: YouTube video state updated to playing for video: cRfrliQxCcw
+[2026-09-04 15:40:37.091] UI: Set current_playing_video_id to: cRfrliQxCcw
+[2026-09-04 15:40:37.091] UI: Updating delegate - state: playing, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.091] Delegate: set_video_state called - state: playing, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.091] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:37.091] UI: Selected thumbnail border color updated for state: playing, video: cRfrliQxCcw
+[2026-09-04 15:40:37.091] UI: Sent PLAY command for video: cRfrliQxCcw
+[2026-09-04 15:40:37.091] UI: YouTube double-click processing completed successfully
+[2026-09-04 15:40:37.218] PlayerHttpServer: ACK 5ea1ec000d53413ea044179f299d027a status=accepted cmd=PLAY
+[2026-09-04 15:40:37.220] UI: Player feedback received - state: playing, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:37.220] UI: YouTube video state updated to playing for video: cRfrliQxCcw
+[2026-09-04 15:40:37.220] UI: Set current_playing_video_id to: cRfrliQxCcw
+[2026-09-04 15:40:37.220] UI: Updating delegate - state: playing, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.220] Delegate: set_video_state called - state: playing, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.220] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:37.220] UI: Selected thumbnail border color updated for state: playing, video: cRfrliQxCcw
+[2026-09-04 15:40:37.220] UI: Reset last_clicked_video_id after playing: cRfrliQxCcw
+[2026-09-04 15:40:37.221] UI: Player feedback received - state: unstarted, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:37.234] UI: Player feedback received - state: buffering, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:37.562] UI: Player feedback received - state: playing, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:37.562] UI: YouTube video state updated to playing for video: cRfrliQxCcw
+[2026-09-04 15:40:37.562] UI: Set current_playing_video_id to: cRfrliQxCcw
+[2026-09-04 15:40:37.562] UI: Updating delegate - state: playing, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.562] Delegate: set_video_state called - state: playing, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.562] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:37.562] UI: Selected thumbnail border color updated for state: playing, video: cRfrliQxCcw
+[2026-09-04 15:40:37.770] UI: Player feedback received - state: playing, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:37.771] UI: Player feedback received - state: playing, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:37.771] UI: YouTube video state updated to playing for video: cRfrliQxCcw
+[2026-09-04 15:40:37.771] UI: Set current_playing_video_id to: cRfrliQxCcw
+[2026-09-04 15:40:37.771] UI: Updating delegate - state: playing, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.771] Delegate: set_video_state called - state: playing, video_id: cRfrliQxCcw
+[2026-09-04 15:40:37.771] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:37.771] UI: Selected thumbnail border color updated for state: playing, video: cRfrliQxCcw
+[2026-09-04 15:40:37.792] UI: Player feedback received - state: unstarted, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:37.797] UI: Player feedback received - state: ready, player: B, video: w0g4L4YblCo
+[2026-09-04 15:40:37.797] UI: YouTube video state updated to ready for video: w0g4L4YblCo
+[2026-09-04 15:40:37.797] UI: Updating delegate - state: ready, video_id: w0g4L4YblCo
+[2026-09-04 15:40:37.797] Delegate: set_video_state called - state: ready, video_id: w0g4L4YblCo
+[2026-09-04 15:40:37.797] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:37.797] UI: Selected thumbnail border color updated for state: ready, video: w0g4L4YblCo
+[2026-09-04 15:40:37.797] UI: Checking auto-play - pending_play_video_id: None, video_id: w0g4L4YblCo
+[2026-09-04 15:40:50.090] YouTubeListView: Selected video at index 2
+[2026-09-04 15:40:50.155] UI: YouTube double-click event received for index <PySide6.QtCore.QModelIndex(2,0,0x0,YouTubeListModel(0x1daeefcd7d0)) at 0x000001DA8E936880>
+[2026-09-04 15:40:50.155] UI: Video data extracted - ID: 539S9JZIpgs, Title: [Drum Shiki Tansaki]ドラム式探査機 - Azusa Tadokoro (By the Grace of the Gods END 2) Lyrics Romanized
+[2026-09-04 15:40:50.155] UI: YouTube video double-clicked: [Drum Shiki Tansaki]ドラム式探査機 - Azusa Tadokoro (By the Grace of the Gods END 2) Lyrics Romanized (539S9JZIpgs)
+[2026-09-04 15:40:50.155] UI: Current last_clicked_video_id: None
+[2026-09-04 15:40:50.155] UI: First click detected - sending PRELOAD for 539S9JZIpgs
+[2026-09-04 15:40:50.155] PlayerHttpServer: Queued command PRELOAD id=f04c1cfe video=539S9JZIpgs
+[2026-09-04 15:40:50.155] UI: YouTube video state updated to preloading for video: 539S9JZIpgs
+[2026-09-04 15:40:50.155] UI: Updating delegate - state: preloading, video_id: 539S9JZIpgs
+[2026-09-04 15:40:50.155] Delegate: set_video_state called - state: preloading, video_id: 539S9JZIpgs
+[2026-09-04 15:40:50.155] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:50.155] UI: Selected thumbnail border color updated for state: preloading, video: 539S9JZIpgs
+[2026-09-04 15:40:50.155] UI: Sent PRELOAD command for video: 539S9JZIpgs
+[2026-09-04 15:40:50.155] UI: YouTube double-click processing completed successfully
+[2026-09-04 15:40:50.226] PlayerHttpServer: ACK f04c1cfee68f4027b6a67f88ffdb70b1 status=accepted cmd=PRELOAD
+[2026-09-04 15:40:50.227] UI: Player feedback received - state: preloading, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:50.227] UI: YouTube video state updated to preloading for video: 539S9JZIpgs
+[2026-09-04 15:40:50.227] UI: Updating delegate - state: preloading, video_id: 539S9JZIpgs
+[2026-09-04 15:40:50.227] Delegate: set_video_state called - state: preloading, video_id: 539S9JZIpgs
+[2026-09-04 15:40:50.227] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:50.227] UI: Selected thumbnail border color updated for state: preloading, video: 539S9JZIpgs
+[2026-09-04 15:40:50.337] UI: Player feedback received - state: unstarted, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:50.337] UI: Player feedback received - state: ready, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:50.337] UI: YouTube video state updated to ready for video: 539S9JZIpgs
+[2026-09-04 15:40:50.337] UI: Updating delegate - state: ready, video_id: 539S9JZIpgs
+[2026-09-04 15:40:50.337] Delegate: set_video_state called - state: ready, video_id: 539S9JZIpgs
+[2026-09-04 15:40:50.337] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:50.337] UI: Selected thumbnail border color updated for state: ready, video: 539S9JZIpgs
+[2026-09-04 15:40:50.337] UI: Checking auto-play - pending_play_video_id: None, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.229] UI: Player feedback received - state: ready, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:51.229] UI: YouTube video state updated to ready for video: 539S9JZIpgs
+[2026-09-04 15:40:51.229] UI: Updating delegate - state: ready, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.229] Delegate: set_video_state called - state: ready, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.229] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:51.229] UI: Selected thumbnail border color updated for state: ready, video: 539S9JZIpgs
+[2026-09-04 15:40:51.229] UI: Checking auto-play - pending_play_video_id: None, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.244] YouTubeListView: Selected video at index 2
+[2026-09-04 15:40:51.312] UI: YouTube double-click event received for index <PySide6.QtCore.QModelIndex(2,0,0x0,YouTubeListModel(0x1daeefcd7d0)) at 0x000001DAAD7E6380>
+[2026-09-04 15:40:51.312] UI: Video data extracted - ID: 539S9JZIpgs, Title: [Drum Shiki Tansaki]ドラム式探査機 - Azusa Tadokoro (By the Grace of the Gods END 2) Lyrics Romanized
+[2026-09-04 15:40:51.312] UI: YouTube video double-clicked: [Drum Shiki Tansaki]ドラム式探査機 - Azusa Tadokoro (By the Grace of the Gods END 2) Lyrics Romanized (539S9JZIpgs)
+[2026-09-04 15:40:51.312] UI: Current last_clicked_video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.312] UI: Second click detected - sending PLAY for 539S9JZIpgs
+[2026-09-04 15:40:51.312] PlayerHttpServer: Queued command PLAY id=3e339bfc video=539S9JZIpgs
+[2026-09-04 15:40:51.312] UI: YouTube video state updated to playing for video: 539S9JZIpgs
+[2026-09-04 15:40:51.312] UI: Set current_playing_video_id to: 539S9JZIpgs
+[2026-09-04 15:40:51.312] UI: Updating delegate - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.312] Delegate: set_video_state called - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.312] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:51.312] UI: Selected thumbnail border color updated for state: playing, video: 539S9JZIpgs
+[2026-09-04 15:40:51.312] UI: Sent PLAY command for video: 539S9JZIpgs
+[2026-09-04 15:40:51.312] UI: YouTube double-click processing completed successfully
+[2026-09-04 15:40:51.435] PlayerHttpServer: ACK 3e339bfcb4664bd5b2152c53cee582d1 status=accepted cmd=PLAY
+[2026-09-04 15:40:51.437] UI: Player feedback received - state: playing, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:51.437] UI: YouTube video state updated to playing for video: 539S9JZIpgs
+[2026-09-04 15:40:51.437] UI: Set current_playing_video_id to: 539S9JZIpgs
+[2026-09-04 15:40:51.437] UI: Updating delegate - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.437] Delegate: set_video_state called - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.437] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:51.437] UI: Selected thumbnail border color updated for state: playing, video: 539S9JZIpgs
+[2026-09-04 15:40:51.437] UI: Reset last_clicked_video_id after playing: 539S9JZIpgs
+[2026-09-04 15:40:51.437] UI: Player feedback received - state: unstarted, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:51.451] UI: Player feedback received - state: buffering, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:51.784] UI: Player feedback received - state: playing, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:51.784] UI: YouTube video state updated to playing for video: 539S9JZIpgs
+[2026-09-04 15:40:51.784] UI: Set current_playing_video_id to: 539S9JZIpgs
+[2026-09-04 15:40:51.784] UI: Updating delegate - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.784] Delegate: set_video_state called - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:40:51.784] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:51.784] UI: Selected thumbnail border color updated for state: playing, video: 539S9JZIpgs
+[2026-09-04 15:40:52.004] UI: Player feedback received - state: playing, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:52.004] UI: Player feedback received - state: playing, player: B, video: 539S9JZIpgs
+[2026-09-04 15:40:52.004] UI: YouTube video state updated to playing for video: 539S9JZIpgs
+[2026-09-04 15:40:52.004] UI: Set current_playing_video_id to: 539S9JZIpgs
+[2026-09-04 15:40:52.004] UI: Updating delegate - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:40:52.004] Delegate: set_video_state called - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:40:52.004] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:52.004] UI: Selected thumbnail border color updated for state: playing, video: 539S9JZIpgs
+[2026-09-04 15:40:52.011] UI: Player feedback received - state: unstarted, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:52.012] UI: Player feedback received - state: ready, player: A, video: cRfrliQxCcw
+[2026-09-04 15:40:52.012] UI: YouTube video state updated to ready for video: cRfrliQxCcw
+[2026-09-04 15:40:52.012] UI: Updating delegate - state: ready, video_id: cRfrliQxCcw
+[2026-09-04 15:40:52.012] Delegate: set_video_state called - state: ready, video_id: cRfrliQxCcw
+[2026-09-04 15:40:52.012] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:40:52.012] UI: Selected thumbnail border color updated for state: ready, video: cRfrliQxCcw
+[2026-09-04 15:40:52.013] UI: Checking auto-play - pending_play_video_id: None, video_id: cRfrliQxCcw
+[2026-09-04 15:40:56.820] UI: Player feedback received - state: paused, player: B, video: 539S9JZIpgs
+[2026-09-04 15:41:03.409] UI: Player feedback received - state: buffering, player: B, video: 539S9JZIpgs
+[2026-09-04 15:41:03.663] UI: Player feedback received - state: playing, player: B, video: 539S9JZIpgs
+[2026-09-04 15:41:03.663] UI: YouTube video state updated to playing for video: 539S9JZIpgs
+[2026-09-04 15:41:03.663] UI: Set current_playing_video_id to: 539S9JZIpgs
+[2026-09-04 15:41:03.663] UI: Updating delegate - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:41:03.663] Delegate: set_video_state called - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:41:03.663] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:41:03.663] UI: Selected thumbnail border color updated for state: playing, video: 539S9JZIpgs
+[2026-09-04 15:41:03.906] UI: Player feedback received - state: paused, player: B, video: 539S9JZIpgs
+[2026-09-04 15:41:05.388] UI: Player feedback received - state: buffering, player: B, video: 539S9JZIpgs
+[2026-09-04 15:41:05.652] UI: Player feedback received - state: playing, player: B, video: 539S9JZIpgs
+[2026-09-04 15:41:05.652] UI: YouTube video state updated to playing for video: 539S9JZIpgs
+[2026-09-04 15:41:05.652] UI: Set current_playing_video_id to: 539S9JZIpgs
+[2026-09-04 15:41:05.652] UI: Updating delegate - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:41:05.652] Delegate: set_video_state called - state: playing, video_id: 539S9JZIpgs
+[2026-09-04 15:41:05.652] Delegate: Updated all items to maintain current video border
+[2026-09-04 15:41:05.652] UI: Selected thumbnail border color updated for state: playing, video: 539S9JZIpgs
+[2026-09-04 15:41:08.566] UI: Search box focused - temporarily unregistering hotkeys
+[2026-09-04 15:41:08.566] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-04 15:41:14.393] UI: Search box focus lost - re-registering hotkeys
+[2026-09-04 15:41:14.499] HotkeyService: Re-registering Win32 hotkeys...
+[2026-09-04 15:41:14.499] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-04 15:41:14.499] HotkeyService: Unregistered all Win32 hotkeys
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'up' (ID:40, VK:0x26, Mod:0x0)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'down' (ID:41, VK:0x28, Mod:0x0)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'left' (ID:42, VK:0x25, Mod:0x0)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'right' (ID:43, VK:0x27, Mod:0x0)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:44, VK:0x6f, Mod:0x2)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+/' (ID:45, VK:0xbf, Mod:0x2)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+\' (ID:46, VK:0xe2, Mod:0x2)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:47, VK:0x6e, Mod:0x2)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+.' (ID:48, VK:0xbe, Mod:0x2)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:49, VK:0xbb, Mod:0x2)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+;' (ID:50, VK:0x6b, Mod:0x2)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:51, VK:0xba, Mod:0x2)
+[2026-09-04 15:41:14.600] HotkeyService: Registered Win32 hotkey 'ctrl+:' (ID:52, VK:0x6a, Mod:0x2)
+[2026-09-04 15:41:16.086] UI: Player feedback received - state: paused, player: B, video: 539S9JZIpgs
