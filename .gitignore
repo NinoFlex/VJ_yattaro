@@ -1,1 +1,14 @@
-# Runtime secrets
+# Build output and environments
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+native/**/bin/
+native/**/obj/
+native/**/publish/
+# Runtime data and local secrets
+config.json
+shazam_history.json
+*.log
+*.log.*

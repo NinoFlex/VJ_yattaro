@@ -1,0 +1,14 @@
+{
+  "main.py": "05335c4b924def1898dcf57cc772b713a5489b3439851e984be18d148a4ffcf9",
+  "ui/__init__.py": "691344da94b9d271405facbefab48630d630873f74e60d7881177a8380689585",
+  "ui/dialogs/settings_dialog.py": "cae293bfab567244ea60a7f1531cdcd6a5097a56012587c0082ee0d62fc2df7e",
+  "ui/theme.py": "e7af8d6c4895fcee4601d874b4a0110f1186ec33ed76267a60421c67660ec355",
+  "ui/widgets/__init__.py": "45f509d9b3c3dd1c24750d161e6016c2431eef7896e1daafee18d231297ac4f4",
+  "ui/widgets/player_control_panel.py": "f1d9a8f6dbbfa8120e51255f9074475860849996a935b913782cbea2cf713592",
+  "ui/widgets/right_table_view.py": "a352add723b0f93e6bf2c8d72094d1e42e9a06d43b32d9801dfddd449da7745d",
+  "ui/widgets/youtube_delegate.py": "3a746be45f8fe2f46ab2a63088d801fe8e0bc8e6b6bcfdb08a7946f03175f9e5",
+  "ui/widgets/youtube_list_view.py": "00ab08e62dd2e1baf0780be419af22edd3ddbfc2348c5b995b2f2ae25c712b73",
+  "web/player.css": "649383fcb2b983c7eb5de06b5922d10f040f6995e57382aabe9216536c5f783e",
+  "web/player.html": "a59ec3e1fac548cc54b8b2753d115ae602dbebc4b0db49a10d5038dc698e075e",
+  "web/player.js": "1d42bc1f2a3ef529c8d1b9e56d118d2fd42fa7cb8432be40b367b9dfdc26827a"
+}

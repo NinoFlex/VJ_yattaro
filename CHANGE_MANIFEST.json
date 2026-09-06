@@ -1,0 +1,198 @@
+{
+  "source_archive": "app.zip",
+  "source_archive_sha256": "7267f8a743d34c842f11ec46ea9e829c800a2d4ffd271630a5619062f778d3cf",
+  "backend": "Official Shazam.com in Microsoft Edge WebView2; app-supplied audio MediaStream",
+  "target": "Windows x64",
+  "ui_byte_identical": false,
+  "protected_ui_source_files": 12,
+  "modified_original_files": [
+    {
+      "path": ".gitignore",
+      "before_sha256": "0804c605dab9a3ea6d36f4b492a32e0ab6f9532bc9e77093d97eee4ad9e93217",
+      "after_sha256": "be4bac382505494bf92ea985296c4fc14a20f1a2d848d11f54fafd51309a9b61"
+    },
+    {
+      "path": "Build.md",
+      "before_sha256": "32d20c0cd6687a14e0324b1dafb251adb24fbb47a7f4b922531a439dda71a0fa",
+      "after_sha256": "a9ab9deb7f13806bc9a2e25c26acb7339e499928c33b7e8390d158755e770e91"
+    },
+    {
+      "path": "VJ_yattaro.spec",
+      "before_sha256": "977262353bd335a2c842a9af58614e58e080dcbe796bed71979cb879fa4e9640",
+      "after_sha256": "3b7e5236c5950f9b3834c236267c9114ea560d34826993b5a54080e405ed4d4b"
+    },
+    {
+      "path": "app/services/shazam_service.py",
+      "before_sha256": "7aa7913f730841a0d2108ae6ecbd7909a841cfd9f5dbb4e10b4653ba949b0a86",
+      "after_sha256": "428c0fddb6a91a72267e5da6692960c4e90ab9036bf93187cca1bad0bc57dad9"
+    },
+    {
+      "path": "build.bat",
+      "before_sha256": "1b1189e12cd8e40b8b602e12bba7fc8064751cf9bd74e829974724b8bfc705ba",
+      "after_sha256": "5e4bad2dec87f18c0954920b42337c81f0987d348c151d501819fb7e14ae00f9"
+    },
+    {
+      "path": "build.cmd",
+      "before_sha256": "05622bd5001b12995ef5fcf83ee481ed91bcea99f4e6c9f9accc508b07d1e226",
+      "after_sha256": "b28f776888de334eee93d5b54fe30a550b7c3474e8aff590dfb59b945f242373"
+    },
+    {
+      "path": "requirements.txt",
+      "before_sha256": "4ba7a39278ccd127a8c17cd4624851c5695c7c582aa9ade0420596dd256c625d",
+      "after_sha256": "9ed571964cc7b42308c9ef75a0c12579cb60e41e700f0d3369da112ea8f862af"
+    }
+  ],
+  "unchanged_original_files": [
+    "app/__init__.py",
+    "app/services/history_watcher.py",
+    "app/services/hotkey_service.py",
+    "app/services/midi_service.py",
+    "app/services/player_http_server.py",
+    "app/services/rekordbox_service.py",
+    "app/services/youtube_api_key_store.py",
+    "app/utils/logger.py",
+    "assets/vj_yattaro.ico",
+    "assets/vj_yattaro_icon.png",
+    "shazam_history.json",
+    "ui/__init__.py",
+    "ui/theme.py",
+    "ui/widgets/__init__.py",
+    "ui/widgets/player_control_panel.py",
+    "ui/widgets/right_table_view.py",
+    "ui/widgets/youtube_delegate.py",
+    "ui/widgets/youtube_list_view.py",
+    "web/README.md",
+    "web/player.css",
+    "web/player.html",
+    "web/player.js"
+  ],
+  "added_files": [
+    "README.md",
+    "VERIFICATION.md",
+    "app/services/itunes_metadata.py",
+    "app/services/shazam_webview_client.py",
+    "docs/INTEGRATION.md",
+    "native/ShazamWebViewBridge/BridgeHost.cs",
+    "native/ShazamWebViewBridge/Program.cs",
+    "native/ShazamWebViewBridge/Scripts/audio_bridge.js",
+    "native/ShazamWebViewBridge/Scripts/find_button.js",
+    "native/ShazamWebViewBridge/Scripts/result_observer.js",
+    "native/ShazamWebViewBridge/ShazamWebViewBridge.csproj",
+    "native/ShazamWebViewBridge/app.manifest",
+    "native/ShazamWebViewBridge/build.cmd",
+    "tests/browser_checks.py",
+    "tests/javascript_checks.cjs",
+    "tests/original_ui.sha256.json",
+    "tests/test_webview_integration.py",
+    "tools/build-helper.ps1",
+    "tools/build.ps1",
+    "tools/finalize_build.py",
+    "CHANGE_MANIFEST.json",
+    "native/ShazamWebViewBridge/Scripts/collect_apple_ids.js",
+    "native/ShazamWebViewBridge/Scripts/route_evidence.js"
+  ],
+  "validation": {
+    "python_unit_tests_passed": 34,
+    "javascript_mock_checks_passed": 15,
+    "windows_compiled": false,
+    "live_shazam_recognition_tested": false,
+    "real_browser_fixture": "not executed successfully: environment navigation policy blocked it",
+    "embedded_javascript_syntax_checks_passed": 5
+  },
+  "debug_fix_2026_09_06": {
+    "problem": "Shazam /song route recognized but app could show no match when exact iTunes JP lookup returned no result",
+    "changes": [
+      "wait up to 4 seconds for Shazam title/artist after route capture",
+      "scan newly visible title+artist pairs in the Shazam result UI",
+      "fallback to public Shazam page metadata when iTunes exact ID is unavailable",
+      "last-resort route slug title is reflected instead of dropping a recognized route",
+      "title-only repeated results are de-duplicated"
+    ]
+  },
+  "release": "1.2.7-route-only-japanese-metadata",
+  "japanese_apple_safe_v1_2": {
+    "source": "standalone v0.5.5 behavior ported to integrated VJ_yattaro backend",
+    "changes": [
+      "separate Shazam route ID from Apple Music track ID end-to-end",
+      "allow recognized route to render briefly and capture live title/artist/new Apple Music link",
+      "prefer live Japanese Shazam title as first strict Apple search key",
+      "accept Apple Search candidate only on normalized exact title AND exact artist match",
+      "reject unrelated static Shazam metadata using route identity/title compatibility",
+      "preserve live Japanese title when safe Apple linkage is unavailable",
+      "remove fixed 25 second request interval; next snapshot queues immediately after each completed attempt"
+    ]
+  },
+  "fast_japanese_route_proof_v1_2_2": {
+    "changes": [
+      "prewarm hidden WebView2 helper while microphone ring buffer fills",
+      "detect definitive empty Shazam recognition response and retry immediately",
+      "reduce recognition safety deadline from 36 seconds to 18 seconds",
+      "for route-only results, probe Shazam route ID as Apple candidate only after Apple EN title exactly matches route slug",
+      "use JP metadata from that proven Apple ID and reject unrelated numeric-ID collisions",
+      "skip low-confidence public Shazam HTML fallback for route-only results"
+    ]
+  },
+  "version": "1.2.7",
+  "python_tests": 43,
+  "javascript_tests": 16,
+  "latency_fix": {
+    "readiness_poll_ms": 100,
+    "network_response_observer": "official Shazam webpage /tag/ response only",
+    "dom_no_match": true,
+    "busy_reply_race_fixed": true,
+    "reuse_ready_homepage": true,
+    "apple_parallel_lookup": true,
+    "route_evidence_grace_ms": 1000
+  },
+  "dual_lane_latency_v1_2_4": {
+    "recognition_lanes": 2,
+    "lane_stagger_seconds": 4.0,
+    "per_lane_safety_deadline_seconds": 15,
+    "isolated_webview_profiles": true,
+    "stale_result_sequence_guard": true,
+    "shared_apple_metadata_cache": true,
+    "goal": "avoid serial no-match + next-match latency; target roughly 15 second response when either lane matches"
+  },
+  "ui_label_guard_v1_2_5": {
+    "reject_exact_labels": [
+      "Shazam フッター",
+      "Shazam Footer",
+      "footer",
+      "header",
+      "navigation"
+    ],
+    "ignore_dom_ancestors": [
+      "footer",
+      "role=contentinfo",
+      "nav",
+      "role=navigation",
+      "header"
+    ],
+    "guard_layers": [
+      "result_observer.js",
+      "route_evidence.js",
+      "BridgeHost.cs",
+      "itunes_metadata.py"
+    ],
+    "regression_fixture": "Shazam フッター / Metizone with route slug Modular Theorem falls back to Modular Theorem / Metizone"
+  },
+  "ui_change_note": "v1.2.6 intentionally adds separate Rekordbox/Shazam YouTube search template fields and mode-aware query selection.",
+  "v1_2_6_modified_files": [
+    "main.py",
+    "ui/dialogs/settings_dialog.py",
+    "app/services/config_service.py",
+    "app/services/youtube_service.py",
+    "config.json"
+  ],
+  "route_only_japanese_metadata_v1_2_7": {
+    "problem": "route-only Shazam result had romanized slug and blank artist even though Apple Lookup already contained the Japanese title/artist",
+    "proof": [
+      "Apple Lookup route-ID candidate",
+      "Apple Search exact Shazam route title",
+      "same Apple Track ID must reappear in top 10 search results"
+    ],
+    "accept": "only after independent search proof; then use JP title and artist",
+    "regression": "1565502610 / 14 Heibei Ni Souvenir Original Karaoke",
+    "youtube_search_ranking_changed": false
+  }
+}

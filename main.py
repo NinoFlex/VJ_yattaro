@@ -1739,7 +1739,7 @@ class MainWindow(QMainWindow):
         )
 
     def search_youtube(
-        self, track_title, artist, comment, from_list=False, allow_auto_play=True
+        self, track_title, artist, comment, from_list=False, allow_auto_play=True, source_mode=None
     ):
         """YouTubeで動画を検索。
         
@@ -1754,6 +1754,10 @@ class MainWindow(QMainWindow):
         """
         from app.utils.logger import info, error
         from app.services.youtube_service import YouTubeService
+
+        search_source_mode = str(source_mode or getattr(self, "source_mode", "rekordbox")).lower()
+        if search_source_mode not in ("rekordbox", "shazam"):
+            search_source_mode = "rekordbox"
         
         # 右カラムのリストから検索された場合、楽曲情報を保持
         if from_list:
@@ -1768,7 +1772,7 @@ class MainWindow(QMainWindow):
         if self.youtube_search_thread and self.youtube_search_thread.isRunning():
             # 古い保留は破棄して最新の1件だけ保持
             self._pending_search_args = (
-                track_title, artist, comment, from_list, allow_auto_play
+                track_title, artist, comment, from_list, allow_auto_play, search_source_mode
             )
             info(f"Search queued (previous search running): {track_title}", "UI")
             return
@@ -1791,7 +1795,7 @@ class MainWindow(QMainWindow):
         
         # 検索クエリを作成
         search_query = youtube_service.create_search_query_from_track(
-            track_title, artist, comment
+            track_title, artist, comment, source_mode=search_source_mode
         )
         
         info(f"Searching YouTube for: {search_query}", "UI")
@@ -1891,7 +1895,7 @@ class MainWindow(QMainWindow):
         if self._pending_search_args is None:
             return
         
-        track_title, artist, comment, from_list, allow_auto_play = self._pending_search_args
+        track_title, artist, comment, from_list, allow_auto_play, source_mode = self._pending_search_args
         self._pending_search_args = None  # キューをクリア
         
         info(f"Executing pending search: {track_title}", "UI")
@@ -1901,6 +1905,7 @@ class MainWindow(QMainWindow):
             comment,
             from_list=from_list,
             allow_auto_play=allow_auto_play,
+            source_mode=source_mode,
         )
 
     def _auto_play_top_video(self, video):

@@ -579,16 +579,25 @@ class YouTubeService(QObject):
         """専用APIキーファイルから現在使用中のキーを取得。"""
         return self.api_key_store.get_active_key()
     
-    def get_search_template(self) -> str:
-        """設定から検索テンプレートを取得"""
-        return self.config_service.get("youtube_search_template", "%tracktitle% %comment%")
+    def get_search_template(self, source_mode: str = "rekordbox") -> str:
+        """入力ソースごとの検索テンプレートを取得する。"""
+        mode = str(source_mode or "rekordbox").strip().lower()
+        if mode == "shazam":
+            return self.config_service.get(
+                "youtube_search_template_shazam", "%tracktitle% %artist%"
+            )
+
+        legacy = self.config_service.get("youtube_search_template", "%tracktitle% %comment%")
+        return self.config_service.get("youtube_search_template_rekordbox", legacy)
     
     def is_configured(self) -> bool:
         """YouTube APIが設定されているかチェック"""
         api_key = self.get_api_key()
         return bool(api_key and api_key.strip())
     
-    def create_search_query_from_track(self, track_title: str, artist: str, comment: str = "") -> str:
+    def create_search_query_from_track(
+        self, track_title: str, artist: str, comment: str = "", source_mode: str = "rekordbox"
+    ) -> str:
         """
         トラック情報からYouTube検索クエリを作成
         
@@ -600,7 +609,7 @@ class YouTubeService(QObject):
         Returns:
             YouTube検索クエリ
         """
-        template = self.get_search_template()
+        template = self.get_search_template(source_mode)
         track_data = {
             "tracktitle": track_title,
             "artist": artist,

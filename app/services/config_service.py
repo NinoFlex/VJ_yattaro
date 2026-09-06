@@ -50,6 +50,8 @@ class ConfigService:
             "player_port": 8080,
             "youtube_api_keys": {"active_index": -1, "keys": []},
             "youtube_search_template": "%tracktitle% %comment%",
+            "youtube_search_template_rekordbox": "%tracktitle% %comment%",
+            "youtube_search_template_shazam": "%tracktitle% %artist%",
             "auto_play_top_result": False,
             "auto_play_seek_seconds": 0,
             "ui_theme": "dark",
@@ -89,6 +91,17 @@ class ConfigService:
                     self.config["shazam_language"] = "ja-JP"
                     self.save_config({"shazam_language": "ja-JP"})
                     print("ConfigService: Migrated Shazam locale jp-JP -> ja-JP")
+
+                # Search-template migration: the old single template belongs to Rekordbox.
+                # Shazam gets its own default of title + artist.
+                if "youtube_search_template_rekordbox" not in file_config:
+                    legacy_template = str(
+                        file_config.get("youtube_search_template", "%tracktitle% %comment%")
+                        or "%tracktitle% %comment%"
+                    )
+                    self.config["youtube_search_template_rekordbox"] = legacy_template
+                    self.save_config({"youtube_search_template_rekordbox": legacy_template})
+                    print("ConfigService: Migrated legacy YouTube search template to Rekordbox mode")
             except Exception as e:
                 print(f"ConfigService: Error loading config file: {e}")
         else:

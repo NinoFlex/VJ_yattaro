@@ -264,7 +264,13 @@ class SettingsDialog(QDialog):
             
         self.youtube_api_keys, self.youtube_active_key_index = self.youtube_api_key_store.load()
         self._refresh_youtube_api_key_table()
-        self.youtube_search_template_edit.setText(self.config_service.get("youtube_search_template", "%tracktitle% %comment%"))
+        legacy_search_template = self.config_service.get("youtube_search_template", "%tracktitle% %comment%")
+        self.youtube_search_template_rekordbox_edit.setText(
+            self.config_service.get("youtube_search_template_rekordbox", legacy_search_template)
+        )
+        self.youtube_search_template_shazam_edit.setText(
+            self.config_service.get("youtube_search_template_shazam", "%tracktitle% %artist%")
+        )
         
         # プレイヤータブの設定値を読み込み
         position = self.config_service.get("player_track_info_position", "top-right")
@@ -834,15 +840,23 @@ class SettingsDialog(QDialog):
         note_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", note_label)
 
-        self.youtube_search_template_edit = QLineEdit()
-        self.youtube_search_template_edit.setPlaceholderText("例: %artist% %tracktitle% official video")
-        layout.addRow("検索テンプレート:", self.youtube_search_template_edit)
+        self.youtube_search_template_rekordbox_edit = QLineEdit()
+        self.youtube_search_template_rekordbox_edit.setPlaceholderText("例: %tracktitle% %comment%")
+        layout.addRow("Rekordbox検索テンプレート:", self.youtube_search_template_rekordbox_edit)
+
+        self.youtube_search_template_shazam_edit = QLineEdit()
+        self.youtube_search_template_shazam_edit.setPlaceholderText("例: %tracktitle% %artist%")
+        layout.addRow("Shazam検索テンプレート:", self.youtube_search_template_shazam_edit)
 
         variables_label = QLabel("• %tracktitle% - トラックタイトル\n• %artist% - アーティスト名\n• %comment% - コメント")
         variables_label.setStyleSheet(f"color: {self._theme_color('text')}; font-size: 9px; margin-left: 10px; margin-bottom: 10px;")
         layout.addRow("", variables_label)
 
-        examples_label = QLabel("例：\n• %artist% %tracktitle%\n• %tracktitle% official video\n• %artist% - %tracktitle% live")
+        examples_label = QLabel(
+            "Rekordbox既定: %tracktitle% %comment%\n"
+            "Shazam既定: %tracktitle% %artist%\n"
+            "例: %artist% - %tracktitle% live"
+        )
         examples_label.setStyleSheet(self._muted_style("font-size: 9px; margin-top: 5px;"))
         layout.addRow("", examples_label)
 
@@ -1126,7 +1140,12 @@ class SettingsDialog(QDialog):
         hotkey_forward = self.hotkey_forward_edit.text()
         youtube_api_keys = list(self.youtube_api_keys)
         youtube_active_key_index = self.youtube_active_key_index
-        youtube_search_template = self.youtube_search_template_edit.text()
+        youtube_search_template_rekordbox = (
+            self.youtube_search_template_rekordbox_edit.text().strip() or "%tracktitle% %comment%"
+        )
+        youtube_search_template_shazam = (
+            self.youtube_search_template_shazam_edit.text().strip() or "%tracktitle% %artist%"
+        )
         enable_logging = self.enable_logging_checkbox.isChecked()
         shazam_input_device = self.shazam_input_device_combo.currentData()
         shazam_language = self.shazam_language_combo.currentText().strip() or "ja-JP"
@@ -1163,7 +1182,8 @@ class SettingsDialog(QDialog):
             f"Settings: Saving YouTube API Keys: {len(youtube_api_keys)} key(s), "
             f"active={youtube_active_key_index + 1 if youtube_active_key_index >= 0 else 'none'}"
         )
-        print(f"Settings: Saving YouTube Search Template: {youtube_search_template}")
+        print(f"Settings: Saving Rekordbox YouTube Search Template: {youtube_search_template_rekordbox}")
+        print(f"Settings: Saving Shazam YouTube Search Template: {youtube_search_template_shazam}")
         print(f"Settings: Saving Shazam recording duration: {shazam_recording_seconds}s")
 
         if not self.youtube_api_key_store.save(youtube_api_keys, youtube_active_key_index):
@@ -1195,7 +1215,10 @@ class SettingsDialog(QDialog):
             "hotkey_search": hotkey_search,
             "hotkey_rewind": hotkey_rewind,
             "hotkey_forward": hotkey_forward,
-            "youtube_search_template": youtube_search_template,
+            # Keep the legacy key as a Rekordbox alias for backward compatibility.
+            "youtube_search_template": youtube_search_template_rekordbox,
+            "youtube_search_template_rekordbox": youtube_search_template_rekordbox,
+            "youtube_search_template_shazam": youtube_search_template_shazam,
             "enable_logging": enable_logging,
             "shazam_input_device": shazam_input_device,
             "shazam_language": shazam_language,
