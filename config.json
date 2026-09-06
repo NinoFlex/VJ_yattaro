@@ -1,21 +1,31 @@
 {
-    "db_path": "C:/Users/NINO/git/master.db",
+    "db_path": "D:/PIONEER/Master/master.db",
     "interval_s": 3,
     "hotkey_move_up": "up",
     "hotkey_move_down": "down",
     "hotkey_move_left": "left",
     "hotkey_move_right": "right",
-    "bring_to_front_on_hotkey": true,
-    "always_on_top": false,
+    "bring_to_front_on_hotkey": false,
+    "always_on_top": true,
     "bring_to_back_delay_s": 3,
     "player_port": 8080,
     "youtube_api_keys": {
-        "active_index": -1,
-        "keys": []
+        "active_index": 0,
+        "keys": [
+            "AIzaSyCNXFpLPMIroQsGJT9VRCL9IRTDaW2Jx10",
+            "AIzaSyCx4QGqrYNk5zwiQv9-dTr0sGp7YYmz2O0"
+        ]
     },
     "youtube_search_template": "%tracktitle% %comment%",
+    "auto_play_top_result": true,
+    "auto_play_seek_seconds": 5,
+    "ui_theme": "dark",
     "enable_logging": true,
-    "midi_port_name": "LPD8 mk2",
+    "shazam_input_device": 9,
+    "shazam_language": "ja-JP",
+    "shazam_endpoint_country": "JP",
+    "shazam_recording_seconds": 6,
+    "midi_port_name": "",
     "midi_move_up": 43,
     "midi_move_down": 39,
     "midi_move_left": 41,
@@ -28,16 +38,10 @@
     "hotkey_preload": "ctrl+/",
     "hotkey_play": "ctrl+\\",
     "hotkey_search": "ctrl+.",
-    "bring_to_front_on_search": true,
-    "rewind_seconds": 3,
-    "forward_seconds": 4,
+    "bring_to_front_on_search": false,
+    "rewind_seconds": 1,
+    "forward_seconds": 2,
     "hotkey_rewind": "ctrl+;",
     "hotkey_forward": "ctrl+:",
-    "player_track_info_position": "scroll",
-    "shazam_input_device": null,
-    "auto_play_top_result": false,
-    "auto_play_seek_seconds": 0,
-    "ui_theme": "dark",
-    "youtube_search_template_rekordbox": "%tracktitle% %comment%",
-    "youtube_search_template_shazam": "%tracktitle% %artist%"
+    "player_track_info_position": "scroll"
 }
