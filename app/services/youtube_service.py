@@ -261,6 +261,10 @@ class YouTubeSearchThread(QThread):
             'part': 'snippet',
             'q': self.query,
             'type': 'video',
+            # YouTube Data API の既定値は safeSearch=moderate。
+            # 楽曲タイトルや歌詞表現によっては通常の音楽動画まで検索結果から
+            # 除外されるため、アプリ側では検索候補を欠落させないよう none を明示する。
+            'safeSearch': 'none',
             'maxResults': 20,  # より多く取得してフィルタリング
             'key': self.api_key
             # videoDurationパラメータを削除してすべての動画を取得

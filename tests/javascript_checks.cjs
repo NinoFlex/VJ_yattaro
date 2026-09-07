@@ -41,6 +41,34 @@ function fixture(host = 'www.shazam.com') {
     vm.runInContext(fs.readFileSync(path.join(scripts,file),'utf8'),ctx,{filename:file});
   return {ctx,world,messages,connections,nativeCalls:()=>nativeCalls};
 }
+
+function routeEvidenceFixture({headingTitle = '', jsonLd = null} = {}) {
+  class Element {
+    constructor(text = '') { this.innerText = text; this.textContent = text; this.parentElement = null; }
+    getBoundingClientRect() { return {width: 320, height: 40}; }
+    closest(selector) { return selector.includes('article') ? this : null; }
+    querySelectorAll() { return []; }
+  }
+  const heading = headingTitle ? new Element(headingTitle) : null;
+  const script = jsonLd ? {textContent: JSON.stringify(jsonLd)} : null;
+  const document = {
+    querySelectorAll(selector) {
+      if (selector === 'h1,[data-testid*="title" i]') return heading ? [heading] : [];
+      if (selector === 'script[type="application/ld+json"]') return script ? [script] : [];
+      return [];
+    }
+  };
+  const world = {
+    URL, Set, Object, String, Array, Element, document,
+    location: {href: 'https://www.shazam.com/ja-jp/song/6793804469/star'},
+    getComputedStyle: () => ({display: 'block', visibility: 'visible', opacity: '1'})
+  };
+  world.window = world;
+  const source = fs.readFileSync(path.join(scripts, 'route_evidence.js'), 'utf8')
+    .replace('__BASELINE_TRACK_IDS__', '[]');
+  return vm.runInContext(source, vm.createContext(world), {filename: 'route_evidence.js'});
+}
+
 (async()=>{
   const f=fixture();
   f.world.__vjResults.arm(a);
@@ -100,5 +128,22 @@ function fixture(host = 'www.shazam.com') {
   const other=fixture('example.test');
   assert.equal(other.world.__vjAudioBridge,undefined);
   assert.equal(other.world.__vjResults,undefined);ok('production origin guards leave other sites untouched');
+
+  const delayedArtist = routeEvidenceFixture({
+    headingTitle: 'Star',
+    jsonLd: {'@type':'MusicRecording', name:'Star', byArtist:{name:'日本語アーティスト'}}
+  });
+  assert.equal(delayedArtist.evidence, 'jsonld');
+  assert.equal(delayedArtist.artist, '日本語アーティスト');
+  ok('route evidence does not return an artist-less heading before complete JSON-LD');
+
+  const routeOnly = routeEvidenceFixture();
+  assert.equal(routeOnly.evidence, 'route-only');
+  assert.equal(routeOnly.artist, '');
+  ok('route-only remains the bounded fallback when detailed metadata never appears');
+
+  const bridgeSource = fs.readFileSync(path.join(__dirname, '..', 'native', 'ShazamWebViewBridge', 'BridgeHost.cs'), 'utf8');
+  assert.match(bridgeSource, /RouteEvidenceWindow\s*=\s*TimeSpan\.FromSeconds\(4\)/);
+  ok('route metadata polling window is extended beyond the former one-second race');
   console.log(`${total} JavaScript mock fixture checks passed.`);
 })().catch(e=>{console.error(e);process.exit(1)});

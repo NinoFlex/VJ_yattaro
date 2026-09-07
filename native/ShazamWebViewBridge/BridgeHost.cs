@@ -17,6 +17,13 @@ internal sealed record Candidate(
 
 internal sealed class BridgeHost : Form
 {
+    // Shazam often changes the route before the result page has finished painting its
+    // title/artist/JSON-LD. One second was too short on some tracks, which caused a
+    // route-only candidate to be returned with an empty artist. Keep polling the exact
+    // recognized route for a few seconds, but still return immediately once strong
+    // metadata appears.
+    private static readonly TimeSpan RouteEvidenceWindow = TimeSpan.FromSeconds(4);
+
     private readonly string _language;
     private readonly bool _debug;
     private readonly string _instanceId;
@@ -339,9 +346,20 @@ internal sealed class BridgeHost : Form
         var script = Script("route_evidence.js").Replace(
             "__BASELINE_TRACK_IDS__", JsonSerializer.Serialize(baselineTrackIds), StringComparison.Ordinal);
 
-        while (deadline.Elapsed < TimeSpan.FromMilliseconds(1000))
+        while (deadline.Elapsed < RouteEvidenceWindow)
         {
             token.ThrowIfCancellationRequested();
+
+            // Network/result-observer evidence can arrive while the route page is still
+            // rendering. Do not make a complete recognition wait for the DOM polling
+            // window just because CaptureRouteEvidenceAsync is currently active.
+            var liveBest = _best;
+            if (liveBest is not null && SameKnownIdentity(liveBest, routeCandidate) &&
+                (!string.IsNullOrWhiteSpace(liveBest.AppleTrackId) ||
+                 (!string.IsNullOrWhiteSpace(liveBest.Title) &&
+                  !string.IsNullOrWhiteSpace(liveBest.Artist))))
+                return Better(best, liveBest);
+
             try
             {
                 if (TryParseShazamRoute(_webView.CoreWebView2.Source, out var routeId) &&
@@ -355,9 +373,12 @@ internal sealed class BridgeHost : Form
                             string.Equals(candidate.ShazamTrackId, routeCandidate.ShazamTrackId, StringComparison.Ordinal))
                         {
                             best = Better(best, candidate);
+                            // Any exact Apple identity or complete text from the live
+                            // route is enough. JSON-LD frequently becomes available a
+                            // little before the visible artist element does, so do not
+                            // require track-heading specifically here.
                             if (!string.IsNullOrWhiteSpace(candidate.AppleTrackId) ||
-                                (candidate.Evidence == "track-heading" &&
-                                 !string.IsNullOrWhiteSpace(candidate.Title) &&
+                                (!string.IsNullOrWhiteSpace(candidate.Title) &&
                                  !string.IsNullOrWhiteSpace(candidate.Artist)))
                                 return best;
                         }

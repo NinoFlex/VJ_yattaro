@@ -1,6 +1,6 @@
 {
   "source_archive": "app.zip",
-  "source_archive_sha256": "7267f8a743d34c842f11ec46ea9e829c800a2d4ffd271630a5619062f778d3cf",
+  "source_archive_sha256": "7eb07e8c537c5d2045f284a4cd72e4a15a6f780e36d8520a9bd259d16866941b",
   "backend": "Official Shazam.com in Microsoft Edge WebView2; app-supplied audio MediaStream",
   "target": "Windows x64",
   "ui_byte_identical": false,
@@ -109,7 +109,7 @@
       "title-only repeated results are de-duplicated"
     ]
   },
-  "release": "1.2.7-route-only-japanese-metadata",
+  "release": "1.2.10-youtube-safe-search-music-fix",
   "japanese_apple_safe_v1_2": {
     "source": "standalone v0.5.5 behavior ported to integrated VJ_yattaro backend",
     "changes": [
@@ -132,9 +132,9 @@
       "skip low-confidence public Shazam HTML fallback for route-only results"
     ]
   },
-  "version": "1.2.7",
-  "python_tests": 43,
-  "javascript_tests": 16,
+  "version": "1.2.10",
+  "python_tests": 47,
+  "javascript_tests": 19,
   "latency_fix": {
     "readiness_poll_ms": 100,
     "network_response_observer": "official Shazam webpage /tag/ response only",
@@ -142,7 +142,7 @@
     "busy_reply_race_fixed": true,
     "reuse_ready_homepage": true,
     "apple_parallel_lookup": true,
-    "route_evidence_grace_ms": 1000
+    "route_evidence_grace_ms": 4000
   },
   "dual_lane_latency_v1_2_4": {
     "recognition_lanes": 2,
@@ -184,6 +184,23 @@
     "app/services/youtube_service.py",
     "config.json"
   ],
+  "route_render_artist_fix_v1_2_8": {
+    "problem": "some Shazam routes were finalized after only 1 second, before artist/JSON-LD painted, leaving a romanized slug and blank artist",
+    "changes": [
+      "poll exact live Shazam route metadata for up to 4 seconds",
+      "return early as soon as Apple identity or complete title+artist appears",
+      "check JSON-LD before accepting an artist-less visible heading",
+      "for route-only fallback, accept localized public Shazam title+artist only when og:url/canonical repeats the exact same Shazam route ID"
+    ],
+    "regressions": [
+      "artist-less heading followed by complete JSON-LD",
+      "6776126341 / Hikari -> localized exact-route public page metadata",
+      "different public-page Shazam ID is rejected"
+    ],
+    "python_tests": 45,
+    "javascript_vm_tests": 19,
+    "windows_compiled": false
+  },
   "route_only_japanese_metadata_v1_2_7": {
     "problem": "route-only Shazam result had romanized slug and blank artist even though Apple Lookup already contained the Japanese title/artist",
     "proof": [
@@ -194,5 +211,26 @@
     "accept": "only after independent search proof; then use JP title and artist",
     "regression": "1565502610 / 14 Heibei Ni Souvenir Original Karaoke",
     "youtube_search_ranking_changed": false
+  },
+  "shazam_song_id_localization_fix_v1_2_9": {
+    "problem": "current Shazam /song route IDs were treated like legacy /track IDs, so exact Apple metadata such as Star -> 星 was rejected when localized text did not match the route slug",
+    "changes": [
+      "parse and preserve whether the Shazam route is /song or legacy /track",
+      "for /song/<id>, accept an exact Apple Lookup song record containing both title and artist",
+      "for legacy /track/<id>, retain independent title/search proof to reject numeric ID collisions",
+      "keep route/public-page fallback behavior when exact Apple Lookup is unavailable"
+    ],
+    "regressions": [
+      "6793804469 / star accepts localized exact Apple metadata",
+      "legacy /track unrelated Apple record remains rejected"
+    ],
+    "python_tests": 46,
+    "javascript_vm_tests": 19,
+    "windows_rebuild_required": true
+  },
+  "youtube_safe_search_v1_2_10": {
+    "safeSearch": "none",
+    "problem": "correctly recognized music tracks could return zero YouTube results under the API default safe-search filtering",
+    "regression_query": "脱げばいいってモンじゃない loves. 初音ミク デッドボールP"
   }
 }

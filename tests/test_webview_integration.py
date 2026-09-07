@@ -299,7 +299,7 @@ class MetadataTests(unittest.TestCase):
                 ('14平米にスーベニア (オリジナル・カラオケ)', 'Apple JP Artist'),
             )
 
-    def test_route_only_id_rejects_unrelated_apple_record(self):
+    def test_legacy_track_route_rejects_unrelated_apple_record(self):
         resolver = ITunesMetadataResolver()
         wrong = self._json_response({'results': [
             {'kind': 'song', 'trackId': 1655784202, 'trackName': 'Completely Different', 'artistName': 'Wrong'}]})
@@ -313,13 +313,35 @@ class MetadataTests(unittest.TestCase):
             return wrong if 'itunes.apple.com' in url else page
         result = {
             'shazamTrackId': '1655784202', 'source': 'shazam-route',
-            'url': 'https://www.shazam.com/ja-jp/song/1655784202/inochi-moyashite-koiseyo-otome-game-version',
+            'url': 'https://www.shazam.com/ja-jp/track/1655784202/inochi-moyashite-koiseyo-otome-game-version',
         }
         with patch('requests.get', side_effect=request):
             self.assertEqual(
                 resolver.resolve(result, 'ja-JP', 'JP'),
                 ('Inochi Moyashite Koiseyo Otome Game Version', ''),
             )
+
+    def test_route_only_song_id_accepts_exact_apple_localization_when_slug_is_translation(self):
+        resolver = ITunesMetadataResolver()
+        en = self._json_response({'results': [
+            {'kind': 'song', 'trackId': 6793804469, 'trackName': '星', 'artistName': '女王蜂'}]})
+        jp = self._json_response({'results': [
+            {'kind': 'song', 'trackId': 6793804469, 'trackName': '星', 'artistName': '女王蜂'}]})
+
+        def request(url, *args, **kwargs):
+            self.assertTrue(url.endswith('/lookup'))
+            return jp if kwargs.get('params', {}).get('lang') == 'ja_jp' else en
+
+        result = {
+            'shazamTrackId': '6793804469', 'source': 'shazam-route',
+            'url': 'https://www.shazam.com/ja-jp/song/6793804469/star',
+        }
+        with patch('requests.get', side_effect=request) as get:
+            self.assertEqual(
+                resolver.resolve(result, 'ja-JP', 'JP'),
+                ('星', '女王蜂'),
+            )
+            self.assertEqual(get.call_count, 2)
 
     def test_route_slug_is_last_resort_instead_of_dropping_recognition(self):
         result = {
@@ -330,6 +352,52 @@ class MetadataTests(unittest.TestCase):
             self.assertEqual(
                 ITunesMetadataResolver().resolve(result, 'ja-JP', 'JP'),
                 ('Campari Na', ''),
+            )
+
+    def test_route_only_exact_public_page_recovers_localized_title_and_artist(self):
+        empty = self._json_response({'results': []})
+        page = self._json_response({})
+        page.text = (
+            '<html><head>'
+            '<meta property="og:title" content="光 - 櫻井優衣 | Shazam">'
+            '<meta property="og:url" content="https://www.shazam.com/ja-jp/song/6776126341/hikari">'
+            '</head></html>'
+        )
+
+        def request(url, *args, **kwargs):
+            return empty if 'itunes.apple.com' in url else page
+
+        result = {
+            'shazamTrackId': '6776126341', 'source': 'shazam-route',
+            'url': 'https://www.shazam.com/ja-jp/song/6776126341/hikari',
+        }
+        with patch('requests.get', side_effect=request):
+            self.assertEqual(
+                ITunesMetadataResolver().resolve(result, 'ja-JP', 'JP'),
+                ('光', '櫻井優衣'),
+            )
+
+    def test_route_only_public_page_rejects_different_shazam_id(self):
+        empty = self._json_response({'results': []})
+        page = self._json_response({})
+        page.text = (
+            '<html><head>'
+            '<meta property="og:title" content="Wrong Song - Wrong Artist | Shazam">'
+            '<meta property="og:url" content="https://www.shazam.com/ja-jp/song/9999999999/wrong-song">'
+            '</head></html>'
+        )
+
+        def request(url, *args, **kwargs):
+            return empty if 'itunes.apple.com' in url else page
+
+        result = {
+            'shazamTrackId': '6776126341', 'source': 'shazam-route',
+            'url': 'https://www.shazam.com/ja-jp/song/6776126341/hikari',
+        }
+        with patch('requests.get', side_effect=request):
+            self.assertEqual(
+                ITunesMetadataResolver().resolve(result, 'ja-JP', 'JP'),
+                ('Hikari', ''),
             )
 
 
@@ -499,7 +567,7 @@ class PreservationTests(unittest.TestCase):
         self.assertLess(method.index('_busy = false;'), method.rindex('Program.Send(new { type = "result"'))
         self.assertIn('TimeSpan.FromMilliseconds(250)', source)
         self.assertIn('TimeSpan.FromMilliseconds(650)', source)
-        self.assertIn('TimeSpan.FromMilliseconds(1000)', source)
+        self.assertIn('RouteEvidenceWindow = TimeSpan.FromSeconds(4)', source)
 
     def test_parallel_helpers_have_isolated_profiles_and_15s_deadline(self):
         program = (ROOT / 'native/ShazamWebViewBridge/Program.cs').read_text(encoding='utf-8')

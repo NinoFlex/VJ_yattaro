@@ -88,7 +88,10 @@
   })();
   if (!route) return null;
 
-  // Primary source: visible heading on the exact live recognition route.
+  // Primary source: visible heading on the exact live recognition route. Do not
+  // immediately return an incomplete heading: Shazam can paint the h1 before the
+  // artist while JSON-LD already contains the complete track metadata.
+  let headingCandidate = null;
   for (const h of document.querySelectorAll('h1,[data-testid*="title" i]')) {
     const title = clean(h.innerText || h.textContent);
     if (!visible(h) || structuralUI(h) || bad(title)) continue;
@@ -99,7 +102,7 @@
       if (appleMusicUrl) break;
     }
     const region = root || h.closest('article,section,[role="main"],main') || h.parentElement || document;
-    return {
+    const candidate = {
       title,
       artist: visibleArtist(region),
       appleTrackId: appleId(appleMusicUrl),
@@ -108,6 +111,8 @@
       url: route.url,
       evidence: 'track-heading'
     };
+    if (candidate.appleTrackId || candidate.artist) return candidate;
+    if (!headingCandidate) headingCandidate = candidate;
   }
 
   // Secondary source: JSON-LD on the exact live route. Never attach a global
@@ -115,14 +120,23 @@
   for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
     try {
       const item = findMusic(JSON.parse(s.textContent || 'null'));
-      if (item) return {
-        title: item.title,
-        artist: item.artist || visibleArtist(),
-        appleTrackId: '', appleMusicUrl: '',
-        shazamTrackId: route.id, url: route.url, evidence: 'jsonld'
-      };
+      if (item) {
+        const artist = item.artist || visibleArtist();
+        const candidate = {
+          title: item.title,
+          artist,
+          appleTrackId: '', appleMusicUrl: '',
+          shazamTrackId: route.id, url: route.url, evidence: 'jsonld'
+        };
+        // Prefer complete JSON-LD over an h1 that has not acquired its artist yet.
+        // If JSON-LD is also incomplete, retain the visible heading as the stronger
+        // title source and let the next poll try again.
+        if (artist || !headingCandidate) return candidate;
+      }
     } catch (_) {}
   }
+
+  if (headingCandidate) return headingCandidate;
 
   return {
     title: '', artist: '', appleTrackId: '', appleMusicUrl: '',

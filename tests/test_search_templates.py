@@ -53,6 +53,7 @@ with patch.dict(sys.modules, {
     spec.loader.exec_module(youtube_module)
 
 YouTubeService = youtube_module.YouTubeService
+YouTubeSearchThread = youtube_module.YouTubeSearchThread
 
 
 class _Config:
@@ -120,6 +121,21 @@ class SearchTemplateTests(unittest.TestCase):
         self.assertIn('"youtube_search_template_shazam": "%tracktitle% %artist%"', config)
         self.assertIn('allow_auto_play, search_source_mode', main)
         self.assertIn('source_mode=search_source_mode', main)
+
+
+class YouTubeSearchRequestTests(unittest.TestCase):
+    def test_search_explicitly_disables_youtube_safe_search_filter(self):
+        thread = YouTubeSearchThread(['test-key'], 0, '脱げばいいってモンじゃない loves. 初音ミク デッドボールP')
+
+        with patch.object(thread, '_request_json', return_value={'items': []}) as request_json:
+            self.assertEqual(thread._search_youtube(), [])
+
+        _, params, _ = request_json.call_args.args
+        self.assertEqual(params['safeSearch'], 'none')
+        self.assertEqual(
+            params['q'],
+            '脱げばいいってモンじゃない loves. 初音ミク デッドボールP',
+        )
 
 
 if __name__ == '__main__':

@@ -1,11 +1,11 @@
 """Safe Japanese localization for official Shazam WebView2 results.
 
 Recognition identity always comes from the live Shazam result. Apple/iTunes is used
-for Japanese metadata only when the Apple song is tied to the same Shazam result by
-(1) a real Apple Music track link or (2) an exact normalized title+artist match.
-Shazam route IDs are never blindly treated as Apple track IDs. In a route-only
-result, the numeric Shazam ID may be probed as an Apple candidate only when Apple
-lookup text proves that its English title is the same as the recognized route slug.
+for Japanese metadata only when the Apple song is tied to the same Shazam result.
+Current Shazam ``/song/<id>`` routes use the Apple song ID, so an exact iTunes lookup
+of that same numeric ID is authoritative even when the route slug is an English
+translation (for example ``Star`` -> ``星``). Legacy ``/track/<id>`` routes use a
+Shazam-specific ID and therefore still require independent title/search proof.
 """
 from __future__ import annotations
 
@@ -121,6 +121,24 @@ def _shazam_route_identity(value: str) -> tuple[str, str]:
     return "", ""
 
 
+def _shazam_route_kind(value: str) -> str:
+    """Return ``song`` for Apple-backed routes and ``track`` for legacy Shazam IDs."""
+    safe = _safe_shazam_song_url(value)
+    if not safe:
+        return ""
+    try:
+        parts = [p for p in urlparse(safe).path.split("/") if p]
+        for i, part in enumerate(parts[:-1]):
+            kind = part.casefold()
+            if kind not in ("song", "track"):
+                continue
+            if i + 1 < len(parts) and parts[i + 1].isdigit():
+                return kind
+    except (ValueError, TypeError):
+        pass
+    return ""
+
+
 def _title_from_shazam_route(value: str) -> str:
     _, slug = _shazam_route_identity(value)
     if not slug or slug.isdigit():
@@ -194,6 +212,27 @@ def _parse_og_title(value: str) -> str:
     return clean_metadata(compact)
 
 
+def _parse_og_artist(value: str) -> str:
+    """Extract the performer from Shazam's localized og:title when present.
+
+    Current Shazam pages commonly expose headings such as
+    ``Title - Artist | Shazam`` (or a localized lyrics suffix).  This is only
+    consumed after the page's Shazam route ID is independently verified, so it
+    never establishes recognition identity by itself.
+    """
+    compact = clean_metadata(value)
+    if "|" in compact:
+        compact = compact.split("|", 1)[0].strip()
+    compact = re.sub(r"\s*[：:]\s*(?:歌詞|lyrics|music video|ミュージック).*$", "", compact, flags=re.I).strip()
+    compact = re.sub(r"\s*[-–—|]\s*Shazam\s*$", "", compact, flags=re.I).strip()
+    by = re.match(r"^(.*?)\s+by\s+(.+)$", compact, flags=re.I)
+    if by:
+        return clean_metadata(by.group(2))
+    if " - " in compact:
+        return clean_metadata(compact.rsplit(" - ", 1)[1])
+    return ""
+
+
 def _same_shazam_route(expected: str, candidate: str) -> bool:
     expected_id, _ = _shazam_route_identity(expected)
     candidate_id, _ = _shazam_route_identity(candidate)
@@ -205,7 +244,7 @@ class ITunesMetadataResolver:
         self._result_cache: dict[tuple, tuple[float, tuple[str, str]]] = {}
         self._id_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
         self._search_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
-        self._page_cache: dict[str, tuple[float, tuple[str, str, bool]]] = {}
+        self._page_cache: dict[str, tuple[float, tuple[str, str, str, bool]]] = {}
         self._route_search_proof_cache: dict[tuple[str, str], tuple[float, bool]] = {}
         self._retry_after = 0.0
 
@@ -374,16 +413,18 @@ class ITunesMetadataResolver:
             print(f"ShazamMetadata: Apple route-title proof unavailable ({type(exc).__name__})")
         return False
 
-    def _resolve_route_id_candidate(self, route_id: str, route_title: str, cancelled=None) -> tuple[str, str] | None:
-        """Safely recover Apple metadata when Shazam exposed only a route.
+    def _resolve_route_id_candidate(self, route_id: str, route_title: str, route_kind: str = "", cancelled=None) -> tuple[str, str] | None:
+        """Recover Apple metadata when Shazam exposed only a route.
 
-        Some current Shazam /song IDs are also the Apple song ID, while others are
-        not.  Never assume equality: probe the numeric ID, then require an English
-        Apple title that is textually identical to the recognized route slug.  Only
-        after that proof do we use the JP lookup from the same ID.
+        Shazam's current ``/song/<id>`` route is Apple-catalog backed: the numeric
+        route ID is the Apple song ID.  That exact-ID lookup is therefore stronger
+        than comparing the localized Apple title with the English route slug.
+        Legacy ``/track/<id>`` routes are a different Shazam namespace and keep the
+        old independent text/search verification.
         """
         route_id = str(route_id or "").strip()
         route_title = clean_metadata(route_title)
+        route_kind = str(route_kind or "").strip().casefold()
         if (not re.fullmatch(r"[0-9]{6,20}", route_id) or not route_title
                 or self._cancelled(cancelled)):
             return None
@@ -391,6 +432,18 @@ class ITunesMetadataResolver:
         if en is None and jp is None:
             print(f"ShazamMetadata: route-ID Apple candidate trackId={route_id} -> not found")
             return None
+
+        localized = jp or en
+        # Current /song routes are keyed by the Apple song ID itself.  Require a
+        # real song record with both title and artist before accepting it; this is
+        # intentionally NOT applied to legacy /track routes.
+        if route_kind == "song" and localized and localized.get("trackName") and localized.get("artistName"):
+            print(
+                "ShazamMetadata: Apple Japanese metadata accepted by exact Shazam /song ID "
+                f"trackId={route_id} routeTitle={route_title!r} "
+                f"appleTitle={localized['trackName']!r} artist={localized.get('artistName','')!r}"
+            )
+            return localized["trackName"], localized.get("artistName", "")
 
         proof_titles = [clean_metadata((item or {}).get("trackName")) for item in (en, jp)]
         proof_titles = [title for title in proof_titles if title]
@@ -401,7 +454,7 @@ class ITunesMetadataResolver:
         verified = text_verified or search_verified
         print(
             "ShazamMetadata: route-ID Apple candidate verification "
-            f"shazamTrackId={route_id} routeTitle={route_title!r} "
+            f"shazamTrackId={route_id} routeKind={route_kind!r} routeTitle={route_title!r} "
             f"appleEnTitle={(en or {}).get('trackName','')!r} "
             f"appleJpTitle={(jp or {}).get('trackName','')!r} "
             f"textVerified={text_verified} searchVerified={search_verified} verified={verified}"
@@ -511,14 +564,14 @@ class ITunesMetadataResolver:
         )
         return name, performer
 
-    def _shazam_page_metadata(self, route_url: str, cancelled=None) -> tuple[str, str, bool]:
+    def _shazam_page_metadata(self, route_url: str, cancelled=None) -> tuple[str, str, str, bool]:
         url = _safe_shazam_song_url(route_url)
         if not url or self._cancelled(cancelled):
-            return "", "", False
+            return "", "", "", False
         cached = self._page_cache.get(url)
         if cached and cached[0] > time.monotonic():
             return cached[1]
-        resolved = ("", "", False)
+        resolved = ("", "", "", False)
         try:
             import requests
             response = requests.get(
@@ -533,9 +586,11 @@ class ITunesMetadataResolver:
             response.raise_for_status()
             page = response.text
             if len(page) <= 4_000_000:
-                title = _parse_og_title(_find_meta_content(page, "og:title"))
+                og_title = _find_meta_content(page, "og:title")
+                title = _parse_og_title(og_title)
+                artist = _parse_og_artist(og_title)
                 page_url = _find_meta_content(page, "og:url") or _find_canonical(page)
-                resolved = (title, page_url, _same_shazam_route(url, page_url))
+                resolved = (title, artist, page_url, _same_shazam_route(url, page_url))
         except Exception as exc:
             print(f"ShazamMetadata: public Shazam page unavailable ({type(exc).__name__})")
         self._page_cache[url] = (time.monotonic() + (3600 if resolved[0] else 45), resolved)
@@ -561,6 +616,7 @@ class ITunesMetadataResolver:
         source = self._source_base(str(result.get("source") or ""))
         apple_url = str(result.get("appleMusicUrl") or "").strip()
         route_title = _title_from_shazam_route(route_url)
+        route_kind = _shazam_route_kind(route_url)
 
         live_title = observed_title if source in _LIVE_SOURCES else ""
         if observed_title and source in _VISIBLE_HEADING_SOURCES:
@@ -620,9 +676,31 @@ class ITunesMetadataResolver:
         if (not apple_track_id and route_id and route_title
                 and (not live_title or not observed_artist)
                 and not self._cancelled(cancelled)):
-            route_exact = self._resolve_route_id_candidate(route_id, route_title, cancelled)
+            route_exact = self._resolve_route_id_candidate(route_id, route_title, route_kind, cancelled)
             if route_exact:
                 return self._cache(cache_key, route_exact, 3600)
+
+        # The live WebView can expose the exact /song route before its title/artist
+        # DOM has painted. As a second route-only recovery path, fetch that exact
+        # localized Shazam page and accept its title+artist only when og:url/canonical
+        # independently repeats the same Shazam route ID. This rejects redirects or
+        # stale unrelated pages while recovering cases such as a romanized route slug
+        # ("Hikari") whose ja-JP page title is Japanese ("光").
+        route_page = None
+        if (route_url and not observed_artist and not live_title and not trusted_title
+                and not self._cancelled(cancelled)):
+            route_page = self._shazam_page_metadata(route_url, cancelled)
+            page_title, page_artist, page_url, identity_verified = route_page
+            print(
+                f"ShazamMetadata: route-only public page title={page_title or '(not found)'!r} "
+                f"artist={page_artist!r} identityVerified={identity_verified} pageUrl={page_url!r}"
+            )
+            if identity_verified and page_title and page_artist:
+                print(
+                    "ShazamMetadata: route-only public page accepted after exact route-ID proof "
+                    f"title={page_title!r} artist={page_artist!r}"
+                )
+                return self._cache(cache_key, (page_title, page_artist), 3600)
 
         # Without an exact link, search Apple using the exact live Shazam title+artist first.
         attempted = False
@@ -654,7 +732,9 @@ class ITunesMetadataResolver:
         # AND be textually compatible with the recognized route slug.
         if (route_url and (observed_artist or live_title or trusted_title)
                 and not self._cancelled(cancelled)):
-            page_title, page_url, identity_verified = self._shazam_page_metadata(route_url, cancelled)
+            page_title, page_artist, page_url, identity_verified = (
+                route_page or self._shazam_page_metadata(route_url, cancelled)
+            )
             print(
                 f"ShazamMetadata: public Shazam page title={page_title or '(not found)'!r} "
                 f"identityVerified={identity_verified} pageUrl={page_url!r}"
