@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from app.services.track_matching import deduplicate_history, is_same_track
+
 
 class ShazamService(QObject):
     """Microphone -> fixed ring buffer -> Shazam recognition service.
@@ -18,7 +20,7 @@ class ShazamService(QObject):
     Audio capture and the public Qt/history contract are unchanged. Two staggered
     recognition lanes send fresh WAV snapshots to independent private WebView2 helpers
     running the official Shazam website. This avoids a single no-match blocking the next
-    attempt for ~18 seconds while keeping each helper strictly one-request-at-a-time.
+    attempt for ~15 seconds while keeping each helper strictly one-request-at-a-time.
     No ShazamIO library or private Shazam API is used.
     """
 
@@ -78,7 +80,6 @@ class ShazamService(QObject):
         self._latest_published_sequence = -1
         self._cancel_current = threading.Event()
         self._shutting_down = False
-        self._next_request_at = 0.0
 
         self._recognize_timer = QTimer(self)
         self._recognize_timer.setInterval(self.RECOGNITION_INTERVAL_MS)
@@ -244,7 +245,6 @@ class ShazamService(QObject):
             self._ensure_worker_threads()
             self._generation += 1
             self._cancel_current = threading.Event()
-            self._next_request_at = 0.0
             self._recognition_busy = False
             self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
             self._next_lane_index = 0
@@ -448,7 +448,9 @@ class ShazamService(QObject):
             return np.concatenate((self._ring[start:], self._ring[:self._write_pos])).copy()
 
     def _recognize_tick(self):
-        if not self._active:
+        # The readiness timer runs every 100 ms. Do not copy/resample/encode a
+        # fresh recording when neither lane can accept it.
+        if not self._active or all(self._lane_busy):
             return
 
         now = time.monotonic()
@@ -489,7 +491,6 @@ class ShazamService(QObject):
             self._recognition_busy = any(self._lane_busy)
             self._next_lane_index = (lane_index + 1) % self.PARALLEL_RECOGNITION_LANES
             self._next_lane_slot_at = now + self.LANE_STAGGER_SECONDS
-            self._next_request_at = 0.0
             print(
                 f"ShazamService: Scheduled recognition lane={lane_index + 1} "
                 f"seq={request_sequence} stagger={self.LANE_STAGGER_SECONDS:.1f}s"
@@ -560,14 +561,13 @@ class ShazamService(QObject):
     def _handle_recognition_finished(
         self, generation, lane_index, request_sequence, title, artist, error_text
     ):
+        # A late callback from before stop/restart must not release a lane
+        # that is already processing a request in the new generation.
+        if generation != self._generation or not self._active:
+            return
         if 0 <= lane_index < len(self._lane_busy):
             self._lane_busy[lane_index] = False
         self._recognition_busy = any(self._lane_busy)
-
-        if generation != self._generation:
-            return
-        if not self._active:
-            return
 
         try:
             if error_text:
@@ -602,16 +602,27 @@ class ShazamService(QObject):
             # title identity before artist metadata. Keep the valid title instead of
             # dropping a recognition; YouTube search accepts an empty artist.
             artist = str(artist or "").strip()
-            track_key = (title.casefold(), artist.casefold())
-            if self._is_same_track(self._last_track, track_key):
+            track_key = (title, artist)
+            previous_track = self._last_track
+            # Compare successive valid results, including suppressed variants.
+            self._last_track = track_key
+            if is_same_track(previous_track, track_key):
                 self.status_changed.emit(f"Shazam: {artist} - {title}")
                 return
 
-            self._last_track = track_key
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             entry = (timestamp, title, artist)
-            self._history.insert(0, entry)
-            self._history = self._history[:self.HISTORY_LIMIT]
+            # The first live result after application startup still needs to
+            # trigger playback, even if it matches the restored history head.
+            if (
+                previous_track is None
+                and self._history
+                and is_same_track(self._history[0][1:], track_key)
+            ):
+                self._history[0] = entry
+            else:
+                self._history.insert(0, entry)
+            del self._history[self.HISTORY_LIMIT:]
             self._save_history()
 
             self.history_updated.emit(list(self._history))
@@ -626,38 +637,6 @@ class ShazamService(QObject):
             # Shazam.com from simultaneous bursts while still overlapping slow attempts.
             if self._active and generation == self._generation:
                 self._recognize_tick()
-
-    @staticmethod
-    def _track_field_matches(previous_value, current_value):
-        """Return True when two Shazam fields are close enough for de-duplication.
-
-        Compare case-insensitively.  A field contributes its first six characters;
-        when it is shorter than six characters, the whole field is used.  The
-        comparison is symmetric so a short/base title also matches a longer
-        variant regardless of which one Shazam reports first.
-        """
-        previous = str(previous_value or "").strip().casefold()
-        current = str(current_value or "").strip().casefold()
-        if not previous or not current:
-            return False
-
-        previous_prefix = previous[: min(6, len(previous))]
-        current_prefix = current[: min(6, len(current))]
-        return previous_prefix in current or current_prefix in previous
-
-    @classmethod
-    def _is_same_track(cls, previous_track, current_track):
-        if not previous_track or not current_track:
-            return False
-
-        previous_title, previous_artist = previous_track
-        current_title, current_artist = current_track
-        if not cls._track_field_matches(previous_title, current_title):
-            return False
-        # A title-only fallback should not add the same song to history every cycle.
-        if not str(previous_artist or "").strip() or not str(current_artist or "").strip():
-            return True
-        return cls._track_field_matches(previous_artist, current_artist)
 
     def _close_stream(self):
         stream = self._stream
@@ -741,12 +720,16 @@ class ShazamService(QObject):
                 timestamp = self._clean_field(item.get("timestamp", ""))
                 title = self._clean_field(item.get("title", ""))
                 artist = self._clean_field(item.get("artist", ""))
-                if not timestamp or not title or not artist:
+                # Title-only recognitions are valid during live detection;
+                # retain them on restart as well.
+                if not timestamp or not title:
                     continue
                 entries.append((timestamp, title, artist))
         except Exception as e:
             print(f"ShazamService: Failed to load history: {e}")
-        return entries[:self.HISTORY_LIMIT]
+        # Compact in memory only. The existing file is not rewritten merely
+        # by opening the app; the next new recognition saves the compact view.
+        return deduplicate_history(entries)[:self.HISTORY_LIMIT]
 
     def _save_history(self):
         try:

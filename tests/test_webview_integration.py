@@ -480,7 +480,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_history_limit_is_still_50(self):
         for i in range(60):
-            self.svc._handle_recognition_finished(9, 0, i, f'{i:06} Song', f'{i:06} Artist', '')
+            self.svc._handle_recognition_finished(9, 0, i, f'{i:04} Song', f'{i:04} Artist', '')
         self.assertEqual(len(self.svc.get_history()), 50)
         self.assertEqual(len(json.loads(self.svc._history_path.read_text())), 50)
 
@@ -510,7 +510,6 @@ class ServiceTests(unittest.TestCase):
         self.svc._recognize_tick()
         self.assertTrue(all(self.svc._lane_busy))
         self.assertEqual(self.svc._work_queues[1].qsize(), 1)
-        self.assertEqual(self.svc._next_request_at, 0.0)
 
     def test_parallel_completion_does_not_overwrite_newer_result(self):
         self.svc._handle_recognition_finished(9, 1, 4, 'New song', 'Artist', '')
@@ -541,6 +540,120 @@ class ServiceTests(unittest.TestCase):
             time.sleep(.01)
         self.assertEqual(self.svc.get_history()[0][1:], ('Song A', 'Artist A'))
         recognizer.recognize.assert_called_once()
+
+    def test_alternating_original_cover_emits_only_one_new_track(self):
+        original = ('\u7089\u5fc3\u878d\u89e3 (feat. \u93e1\u97f3\u30ea\u30f3)', 'iroha(sasaki)')
+        cover = ('\u7089\u5fc3\u878d\u89e3(\u30ab\u30d0\u30fc)feat. \u30ea\u30c4\u30ab', 'iroha')
+        with patch.object(self.svc, '_save_history', wraps=self.svc._save_history) as save:
+            for seq, track in enumerate((original, cover, original, cover)):
+                self.svc._handle_recognition_finished(9, seq % 2, seq, *track, '')
+            self.assertEqual(save.call_count, 1)
+        self.assertEqual(len(self.svc.get_history()), 1)
+        self.assertEqual(self.svc.get_history()[0][1:], original)
+        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
+        self.assertEqual(len(self.svc.history_updated.calls), 1)
+        self.assertEqual(self.svc._latest_published_sequence, 3)
+
+    def test_nonconsecutive_same_track_is_emitted_again(self):
+        for seq, track in enumerate((('ABCD original', 'Alpha'),
+                                     ('Different song', 'Elsewhere'),
+                                     ('ABCD cover', 'Omega'))):
+            self.svc._handle_recognition_finished(9, seq % 2, seq, *track, '')
+        self.assertEqual(len(self.svc.get_history()), 3)
+        self.assertEqual(len(self.svc.new_track_detected.calls), 3)
+
+    def test_four_character_title_rule_ignores_artist_changes(self):
+        self.svc._handle_recognition_finished(9, 0, 0, 'ABCD original', 'Alpha', '')
+        self.svc._handle_recognition_finished(9, 1, 1, 'ABCD cover', 'Omega', '')
+        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
+
+    def test_only_three_matching_characters_emits_new_track(self):
+        self.svc._handle_recognition_finished(9, 0, 0, 'ABCD first', 'Alpha', '')
+        self.svc._handle_recognition_finished(9, 1, 1, 'ABCE second', 'Alpha', '')
+        self.assertEqual(len(self.svc.new_track_detected.calls), 2)
+
+    def test_suppressed_detection_remains_the_previous_result(self):
+        for seq, title in enumerate(('ABCDEFGH', 'BCDEFGHI', 'CDEFGHIJ')):
+            self.svc._handle_recognition_finished(9, seq % 2, seq, title, 'Alpha', '')
+        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
+        self.assertEqual(self.svc._last_track, ('CDEFGHIJ', 'Alpha'))
+
+    def test_new_run_is_not_merged_into_older_history_head(self):
+        for seq, title in enumerate(('ABCDEFGH', 'BCDEFGHI', 'CDEFGHIJ', 'ABCDEF reprise')):
+            self.svc._handle_recognition_finished(9, seq % 2, seq, title, 'Alpha', '')
+        self.assertEqual(len(self.svc.new_track_detected.calls), 2)
+        self.assertEqual(len(self.svc.get_history()), 2)
+
+    def test_no_match_or_error_does_not_reset_previous_track(self):
+        self.svc._handle_recognition_finished(9, 0, 0, 'ABCD original', 'Alpha', '')
+        self.svc._handle_recognition_finished(9, 1, 1, '', '', '')
+        self.svc._handle_recognition_finished(9, 0, 2, '', '', 'temporary failure')
+        self.svc._handle_recognition_finished(9, 1, 3, 'ABCD cover', 'Omega', '')
+        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
+
+    def test_late_result_after_suppressed_cover_is_still_stale(self):
+        self.svc._handle_recognition_finished(9, 0, 0, 'ABCD original', 'Alpha', '')
+        self.svc._handle_recognition_finished(9, 1, 4, 'ABCD cover', 'Omega', '')
+        self.svc._handle_recognition_finished(9, 0, 3, 'Different song', 'Elsewhere', '')
+        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
+        self.assertEqual(self.svc._last_track, ('ABCD cover', 'Omega'))
+
+    def test_old_generation_cannot_release_current_lane(self):
+        self.svc._lane_busy = [True, True]
+        self.svc._recognition_busy = True
+        self.svc._handle_recognition_finished(8, 0, 99, 'Stale song', 'Alpha', '')
+        self.assertEqual(self.svc._lane_busy, [True, True])
+        self.assertTrue(self.svc._recognition_busy)
+        self.assertIsNone(self.svc._last_track)
+
+    def test_busy_lanes_skip_audio_copy_resampling_and_wav_encoding(self):
+        self.svc._lane_busy = [True, True]
+        with patch.object(self.svc, '_snapshot_latest') as snapshot, \
+             patch.object(self.svc, '_resample_to_shazam_rate') as resample, \
+             patch.object(self.svc, '_pcm_to_wav_bytes') as encode:
+            self.svc._recognize_tick()
+        snapshot.assert_not_called()
+        resample.assert_not_called()
+        encode.assert_not_called()
+
+    def _write_history(self, rows):
+        payload = [dict(zip(('timestamp', 'title', 'artist'), row)) for row in rows]
+        self.svc._history_path.write_text(json.dumps(payload), encoding='utf-8')
+
+    def test_loading_compacts_adjacent_covers_without_rewriting_file(self):
+        rows = [('3', 'ABCD cover', 'Omega'), ('2', 'ABCD original', 'Alpha'),
+                ('1', 'Different song', 'Elsewhere')]
+        self._write_history(rows)
+        before = self.svc._history_path.read_bytes()
+        self.assertEqual(self.svc._load_history(), [rows[0], rows[2]])
+        self.assertEqual(self.svc._history_path.read_bytes(), before)
+
+    def test_loading_preserves_nonconsecutive_repeats(self):
+        rows = [('3', 'ABCD cover', 'Omega'), ('2', 'Different song', 'Elsewhere'),
+                ('1', 'ABCD original', 'Alpha')]
+        self._write_history(rows)
+        self.assertEqual(self.svc._load_history(), rows)
+
+    def test_loading_preserves_title_only_recognition(self):
+        rows = [('1', 'ABC', '')]
+        self._write_history(rows)
+        self.assertEqual(self.svc._load_history(), rows)
+
+    def test_first_live_result_after_restart_updates_head_and_triggers_search(self):
+        self.svc._history = [('1', 'ABCD original', 'Alpha')]
+        self.svc._handle_recognition_finished(9, 0, 0, 'ABCD cover', 'Omega', '')
+        self.assertEqual(len(self.svc.get_history()), 1)
+        self.assertEqual(self.svc.get_history()[0][1:], ('ABCD cover', 'Omega'))
+        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
+        self.svc._handle_recognition_finished(9, 1, 1, 'ABCD original', 'Alpha', '')
+        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
+
+    def test_next_new_track_saves_compacted_history(self):
+        self._write_history([('2', 'ABCD cover', 'Omega'), ('1', 'ABCD original', 'Alpha')])
+        self.svc._history = self.svc._load_history()
+        self.svc._handle_recognition_finished(9, 0, 0, 'Different song', 'Elsewhere', '')
+        saved = json.loads(self.svc._history_path.read_text())
+        self.assertEqual([row['title'] for row in saved], ['Different song', 'ABCD cover'])
 
 
 class PreservationTests(unittest.TestCase):

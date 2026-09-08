@@ -1,200 +1,91 @@
-# Shazam WebView2 integration: implementation notes
+# Shazam連携の内部構成
 
-## Scope
+この文書は収録ソースの実装を説明するものです。
+Shazamの公開サイトをWebView2で操作する構成であり、
+サイトの将来の動作や公式スマートフォンアプリと同等の精度を保証するものではありません。
 
-This is a source-level replacement of the uploaded application's Shazam recognition
-backend. It is not a replacement main window and does not launch ShazamWatch as a
-separate user-facing app. `main.py`, `ui/`, and `web/` are byte-identical to the input
-archive. Rekordbox, MIDI, hotkeys, YouTube search/player code, table models, and the
-existing theme are untouched.
-
-This uses **Microsoft Edge WebView2**, not WebKit. Recognition is executed by the
-real Shazam.com page. This integration is website automation, not an Apple-supported
-Windows recognition SDK. It does not use ShazamIO or call Shazam's private recognition
-endpoints itself. Reading the page's own completed recognition responses is an
-observer, not an additional recognition request. Site changes may require maintenance.
-No accuracy comparison with ShazamIO or the official phone app was performed.
-
-## Pipeline
+## 認識の流れ
 
 ```text
-Existing settings: microphone index, 5..20-second window
-  -> existing sounddevice/PortAudio stream and ring buffer
-  -> existing mono PCM WAV snapshot
-  -> Python recognition worker
-  -> private child-process stdin/stdout (JSON lines, no local HTTP server added)
-  -> self-contained .NET helper hosting Shazam.com in WebView2
-  -> Web Audio MediaStream supplied to the page's getUserMedia call
-  -> official Shazam page performs recognition
-  -> response observer / song-route capture / scoped DOM result
-  -> exact-ID iTunes Lookup for the selected country/language
-  -> unchanged history and Qt signals
-  -> unchanged app tables, YouTube search, and auto-play flow
+選択したマイク
+  → sounddevice / PortAudio
+  → リングバッファ
+  → 録音区間のWAV化
+  → Pythonワーカー（2レーン、開始間隔4秒）
+  → stdin/stdoutのJSON通信
+  → 各レーン専用のWebView2ヘルパー
+  → Shazamページで認識
+  → Appleメタデータの補完
+  → 直前の結果との同曲判定
+  → 履歴・Qt通知
+  → 既存のYouTube検索と再生
 ```
 
-Keeping the original microphone capture avoids trying to equate a PortAudio numeric
-index with Chromium's origin-scoped deviceId. The selected microphone is the only
-physical input. There is no Windows virtual audio driver, no global default-device
-change, and no speaker loopback. The helper refuses native microphone/camera requests
-as a fail-closed precaution. A missing input bridge is an error, not a fallback to a
-possibly unrelated microphone.
+録音時間は5～20秒、既定値は6秒です。準備状態は100ms間隔で確認します。
+2レーンが両方使用中の場合は、録音スナップショットのコピー、リサンプリング、
+WAV変換を行いません。マイクの取り込み自体は継続します。
 
-The page receives the selected 5..20-second snapshot as a generated audio MediaStream.
-The snapshot is repeated **only within that recognition request** because the website,
-not the app, determines its listening duration. The graph connects to a
-MediaStreamAudioDestinationNode, never to AudioContext.destination. The helper's page
-is also muted. This does not send live, newly arriving audio into an already-running
-request; the next request takes a new snapshot from the ring buffer.
+各レーンは独立したヘルパーとブラウザープロファイルを持ち、
+1つのヘルパー内では同時に複数の認識を行いません。
+WebView2の結果待ち期限はソース上で15秒です。
+結果には録音要求の連番を付け、古い結果による上書きを防ぎます。
+停止・再開前の世代の結果は、履歴だけでなく現在のレーン状態にも反映しません。
 
-The public ShazamService contract remains:
+音声はページ向けのMediaStreamへ渡します。
+1回の認識中は同じ録音区間を内部反復しますが、
+スピーカー出力やOSの既定マイク変更を行う方式ではありません。
+ヘルパー側で通常のマイク取得へ切り替えるフォールバックは設けていません。
 
-- `start()`, `stop()`, `reload_settings()`, `shutdown()`, `is_active()`;
-- `list_input_devices()` and `get_history()`;
-- `history_updated(list)`, `new_track_detected((timestamp, title, artist))`,
-  `status_changed(str)`, `error_occurred(str)`.
+## メタデータ
 
-History remains a maximum of 50 records in `shazam_history.json`. The previous
-case-insensitive, six-character-prefix de-duplication is intentionally unchanged.
-No new fields are required by the UI. Japanese text is passed directly as Unicode;
-there is no `now_playing.txt` polling bridge.
+既存の`itunes_metadata.py`を維持しています。
+実AppleリンクのID、認識ルート、曲名とアーティストの一致など、
+既存の根拠に応じてLookup/Searchと日本語メタデータの補完を行います。
 
-## Scheduling and errors
+収録版のPython実装は`/song/<id>`と`/track/<id>`を区別しています。
+`/song/`のIDについては既存実装の完全一致Lookup経路を使い、
+`/track/`ではルート名等による追加の照合を維持しています。
+今回の4文字一致は**アプリ内の連続検出のまとめ方**だけに用い、
+Apple候補の選別やYouTube検索クエリーの照合条件には流用していません。
 
-The original three-second Qt timer remains as a readiness/watchdog timer. There is
-no fixed 25-second web interval in v1.2. Only one recognition is in flight at a time;
-when that attempt completes (match, no-match, or error), the service immediately
-queues the newest available microphone snapshot. This preserves the existing UI while
-implementing continuous recognition without overlapping WebView2 requests.
+## 同曲判定と通知
 
-The helper still has a 75-second per-request total deadline and a 36-second result
-listening deadline. A stop, microphone change, mode change, or shutdown sets a
-cancellation event, invalidates the generation, stops the PortAudio stream, and
-terminates the helper without publishing stale responses.
+`track_matching.py`の`is_same_track()`に判定を集約しています。
+曲名先頭4文字の一致を先に判定し、不成立なら従来の判定へ進みます。
+比較用の空白除去・大小文字の正規化もこのモジュールで行います。
 
-## Result correctness
+同曲だった場合も直前の検出結果と要求連番は更新し、
+履歴追加、JSON保存、`history_updated`、`new_track_detected`だけを抑止します。
+ステータス通知と認識の継続は止めません。
+アーティスト未取得の履歴も、読み込み時に捨てずに保持します。
 
-Shazam recognition identity is authoritative. The helper keeps `shazamTrackId` and
-`appleTrackId` as separate fields. A Shazam `/song/<id>` or `/track/<id>` route is
-**never** reinterpreted as an Apple song ID. A real Apple ID is accepted only from
-an Apple Music/iTunes song link (typically `?i=<trackId>`).
+`deduplicate_history()`は新しい順の履歴を並べ替えず、
+元の隣接行を比較して各まとまりの先頭を残します。
+離れた同曲を一括削除する処理ではありません。
 
-When a recognized Shazam route appears, the route is allowed to render for up to
-about 1.8 seconds so the exact live page can expose its visible title, artist, and a
-new Apple Music link. Visible result headings are preferred. JSON-LD is secondary and
-its global Apple links are not attached because recommendation metadata can coexist
-with the recognized result.
+## 公開インターフェース
 
-Japanese localization follows this order:
-
-1. Exact Apple Music Track ID from the current Shazam result -> Apple en verification + JP lookup.
-2. No exact ID -> Apple Search using the **live Shazam title + artist**, accepting only
-   normalized exact title AND exact artist matches.
-3. If needed, repeat the same strict match using the recognized route slug title + artist.
-4. Static Shazam HTML is supplemental only when canonical/OG route identity matches and
-   its title is compatible with the recognized route.
-5. If Apple cannot be safely linked but the exact live `/ja-jp` result already contains
-   Japanese text, keep that Japanese title. Only then fall back to trusted Shazam text
-   or the route slug.
-
-This intentionally rejects fuzzy/partial Apple candidates and stale/unrelated Shazam
-metadata. Duplicate Apple catalog rows are accepted only when every exact candidate
-resolves to the same localized title.
-
-## Build and distribution
-
-Run the root `build.cmd` on Windows. It creates/reuses `.venv` with 64-bit Python 3.12,
-installs the application's existing dependencies minus ShazamIO, publishes the .NET
-helper for `win-x64`, and freezes the original app using the updated PyInstaller spec.
-
-The helper build reuses a usable installed SDK or the earlier private ShazamWatch SDK
-at `%LOCALAPPDATA%\ShazamWatch\dotnet-sdk-8`. Otherwise it downloads Microsoft's official
-.NET install script and installs a private SDK at
-`%LOCALAPPDATA%\VJ_yattaro\dotnet-sdk-8`. Administrator privileges are not required for
-this SDK bootstrap. Internet access is required for package downloads.
-
-The .NET helper is self-contained; a separate .NET Runtime is not required on the
-user's PC. The **Microsoft Edge WebView2 Runtime is still required**. If missing,
-the app reports an initialization error. The helper does not silently install a
-browser runtime on application startup. Runtime installation is handled by the user
-or the application's distributor.
-
-The entire published helper folder is bundled as data under
-`dist\VJ_yattaro\_internal\shazam_webview`. Do not distribute only the main executable.
-The build verifies the helper, CoreCLR, WebView2 managed wrappers/loader, and the
-PortAudio DLL before copying the staged build to `dist\VJ_yattaro`.
-
-Existing destination `config.json` and `shazam_history.json` are preserved. Build in
-a new source folder or back up your existing installation first. The build does not
-wipe the existing output directory; files from older builds may remain, but the
-new spec explicitly excludes ShazamIO packages.
-
-## Debugging
-
-Application logging uses the existing `vj_yattaro.log` next to `VJ_yattaro.exe`
-(or at the source root during a Python run). The existing logging ON/OFF setting
-still applies. Helper stderr is forwarded into that logger with `ShazamWebView:`.
-Recordings/base64 and full network response bodies are not logged or saved by this
-integration. The website's own browser storage/caching remains controlled by WebView2.
-
-The helper's dedicated browser profile is:
+UIが使うメソッドとシグナルは維持しています。
 
 ```text
-%LOCALAPPDATA%\VJ_yattaro\ShazamWebView2\profiles\ja-jp
+start(), stop(), reload_settings(), shutdown(), is_active()
+list_input_devices(), get_history()
+history_updated(list)
+new_track_detected((timestamp, title, artist))
+status_changed(str)
+error_occurred(str)
 ```
 
-The final component varies with the selected language. It does not use or delete
-the user's regular Edge/Chrome profile or the previous ShazamWatch profile.
+履歴のJSON項目は`timestamp`、`title`、`artist`のままです。
+今回の変更で設定項目や履歴の新しいフィールドは増やしていません。
 
-To show the helper only for diagnostics, close the app, then run:
+## ビルドと配布
 
-```powershell
-$env:VJ_SHAZAM_DEBUG = "1"
-.\dist\VJ_yattaro\VJ_yattaro.exe
-```
+実行手順は[README](../README.md)にまとめています。
+ヘルパーのソース、埋め込みJavaScript、プロジェクトファイル、
+マニフェストはすべて残しています。`bin/obj/publish`は再生成します。
+`tools/finalize_build.py`はネイティブ依存関係を確認してから配布先へコピーし、
+既存の設定・履歴を残します。
 
-Switch the app to Shazam mode as usual. Normal launches do not show a browser window.
-If the site displays a consent screen, complete it manually in diagnostic mode;
-the program does not accept cookie/privacy terms on the user's behalf. Close and
-restart the app after changing the environment flag. To clear the flag for later
-launches, use `Remove-Item Env:VJ_SHAZAM_DEBUG`.
-
-## Verification boundaries
-
-See `VERIFICATION.md`. Python behavior and JavaScript mock fixtures are tested;
-Windows compilation, real WebView2 execution, the actual live Shazam site, and
-real microphone recognition are **not verified in this build environment**.
-
-## Primary references
-
-- WebView2 hosting and deployment:
-  https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution
-- WebView2 message bridge:
-  https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2.webmessagereceived
-- Web Audio MediaStreamAudioDestinationNode:
-  https://www.w3.org/TR/webaudio-1.0/#MediaStreamAudioDestinationNode
-- Shazam official website recognition:
-  https://support.apple.com/guide/shazam/identify-a-song-on-the-web-devfa7ba51e1/web
-- iTunes Lookup:
-  https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/LookupExamples.html
-- Pinned WebView2 NuGet package:
-  https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4191.47
-
-
-### v1.2.1
-Result-region UI labels such as `概要` are filtered before title ranking. Verified real Apple track links remain authoritative.
-
-
-## v1.2.4 dual-lane latency mode
-
-The integrated backend now keeps two independent WebView2 helper processes warm. Lane 2 starts four seconds after lane 1 when a fresh microphone snapshot is available. Each helper uses its own WebView2 user-data subfolder (`lane-1`, `lane-2`) and remains single-flight internally. Results carry a monotonically increasing request sequence; a late result from an older snapshot cannot replace a newer published track. The bridge safety deadline is 15 seconds per lane.
-
-
-## v1.2.5 UI-label guard
-
-Transient Shazam result scanning ignores footer/header/navigation containers and rejects labels such as `Shazam フッター`. The same title filter is duplicated in the native bridge and Python metadata resolver so a DOM-layout regression cannot directly reach the visible app title.
-
-
-## v1.2.6 source-specific YouTube query templates
-
-YouTube query formatting is now selected by the source mode that originated the search.
-Rekordbox uses `youtube_search_template_rekordbox` (legacy default `%tracktitle% %comment%`) while Shazam uses `youtube_search_template_shazam` (default `%tracktitle% %artist%`). The old `youtube_search_template` key remains as a Rekordbox compatibility alias. Pending searches preserve their originating mode.
+画面、動画ループ、検索順、MIDI・ホットキーは今回の変更対象外です。
+検証済みと未検証の区別は[テスト手順](TESTING.md)を参照してください。
