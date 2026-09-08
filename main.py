@@ -1794,9 +1794,14 @@ class MainWindow(QMainWindow):
             return
         
         # 検索クエリを作成
-        search_query = youtube_service.create_search_query_from_track(
-            track_title, artist, comment, source_mode=search_source_mode
+        search_queries = youtube_service.create_search_queries_from_track(
+            track_title, artist, comment, source_mode=search_source_mode,
+            allow_inline_artist=not from_list,
         )
+        if not search_queries:
+            self._set_youtube_search_error("\u691c\u7d22\u8a9e\u304c\u7a7a\u3067\u3059")
+            return
+        search_query = search_queries[0]
         
         info(f"Searching YouTube for: {search_query}", "UI")
         
@@ -1806,8 +1811,9 @@ class MainWindow(QMainWindow):
         try:
             # YouTube検索を実行
             self.youtube_search_thread = youtube_service.search_videos(
-                search_query, 
-                self.on_youtube_search_completed
+                search_query,
+                self.on_youtube_search_completed,
+                fallback_queries=search_queries[1:],
             )
             
             # エラーシグナルも接続

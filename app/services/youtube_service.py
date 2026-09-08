@@ -13,6 +13,18 @@ from urllib.parse import urlencode
 # underlying C++ object and abort the process (often without a Python traceback).
 _ACTIVE_QTHREADS = set()
 
+# Only recognized guest-credit parentheses may be relaxed. Ordinary subtitles
+# such as "(Live)" or "(Remix)" are meaningful and must remain intact.
+_GUEST_CREDIT = re.compile(
+    r"\(\s*(?:feat(?:uring)?|ft|loves)(?:\.\s*|\s+)[^()]+\)",
+    re.IGNORECASE,
+)
+_MAX_SEARCH_QUERIES = 3
+_VERSION_SUFFIX = re.compile(
+    r"^(?:[([]|(?:live|remix|mix|edit|version|ver|cover|instrumental|karaoke|"
+    r"remaster(?:ed)?|part)\b)", re.IGNORECASE,
+)
+
 
 def _retain_qthread(thread):
     _ACTIVE_QTHREADS.add(thread)
@@ -97,7 +109,10 @@ class YouTubeSearchThread(QThread):
         "userRateLimitExceeded",
     }
 
-    def __init__(self, api_keys, active_index: int, query: str, api_key_store=None):
+    def __init__(
+        self, api_keys, active_index: int, query: str, api_key_store=None,
+        fallback_queries: Optional[List[str]] = None,
+    ):
         super().__init__()
         self.api_keys = [str(key).strip() for key in (api_keys or []) if str(key).strip()]
         if self.api_keys:
@@ -112,6 +127,11 @@ class YouTubeSearchThread(QThread):
             self.api_key = ""
 
         self.query = query
+        # Preserve order, omit duplicates/empty queries, and bound extra traffic.
+        self.queries = list(dict.fromkeys(
+            text.strip() for text in [query, *(fallback_queries or [])]
+            if text and text.strip()
+        ))[:_MAX_SEARCH_QUERIES]
         self.api_key_store = api_key_store
         self._is_aborted = False
 
@@ -121,7 +141,7 @@ class YouTubeSearchThread(QThread):
             return
 
         try:
-            videos = self._search_with_key_rotation()
+            videos = self._search_with_query_fallbacks()
             if self._is_aborted:
                 return
             self.search_completed.emit(videos)
@@ -137,7 +157,26 @@ class YouTubeSearchThread(QThread):
             self.quit()
             self.wait(2000)  # 最大2秒待機
 
-    def _search_with_key_rotation(self) -> List[Dict]:
+    def _search_with_query_fallbacks(self) -> List[Dict]:
+        """Relax the query only after a successful request yields no usable videos.
+
+        Transport/API errors are not empty results: let run() report them.
+        Existing key rotation retries the same query, not the broader fallback.
+        """
+        for index, query in enumerate(self.queries, 1):
+            if self._is_aborted:
+                return []
+            print(
+                f"YouTubeSearchThread: query {index}/{len(self.queries)}: {query!r}"
+            )
+            videos = self._search_with_key_rotation(query)
+            if self._is_aborted:
+                return []
+            if videos:
+                return videos
+        return []
+
+    def _search_with_key_rotation(self, query: Optional[str] = None) -> List[Dict]:
         """現在キーから開始し、クォータ上限なら次キーで同じ検索を再試行する。"""
         if not self.api_keys:
             raise Exception("YouTube API key not configured")
@@ -148,7 +187,7 @@ class YouTubeSearchThread(QThread):
         while attempted < total and not self._is_aborted:
             current_no = self.active_index + 1
             try:
-                return self._search_youtube()
+                return self._search_youtube(query)
             except YouTubeQuotaExceededError as e:
                 attempted += 1
                 print(
@@ -253,13 +292,13 @@ class YouTubeSearchThread(QThread):
         detail = reason or message or response.reason or "unknown error"
         raise Exception(f"YouTube API error HTTP {response.status_code}: {detail}")
 
-    def _search_youtube(self) -> List[Dict]:
+    def _search_youtube(self, query: Optional[str] = None) -> List[Dict]:
         """YouTube Data API v3で動画検索（ショート動画を除外）"""
         base_url = "https://www.googleapis.com/youtube/v3/search"
 
         params = {
             'part': 'snippet',
-            'q': self.query,
+            'q': self.query if query is None else query,
             'type': 'video',
             # YouTube Data API の既定値は safeSearch=moderate。
             # 楽曲タイトルや歌詞表現によっては通常の音楽動画まで検索結果から
@@ -276,15 +315,19 @@ class YouTubeSearchThread(QThread):
 
         data = self._request_json(base_url, params, headers, timeout=10)
 
-        if 'items' not in data:
+        if self._is_aborted:
             return []
+        items = data.get('items', [])
+        print(f"YouTubeSearchThread: API returned {len(items)} item(s)")
 
         videos = []
         video_ids = []
 
         # まず検索結果から動画IDを収集
-        for item in data['items']:
-            video_id = item['id']['videoId']
+        for item in items:
+            video_id = item.get('id', {}).get('videoId')
+            if not video_id:
+                continue
             video_ids.append(video_id)
 
             snippet = item['snippet']
@@ -302,9 +345,10 @@ class YouTubeSearchThread(QThread):
             })
 
         # 動画の詳細情報を取得して長さを確認
-        if video_ids:
+        if video_ids and not self._is_aborted:
             videos = self._filter_shorts(videos, video_ids)
 
+        print(f"YouTubeSearchThread: {len(videos)} usable video(s) after filtering")
         return videos[:20]  # 上位20件を返す
 
     def _filter_shorts(self, videos: List[Dict], video_ids: List[str]) -> List[Dict]:
@@ -622,6 +666,59 @@ class YouTubeService(QObject):
         
         return self.format_search_query(template, track_data)
     
+    def create_search_queries_from_track(
+        self, track_title: str, artist: str, comment: str = "",
+        source_mode: str = "rekordbox", *, allow_inline_artist: bool = False,
+    ) -> List[str]:
+        """Build at most three queries without changing stored track metadata.
+
+        1. The configured template, unchanged.
+        2. The same template without the artist field.
+        3. Also omit explicit guest credits, such as "(loves. Singer)".
+
+        Fixed template words and comments are retained. Artist-only or
+        comment-only templates are never broadened to unrelated title searches.
+        For free-text searches only, a guest-credit closing parenthesis can
+        delimit a pasted title from a following artist. Do not guess by simply
+        deleting the last whitespace-separated word of a song title.
+        """
+        template = self.get_search_template(source_mode)
+        track_data = {
+            "tracktitle": track_title or "",
+            "artist": artist or "",
+            "comment": comment or "",
+        }
+        primary = self.format_search_query(template, track_data)
+        queries = [primary] if primary else []
+        if not template or "%tracktitle%" not in template:
+            return queries
+        if not self.sanitize_search_query(track_title):
+            return queries
+
+        title = unicodedata.normalize("NFKC", str(track_title)).strip()
+        if allow_inline_artist and not artist:
+            credit = _GUEST_CREDIT.search(title)
+            if credit:
+                if not self.sanitize_search_query(title[:credit.start()]):
+                    return queries
+                suffix = title[credit.end():].strip()
+                # Do not misread a trailing version subtitle as an artist.
+                # Structured titles never use this free-text heuristic.
+                if not _VERSION_SUFFIX.match(suffix):
+                    title = title[:credit.end()].rstrip()
+
+        title_without_credit = _GUEST_CREDIT.sub(" ", title).strip()
+        for candidate_title in (title, title_without_credit):
+            # Never turn a metadata-only title into an artist/comment query.
+            if not self.sanitize_search_query(candidate_title):
+                continue
+            candidate = self.format_search_query(
+                template, {**track_data, "tracktitle": candidate_title, "artist": ""}
+            )
+            if candidate and candidate not in queries:
+                queries.append(candidate)
+        return queries[:_MAX_SEARCH_QUERIES]
+
     def validate_template(self, template: str) -> tuple[bool, str]:
         """
         検索テンプレートの妥当性をチェック
@@ -650,7 +747,9 @@ class YouTubeService(QObject):
         except Exception as e:
             return False, f"テンプレートの処理中にエラーが発生しました: {str(e)}"
     
-    def search_videos(self, query: str, callback=None):
+    def search_videos(
+        self, query: str, callback=None, *, fallback_queries: Optional[List[str]] = None,
+    ):
         """YouTubeで動画を検索。クォータ到達時は登録済み次キーへ自動切替する。"""
         keys, active_index = self.api_key_store.load()
         if not keys or active_index < 0:
@@ -662,6 +761,7 @@ class YouTubeService(QObject):
             active_index,
             query,
             api_key_store=self.api_key_store,
+            fallback_queries=fallback_queries,
         )
         _retain_qthread(self.search_thread)
 
