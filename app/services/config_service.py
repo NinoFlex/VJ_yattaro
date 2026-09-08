@@ -53,6 +53,7 @@ class ConfigService:
             "youtube_search_template_rekordbox": "%tracktitle% %comment%",
             "youtube_search_template_shazam": "%tracktitle% %artist%",
             "auto_play_top_result": False,
+            "anime_op_mode": False,
             "auto_play_seek_seconds": 0,
             "ui_theme": "dark",
             "enable_logging": True,

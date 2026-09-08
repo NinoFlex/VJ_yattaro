@@ -1,6 +1,7 @@
 import sys
 import webbrowser
 from pathlib import Path
+from app.services.autoplay import select_auto_play_index
 from PySide6.QtCore import Qt, QTimer, QEvent, QRectF, QSize
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
@@ -177,6 +178,13 @@ class TitleBar(QWidget):
         self.autoplay_button.toggled.connect(self._on_autoplay_toggled)
         layout.addWidget(self.autoplay_button)
 
+        self.anime_op_button = QPushButton("アニメOPモード OFF")
+        self.anime_op_button.setObjectName("anime_op_button")
+        self.anime_op_button.setCheckable(True)
+        self.anime_op_button.toggled.connect(self._on_anime_op_toggled)
+        layout.addWidget(self.anime_op_button)
+        self.set_auto_play_checked(False)
+
         layout.addStretch()
 
         # 最小化ボタン
@@ -230,7 +238,7 @@ class TitleBar(QWidget):
             #settings_button:hover {{
                 background-color: {c['hover']};
             }}
-            #autoplay_button {{
+            #autoplay_button, #anime_op_button {{
                 font-size: 11px;
                 font-weight: bold;
                 background-color: {c['input']};
@@ -241,13 +249,18 @@ class TitleBar(QWidget):
                 color: {c['text']};
                 min-width: 86px;
             }}
-            #autoplay_button:hover {{
+            #autoplay_button:hover, #anime_op_button:hover {{
                 background-color: {c['hover']};
             }}
-            #autoplay_button:checked {{
+            #autoplay_button:checked, #anime_op_button:checked {{
                 background-color: #1f6fb2;
                 border-color: #15598f;
                 color: white;
+            }}
+            #anime_op_button:disabled {{
+                background-color: {c['input']};
+                border-color: {c['border_soft']};
+                color: {c['muted']};
             }}
             #title_label {{
                 font-weight: bold;
@@ -263,24 +276,39 @@ class TitleBar(QWidget):
         self._main_window.set_source_mode(mode)
 
     def _on_autoplay_toggled(self, checked):
-        self.autoplay_button.setText("自動再生 ON" if checked else "自動再生 OFF")
-        self.autoplay_button.setToolTip(
-            "検索後に検索結果1位の動画を自動再生します" if checked
-            else "自動再生はオフです"
-        )
         self._main_window.set_auto_play_enabled(checked)
 
-    def set_auto_play_checked(self, checked):
-        """設定読み込み時など、外部から自動再生ボタンの状態を同期する。"""
+    def _on_anime_op_toggled(self, checked):
+        self._main_window.set_anime_op_mode_enabled(checked)
+
+    def set_auto_play_checked(self, checked, anime_op_mode=False):
+        """Sync both controls without emitting signals or saving settings twice."""
         checked = bool(checked)
-        self.autoplay_button.blockSignals(True)
-        self.autoplay_button.setChecked(checked)
+        anime_op_mode = checked and bool(anime_op_mode)
+        for button, state in (
+            (self.autoplay_button, checked),
+            (self.anime_op_button, anime_op_mode),
+        ):
+            previous = button.blockSignals(True)
+            try:
+                button.setChecked(state)
+            finally:
+                button.blockSignals(previous)
+
         self.autoplay_button.setText("自動再生 ON" if checked else "自動再生 OFF")
         self.autoplay_button.setToolTip(
-            "検索後に検索結果1位の動画を自動再生します" if checked
+            "自動検索後に動画を自動再生します（通常は検索結果1位）" if checked
             else "自動再生はオフです"
         )
-        self.autoplay_button.blockSignals(False)
+        self.anime_op_button.setEnabled(checked)
+        self.anime_op_button.setText(
+            "アニメOPモード ON" if anime_op_mode else "アニメOPモード OFF"
+        )
+        self.anime_op_button.setToolTip(
+            "自動再生時、上位4件のうち、1:30〜1:45の動画を優先します。"
+            "該当なしなら1位を再生します。" if checked
+            else "自動再生をONにすると利用できます"
+        )
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -458,8 +486,7 @@ class MainWindow(QMainWindow):
         # Keep the dual-player controller under both content columns.
         self.root_layout.addWidget(self.player_controls)
         
-        self.auto_play_top_result = bool(self.config_service.get("auto_play_top_result", False))
-        self.title_bar.set_auto_play_checked(self.auto_play_top_result)
+        self._restore_auto_play_settings()
         self.apply_theme(self.ui_theme, persist=False)
         
         # ログレベルを設定
@@ -599,7 +626,8 @@ class MainWindow(QMainWindow):
         # タイトルバーとその中の操作ボタン
         self.title_bar.installEventFilter(self)
         for btn in [self.title_bar.settings_button, self.title_bar.source_toggle,
-                   self.title_bar.autoplay_button, self.title_bar.min_button, self.title_bar.close_button]:
+                   self.title_bar.autoplay_button, self.title_bar.anime_op_button,
+                   self.title_bar.min_button, self.title_bar.close_button]:
             btn.installEventFilter(self)
 
         self.player_controls.installEventFilter(self)
@@ -687,6 +715,7 @@ class MainWindow(QMainWindow):
         self.last_clicked_video_id = None
         self.current_playing_video_id = None
         self.pending_play_video_id = None
+        self.pending_auto_play_video_id = None
         # 自動検索→自動再生時だけ、playing到達後に指定秒数早送りする対象。
         self.pending_auto_seek_video_id = None
         # 楽曲情報の保持（右カラムから検索した場合のみ設定される）
@@ -1050,15 +1079,38 @@ class MainWindow(QMainWindow):
             self.config_service.save_config({"ui_theme": self.ui_theme})
         print(f"UI: Theme -> {self.ui_theme}")
 
+    def _restore_auto_play_settings(self):
+        """Restore settings, correcting a stale OP-on/autoplay-off combination."""
+        self.auto_play_top_result = bool(self.config_service.get("auto_play_top_result", False))
+        stored_anime_op = bool(self.config_service.get("anime_op_mode", False))
+        self.anime_op_mode = self.auto_play_top_result and stored_anime_op
+        self.title_bar.set_auto_play_checked(self.auto_play_top_result, self.anime_op_mode)
+        if stored_anime_op != self.anime_op_mode:
+            self.config_service.save_config({"anime_op_mode": self.anime_op_mode})
+
     def set_auto_play_enabled(self, enabled):
-        """検索結果1位の自動再生を切り替え、設定を保存する。"""
+        """Autoplay OFF also disables OP mode and cancels pending automatic PLAY."""
         self.auto_play_top_result = bool(enabled)
+        self.anime_op_mode = self.auto_play_top_result and getattr(self, "anime_op_mode", False)
         if not self.auto_play_top_result:
-            # 自動再生をOFFにした時点で、未実行の自動早送りも破棄する。
             self.pending_auto_seek_video_id = None
-        if hasattr(self, "config_service"):
-            self.config_service.save_config({"auto_play_top_result": self.auto_play_top_result})
-        print(f"UI: Auto-play top search result -> {'ON' if self.auto_play_top_result else 'OFF'}")
+            pending_auto = getattr(self, "pending_auto_play_video_id", None)
+            if pending_auto and pending_auto == getattr(self, "pending_play_video_id", None):
+                self.pending_play_video_id = None
+            self.pending_auto_play_video_id = None
+        self.title_bar.set_auto_play_checked(self.auto_play_top_result, self.anime_op_mode)
+        self.config_service.save_config({
+            "auto_play_top_result": self.auto_play_top_result,
+            "anime_op_mode": self.anime_op_mode,
+        })
+        print(f"UI: Auto-play -> {'ON' if self.auto_play_top_result else 'OFF'}")
+
+    def set_anime_op_mode_enabled(self, enabled):
+        """OP mode is available only while autoplay is enabled."""
+        self.anime_op_mode = bool(enabled) and self.auto_play_top_result
+        self.title_bar.set_auto_play_checked(self.auto_play_top_result, self.anime_op_mode)
+        self.config_service.save_config({"anime_op_mode": self.anime_op_mode})
+        print(f"UI: Anime OP mode -> {'ON' if self.anime_op_mode else 'OFF'}")
 
     def set_source_mode(self, mode):
         """タイトルバーのトグルに合わせて入力ソースと右カラムを切り替える。"""
@@ -1563,6 +1615,7 @@ class MainWindow(QMainWindow):
 
         # 手動プリロードでは、自動検索由来の早送り待ちを解除する。
         self.pending_auto_seek_video_id = None
+        self.pending_auto_play_video_id = None
         
         print(f"UI: Preloading YouTube video via hotkey: {title} ({video_id})")
 
@@ -1633,6 +1686,7 @@ class MainWindow(QMainWindow):
 
         # 手動再生では、自動検索由来の早送り待ちを解除する。
         self.pending_auto_seek_video_id = None
+        self.pending_auto_play_video_id = None
         
         print(f"UI: Playing YouTube video via hotkey: {title} ({video_id})")
         
@@ -1914,8 +1968,8 @@ class MainWindow(QMainWindow):
             source_mode=source_mode,
         )
 
-    def _auto_play_top_video(self, video):
-        """検索結果1位を既存のPRELOAD -> ready -> PLAY経路で自動再生する。"""
+    def _auto_play_video(self, video):
+        """Queue the selected result through the existing PRELOAD -> ready -> PLAY path."""
         if not getattr(self, "auto_play_top_result", False):
             return
         if not video:
@@ -1924,7 +1978,7 @@ class MainWindow(QMainWindow):
         video_id = video.get("video_id", "")
         title = video.get("title", "")
         if not video_id:
-            print("UI: Auto-play skipped - top search result has no video ID")
+            print("UI: Auto-play skipped - selected search result has no video ID")
             return
         if not hasattr(self, "player_server") or not self.player_server:
             print("UI: Auto-play skipped - player server not available")
@@ -1933,6 +1987,7 @@ class MainWindow(QMainWindow):
         # 既存の手動再生と同じ経路を使う。readyフィードバック後にPLAYされる。
         self.preloaded_video_id = video_id
         self.pending_play_video_id = video_id
+        self.pending_auto_play_video_id = video_id
 
         # Rekordbox/Shazamの自動検索→自動再生にだけ適用する。
         # 0秒なら従来どおり何もしない。
@@ -1944,7 +1999,7 @@ class MainWindow(QMainWindow):
 
         self._send_video_command("PRELOAD", video_id, video)
         self._update_youtube_video_state("preloading", video_id)
-        print(f"UI: Auto-play queued top search result: {title} ({video_id})")
+        print(f"UI: Auto-play queued selected search result: {title} ({video_id})")
 
     def on_youtube_search_completed(self, videos):
         """YouTube検索完了時のコールバック"""
@@ -1993,18 +2048,22 @@ class MainWindow(QMainWindow):
         self.left_pane.set_search_results(processed_videos)
         info(f"Found {len(videos)} YouTube videos (showing {initial_display_count} immediately)", "UI")
 
-        # 自動検索だけ、自動再生ONなら検索結果1位をPRELOAD -> ready -> PLAYへ送る。
-        # 検索ボックス、右カラムのダブルクリック、検索ホットキーなどの手動検索では
-        # タイトルバーの自動再生設定がONでも自動再生しない。
-        if initial_videos and getattr(self, "_active_search_allow_auto_play", True):
-            self._auto_play_top_video(initial_videos[0])
-        elif initial_videos:
+        # Preserve manual-search behavior and ranking; change only the autoplay choice.
+        selected_row = 0
+        if getattr(self, "_active_search_allow_auto_play", True):
+            if self.auto_play_top_result:
+                selected_row = select_auto_play_index(initial_videos, self.anime_op_mode)
+                self._auto_play_video(initial_videos[selected_row])
+        else:
             print("UI: Auto-play skipped - manual YouTube search")
-        
-        # 最初の動画を選択状態にする（遅延実行で確実に設定）
+
         if processed_videos:
-            QTimer.singleShot(200, self._select_first_video)  # 50msから200msに延長
-        
+            self.left_pane.setCurrentIndex(self.left_pane.model.index(selected_row, 0))
+            selected_id = processed_videos[selected_row]['video_id']
+            QTimer.singleShot(
+                200, lambda: self._select_search_result(selected_row, selected_id)
+            )
+
         # 非同期でサムネイルを読み込む（最初の5件）
         # 新しい検索開始なのでキューをリセットしてから追加
         if hasattr(self, '_thumbnail_manager') and self._thumbnail_manager:
@@ -2168,22 +2227,23 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"UI: Error during force memory cleanup: {e}")
 
-    def _select_first_video(self):
-        """最初の動画を選択状態にする"""
+    def _select_search_result(self, row, expected_video_id):
+        """Focus the chosen result unless a newer search or user action changed it."""
         try:
-            if hasattr(self, 'left_pane') and self.left_pane.model.rowCount() > 0:
-                # 選択をクリアしてから最初のアイテムを選択
+            video = self.left_pane.model.get_video_at(row)
+            current = self.left_pane.get_selected_video()
+            if not video or not current:
+                return
+            if video.get('video_id') != expected_video_id or current.get('video_id') != expected_video_id:
+                return
+            index = self.left_pane.model.index(row, 0)
+            if index.isValid():
                 self.left_pane.clearSelection()
-                first_index = self.left_pane.model.index(0, 0)
-                self.left_pane.setCurrentIndex(first_index)
-                # フォーカスも設定
+                self.left_pane.setCurrentIndex(index)
                 self.left_pane.setFocus()
-                print("UI: Selected first YouTube video after search")
-            else:
-                print("UI: No videos available for selection")
         except Exception as e:
-            print(f"UI: Error selecting first video: {e}")
-    
+            print(f"UI: Error selecting video: {e}")
+
     def _load_thumbnails_async(self, videos):
         """サムネイルを非同期で読み込む"""
         from app.services.youtube_service import AsyncThumbnailManager
@@ -2237,6 +2297,9 @@ class MainWindow(QMainWindow):
                 print("UI: No video ID found for selected YouTube video")
                 return
             
+            self.pending_play_video_id = None
+            self.pending_auto_play_video_id = None
+            self.pending_auto_seek_video_id = None
             print(f"UI: YouTube video double-clicked: {title} ({video_id})")
             print(f"UI: Current last_clicked_video_id: {getattr(self, 'last_clicked_video_id', 'None')}")
             
@@ -2301,6 +2364,7 @@ class MainWindow(QMainWindow):
                     ):
                         self._update_youtube_video_state('playing', video_id)
                         self.pending_play_video_id = None
+                        self.pending_auto_play_video_id = None
                         print(f"UI: Sent PLAY command for auto-play: {video_id}")
                     else:
                         print("UI: Player server not available for auto-play")
@@ -2349,6 +2413,8 @@ class MainWindow(QMainWindow):
                     self.current_playing_video_id = video_id
                     if self.pending_play_video_id == video_id:
                         self.pending_play_video_id = None
+                    if self.pending_auto_play_video_id == video_id:
+                        self.pending_auto_play_video_id = None
 
             elif state == 'error':
                 # Browser has already stopped/blackened the failed physical player.
@@ -2357,6 +2423,8 @@ class MainWindow(QMainWindow):
                     self.pending_play_video_id = None
                 if self.pending_auto_seek_video_id == video_id:
                     self.pending_auto_seek_video_id = None
+                if self.pending_auto_play_video_id == video_id:
+                    self.pending_auto_play_video_id = None
                 if self.preloaded_video_id == video_id:
                     self.preloaded_video_id = None
                 if self.current_playing_video_id == video_id and is_current is not False:
