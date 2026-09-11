@@ -37,6 +37,9 @@ internal sealed class BridgeHost : Form
     private string? _audioError;
     private bool _audioStarted;
     private bool _definiteNoMatch;
+    private CancellationTokenSource? _currentRecognitionCancellation;
+    private string _currentRecognitionId = "";
+    private string _currentCancelReason = "";
     private string Home => "https://www.shazam.com/" + _language.ToLowerInvariant();
 
     public BridgeHost(string language, bool debug, string instanceId)
@@ -117,7 +120,7 @@ internal sealed class BridgeHost : Form
             await NavigateHomeAsync(_lifetime.Token);
             _ready = true;
             Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-WAV");
-            Program.Send(new { type = "ready", protocol = 1, version = "1.2.5" });
+            Program.Send(new { type = "ready", protocol = 1, version = "1.3.1-pool4" });
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -170,6 +173,19 @@ internal sealed class BridgeHost : Form
             string type = ReadString(root, "type");
             id = ReadString(root, "id");
             if (type == "shutdown") { Close(); return; }
+            if (type == "cancel")
+            {
+                if (!Regex.IsMatch(id, @"\A[a-f0-9]{32}\z"))
+                    throw new InvalidOperationException("Invalid cancel command");
+                if (_busy && string.Equals(_currentRecognitionId, id, StringComparison.Ordinal) &&
+                    _currentRecognitionCancellation is not null)
+                {
+                    _currentCancelReason = "peer-confirmation-timeout";
+                    Program.Log($"Recognition cancel requested id={id} reason={_currentCancelReason}");
+                    _currentRecognitionCancellation.Cancel();
+                }
+                return;
+            }
             if (type != "recognize" || !Regex.IsMatch(id, @"\A[a-f0-9]{32}\z"))
                 throw new InvalidOperationException("Invalid recognition command");
             if (!_ready || _busy) throw new InvalidOperationException("Shazam helper is not ready or is busy");
@@ -179,12 +195,17 @@ internal sealed class BridgeHost : Form
             _busy = ownsCycle = true;
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             deadline.CancelAfter(TimeSpan.FromSeconds(75));
+            _currentRecognitionId = id;
+            _currentRecognitionCancellation = deadline;
+            _currentCancelReason = "";
             result = await RecognizeAsync(id, audio, deadline.Token);
             shouldSend = true;
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
-            error = "Shazam recognition exceeded its 75 second deadline";
+            error = _currentCancelReason == "peer-confirmation-timeout"
+                ? "Shazam recognition cancelled after peer confirmation timeout"
+                : "Shazam recognition exceeded its 75 second deadline";
             shouldSend = true;
         }
         catch (OperationCanceledException) { return; }
@@ -199,6 +220,12 @@ internal sealed class BridgeHost : Form
             if (ownsCycle)
             {
                 _cycle = null;
+                if (string.Equals(_currentRecognitionId, id, StringComparison.Ordinal))
+                {
+                    _currentRecognitionId = "";
+                    _currentRecognitionCancellation = null;
+                    _currentCancelReason = "";
+                }
                 try
                 {
                     if (!IsDisposed && _webView.CoreWebView2 is not null)

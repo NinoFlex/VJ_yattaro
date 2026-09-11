@@ -69,6 +69,68 @@ function routeEvidenceFixture({headingTitle = '', jsonLd = null} = {}) {
   return vm.runInContext(source, vm.createContext(world), {filename: 'route_evidence.js'});
 }
 
+
+function routeSlugDomFixture({semanticHeading = false} = {}) {
+  class Element {
+    constructor(tag, text, rect) {
+      this.tag = tag;
+      this.innerText = text;
+      this.textContent = text;
+      this.parentElement = null;
+      this.children = [];
+      this.rect = rect;
+    }
+    getBoundingClientRect() { return this.rect; }
+    closest() { return null; }
+    contains(other) {
+      for (let e = other; e; e = e.parentElement) if (e === this) return true;
+      return false;
+    }
+    querySelectorAll(selector) {
+      const tags = new Set(selector.split(',').map(x => x.trim().replace(/\[.*$/, '').toLowerCase()).filter(Boolean));
+      const out = [];
+      const walk = node => {
+        for (const child of node.children) {
+          if (tags.has(child.tag)) out.push(child);
+          walk(child);
+        }
+      };
+      walk(this);
+      return out;
+    }
+  }
+  const title = new Element(semanticHeading ? 'h1' : 'div', 'たくさん!',
+    {left:100, top:100, right:310, bottom:142, width:210, height:42});
+  const artist = new Element('span', 'Anastasia (CV: Sumire Uesaka)',
+    {left:100, top:148, right:390, bottom:172, width:290, height:24});
+  const stats = new Element('span', '308 · Anime',
+    {left:100, top:180, right:210, bottom:200, width:110, height:20});
+  const container = new Element('div', 'たくさん! Anastasia (CV: Sumire Uesaka) 308 · Anime',
+    {left:80, top:80, right:430, bottom:220, width:350, height:140});
+  container.children = [title, artist, stats];
+  for (const child of container.children) child.parentElement = container;
+  const all = [container, title, artist, stats];
+  const document = {
+    body: container,
+    querySelector() { return container; },
+    querySelectorAll(selector) {
+      if (selector === 'h1,[data-testid*="title" i]') return semanticHeading ? [title] : [];
+      if (selector === 'script[type="application/ld+json"]') return [];
+      if (selector === 'h1,h2,h3,div,span,p') return all;
+      return [];
+    }
+  };
+  const world = {
+    URL, Set, Object, String, Array, Element, document,
+    location: {href: 'https://www.shazam.com/track/436429664/%E3%81%9F%E3%81%8F%E3%81%95%E3%82%93'},
+    getComputedStyle: () => ({display: 'block', visibility: 'visible', opacity: '1'})
+  };
+  world.window = world;
+  const source = fs.readFileSync(path.join(scripts, 'route_evidence.js'), 'utf8')
+    .replace('__BASELINE_TRACK_IDS__', '[]');
+  return vm.runInContext(source, vm.createContext(world), {filename: 'route_evidence.js'});
+}
+
 (async()=>{
   const f=fixture();
   f.world.__vjResults.arm(a);
@@ -141,6 +203,18 @@ function routeEvidenceFixture({headingTitle = '', jsonLd = null} = {}) {
   assert.equal(routeOnly.evidence, 'route-only');
   assert.equal(routeOnly.artist, '');
   ok('route-only remains the bounded fallback when detailed metadata never appears');
+
+  const nearbyHeading = routeSlugDomFixture({semanticHeading: true});
+  assert.equal(nearbyHeading.title, 'たくさん!');
+  assert.equal(nearbyHeading.artist, 'Anastasia (CV: Sumire Uesaka)');
+  assert.equal(nearbyHeading.evidence, 'track-heading-nearby');
+  ok('plain nearby artist text is recovered below a semantic Shazam title');
+
+  const slugAnchored = routeSlugDomFixture();
+  assert.equal(slugAnchored.title, 'たくさん!');
+  assert.equal(slugAnchored.artist, 'Anastasia (CV: Sumire Uesaka)');
+  assert.equal(slugAnchored.evidence, 'route-slug-dom');
+  ok('route slug anchors visible title and nearby artist when Shazam uses plain div/span markup');
 
   const bridgeSource = fs.readFileSync(path.join(__dirname, '..', 'native', 'ShazamWebViewBridge', 'BridgeHost.cs'), 'utf8');
   assert.match(bridgeSource, /RouteEvidenceWindow\s*=\s*TimeSpan\.FromSeconds\(4\)/);

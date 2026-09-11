@@ -22,6 +22,11 @@ class RecognitionCancelled(Exception):
     pass
 
 
+class RecognitionAborted(Exception):
+    """One request was intentionally aborted while the helper remains reusable."""
+    pass
+
+
 def helper_path() -> Path:
     """Support source runs and PyInstaller onedir/onefile layouts."""
     roots = []
@@ -64,10 +69,12 @@ class WebViewRecognizer:
         instance_id = re.sub(r"[^A-Za-z0-9_-]", "", str(instance_id or "main"))[:32] or "main"
         self._instance_id = instance_id
         self._lock = threading.Lock()
+        self._stdin_lock = threading.Lock()
         self._process = None
         self._queue = None
         self._language = None
         self._ready = False
+        self._active_request_id = None
 
     @staticmethod
     def check_available():
@@ -178,6 +185,7 @@ class WebViewRecognizer:
             raise RecognitionCancelled()
         if not (44 <= len(audio_bytes) <= 1500000) or audio_bytes[:4] != b"RIFF":
             raise ValueError("Expected a bounded PCM WAV recording.")
+        request_id = None
         try:
             process, destination = self._ensure_started(language, cancelled)
             request_id = uuid.uuid4().hex
@@ -187,9 +195,17 @@ class WebViewRecognizer:
             }
             if cancelled.is_set() or process.poll() is not None:
                 raise RecognitionCancelled()
-            # Only the recognition worker writes stdin; close() does not write it.
-            process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
-            process.stdin.flush()
+            # The recognition worker and the Qt-thread timeout path can both write to
+            # the helper. Serialize complete JSON lines so a cancel command can never
+            # interleave with a recognition request.
+            with self._stdin_lock:
+                if cancelled.is_set() or process.poll() is not None:
+                    raise RecognitionCancelled()
+                process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
+                process.stdin.flush()
+            with self._lock:
+                if self._process is process:
+                    self._active_request_id = request_id
             deadline = time.monotonic() + 85
             while True:
                 message = self._next_message(destination, deadline, cancelled)
@@ -198,13 +214,46 @@ class WebViewRecognizer:
                     raise RuntimeError(message.get("error") or "Shazam helper exited unexpectedly.")
                 if kind == "result" and message.get("id") == request_id:
                     if message.get("error"):
-                        raise RuntimeError(str(message["error"]))
+                        error = str(message["error"])
+                        if "cancelled after peer confirmation timeout" in error.casefold():
+                            raise RecognitionAborted(error)
+                        raise RuntimeError(error)
                     return message
-        except RecognitionCancelled:
+        except (RecognitionCancelled, RecognitionAborted):
             raise
         except Exception:
             self.close()
             raise
+        finally:
+            if request_id:
+                with self._lock:
+                    if self._active_request_id == request_id:
+                        self._active_request_id = None
+
+    def cancel_current(self) -> bool:
+        """Ask the live helper to abort its current recognition without killing WebView2.
+
+        The helper keeps its WebView/profile warm. This is used when the paired lane has
+        already produced a usable answer and its four-second confirmation window expires.
+        The cancelled recognize() call receives an ordinary error result, allowing the
+        worker to release the lane immediately for the next staggered cycle.
+        """
+        with self._lock:
+            process = self._process
+            request_id = self._active_request_id
+        if process is None or not request_id or process.poll() is not None:
+            return False
+        try:
+            with self._stdin_lock:
+                if process.poll() is not None:
+                    return False
+                request = {"type": "cancel", "id": request_id}
+                process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
+                process.stdin.flush()
+            return True
+        except (OSError, ValueError):
+            self.close()
+            return False
 
     def close(self):
         """Non-blocking for the GUI: terminate now, reap/close pipes on a daemon."""
@@ -212,6 +261,7 @@ class WebViewRecognizer:
             process, self._process = self._process, None
             self._queue = None
             self._language, self._ready = None, False
+            self._active_request_id = None
         if process is None:
             return
         try:

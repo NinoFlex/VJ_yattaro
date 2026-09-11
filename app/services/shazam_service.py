@@ -1,6 +1,7 @@
 import io
 import json
 import queue
+import re
 import sys
 import threading
 import time
@@ -17,11 +18,13 @@ from app.services.track_matching import deduplicate_history, is_same_track
 class ShazamService(QObject):
     """Microphone -> fixed ring buffer -> Shazam recognition service.
 
-    Audio capture and the public Qt/history contract are unchanged. Two staggered
-    recognition lanes send fresh WAV snapshots to independent private WebView2 helpers
-    running the official Shazam website. This avoids a single no-match blocking the next
-    attempt for ~15 seconds while keeping each helper strictly one-request-at-a-time.
-    No ShazamIO library or private Shazam API is used.
+    Audio capture and the public Qt/history contract are unchanged. Recognition uses four
+    independent WebView2 workers in a shared pool. New recognition starts are spaced by at
+    least three seconds. If all workers are busy, the due slot is held instead of discarded;
+    a fresh audio snapshot is submitted as soon as any worker becomes free, and the next
+    start is scheduled three seconds after that actual dispatch. A track is published only
+    after two consecutive time-separated recognition results match using the existing
+    title-prefix rule. No ShazamIO library or private Shazam API is used.
     """
 
     history_updated = Signal(list)
@@ -29,6 +32,7 @@ class ShazamService(QObject):
     status_changed = Signal(str)
     error_occurred = Signal(str)
     _recognition_finished = Signal(int, int, int, str, str, str)
+    _metadata_finished = Signal(int, int, int, str, str, str)
 
     SAMPLE_RATE = 16000
     CHANNELS = 1
@@ -37,8 +41,11 @@ class ShazamService(QObject):
     MAX_RECORDING_SECONDS = 20
     DEFAULT_RECORDING_SECONDS = 6
     RECOGNITION_INTERVAL_MS = 100
-    PARALLEL_RECOGNITION_LANES = 2
-    LANE_STAGGER_SECONDS = 4.0
+    RECOGNITION_GROUPS = 4
+    LANES_PER_GROUP = 1
+    PARALLEL_RECOGNITION_LANES = RECOGNITION_GROUPS * LANES_PER_GROUP
+    GROUP_STAGGER_SECONDS = 3.0
+    LANE_STAGGER_SECONDS = 0.0
     HISTORY_LIMIT = 50
 
     def __init__(self, parent=None):
@@ -69,15 +76,28 @@ class ShazamService(QObject):
         self._web_recognizers = [
             WebViewRecognizer(f"lane-{index + 1}") for index in range(self.PARALLEL_RECOGNITION_LANES)
         ]
-        # Both lanes share one resolver/cache. Serialize only the short Apple metadata
-        # phase so simultaneous Shazam matches do not duplicate Apple Search/Lookup calls.
+        # Metadata localization is deferred until one lane has produced a usable
+        # recognition result. The lock protects the shared resolver cache when staggered
+        # lanes finish close together.
         self._metadata_resolver = ITunesMetadataResolver()
         self._metadata_lock = threading.Lock()
         self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
-        self._next_lane_index = 0
-        self._next_lane_slot_at = 0.0
+        self._lane_ready = [threading.Event() for _ in range(self.PARALLEL_RECOGNITION_LANES)]
+        self._group_busy = [False] * self.RECOGNITION_GROUPS
+        # _next_group_index is the round-robin search start for the shared worker pool.
+        # _next_group_slot_at is the earliest time at which another recognition may start.
+        self._next_group_index = 0
+        self._next_group_slot_at = 0.0
+        self._slot_wait_started_at = None
+        self._slot_wait_logged = False
         self._request_sequence = 0
+        self._pending_group_results = {}
+        self._raw_lane_results = {}
         self._latest_published_sequence = -1
+        self._temporal_results = {}
+        self._next_temporal_sequence = 0
+        self._last_temporal_observation = None
+        self._metadata_raw_results = {}
         self._cancel_current = threading.Event()
         self._shutting_down = False
 
@@ -85,6 +105,7 @@ class ShazamService(QObject):
         self._recognize_timer.setInterval(self.RECOGNITION_INTERVAL_MS)
         self._recognize_timer.timeout.connect(self._recognize_tick)
         self._recognition_finished.connect(self._handle_recognition_finished)
+        self._metadata_finished.connect(self._handle_metadata_finished)
 
         self._history_path = self._get_history_path()
         self._ensure_history_file()
@@ -247,10 +268,21 @@ class ShazamService(QObject):
             self._cancel_current = threading.Event()
             self._recognition_busy = False
             self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
-            self._next_lane_index = 0
-            self._next_lane_slot_at = 0.0
+            self._group_busy = [False] * self.RECOGNITION_GROUPS
+            self._next_group_index = 0
+            self._next_group_slot_at = 0.0
+            self._slot_wait_started_at = None
+            self._slot_wait_logged = False
             self._request_sequence = 0
+            self._pending_group_results.clear()
+            self._raw_lane_results.clear()
             self._latest_published_sequence = -1
+            self._temporal_results.clear()
+            self._next_temporal_sequence = 0
+            self._last_temporal_observation = None
+            self._metadata_raw_results.clear()
+            for ready in self._lane_ready:
+                ready.clear()
             self._stream = sd.InputStream(
                 device=device,
                 samplerate=capture_rate,
@@ -261,15 +293,16 @@ class ShazamService(QObject):
             )
             self._stream.start()
             self._active = True
-            # Prewarm both hidden WebView2 helpers immediately. Their isolated profiles
-            # allow a second recognition to run while the first Shazam attempt is still
-            # pending, which removes the 18 s no-match + 14 s next-match serial penalty.
+            # Prewarm all four hidden WebView2 helpers immediately. Once ready, they form
+            # a shared worker pool; recognition dispatches are spaced by at least 3 seconds.
             language = str(self.config.get("shazam_language", "ja-JP") or "ja-JP")
             for lane_index, work_queue in enumerate(self._work_queues):
                 try:
                     work_queue.put_nowait(("prewarm", self._generation, language, self._cancel_current))
                 except queue.Full:
-                    pass
+                    # Prewarm is optional. Do not permanently block a lane if an old
+                    # cancelled item is still leaving the queue during a quick restart.
+                    self._lane_ready[lane_index].set()
             self._recognize_timer.start()
             self.status_changed.emit("Shazam: microphone capture started")
             print(
@@ -289,6 +322,12 @@ class ShazamService(QObject):
 
     def stop(self):
         self._cancel_current.set()
+        for pending in list(self._pending_group_results.values()):
+            timer = pending.get("confirmation_timer")
+            if timer is not None:
+                timer.stop()
+                if hasattr(timer, "deleteLater"):
+                    timer.deleteLater()
         for recognizer in self._web_recognizers:
             recognizer.close()
         self._generation += 1
@@ -297,6 +336,16 @@ class ShazamService(QObject):
         self._close_stream()
         self._recognition_busy = False
         self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
+        self._group_busy = [False] * self.RECOGNITION_GROUPS
+        self._slot_wait_started_at = None
+        self._slot_wait_logged = False
+        self._pending_group_results.clear()
+        self._raw_lane_results.clear()
+        self._temporal_results.clear()
+        self._last_temporal_observation = None
+        self._metadata_raw_results.clear()
+        for ready in self._lane_ready:
+            ready.clear()
         self.status_changed.emit("Shazam: stopped")
         print("ShazamService: Stopped")
 
@@ -447,14 +496,57 @@ class ShazamService(QObject):
 
             return np.concatenate((self._ring[start:], self._ring[:self._write_pos])).copy()
 
+    @classmethod
+    def _group_lanes(cls, group_index):
+        start = int(group_index) * cls.LANES_PER_GROUP
+        return tuple(range(start, start + cls.LANES_PER_GROUP))
+
+    def _group_can_accept_work(self, group_index):
+        if self._group_busy[group_index]:
+            return False
+        lanes = self._group_lanes(group_index)
+        return all(
+            not self._lane_busy[lane]
+            and self._lane_ready[lane].is_set()
+            and not self._work_queues[lane].full()
+            for lane in lanes
+        )
+
+    def _find_available_group(self):
+        """Return a ready idle worker, searching round-robin from the preferred lane."""
+        for offset in range(self.RECOGNITION_GROUPS):
+            group_index = (self._next_group_index + offset) % self.RECOGNITION_GROUPS
+            if self._group_can_accept_work(group_index):
+                return group_index
+        return None
+
     def _recognize_tick(self):
-        # The readiness timer runs every 100 ms. Do not copy/resample/encode a
-        # fresh recording when neither lane can accept it.
-        if not self._active or all(self._lane_busy):
+        # The readiness timer runs every 100 ms. Recognition starts are globally spaced by
+        # at least GROUP_STAGGER_SECONDS. Unlike the old fixed-lane schedule, a busy lane
+        # does not cause a whole 12-second phase to be discarded: any free worker may take
+        # the due slot, and if all workers are busy the slot remains pending until one frees.
+        if not self._active:
             return
 
         now = time.monotonic()
-        if now < self._next_lane_slot_at:
+        if self._next_group_slot_at <= 0:
+            self._next_group_slot_at = now
+        if now < self._next_group_slot_at:
+            return
+
+        group_index = self._find_available_group()
+        if group_index is None:
+            if self._slot_wait_started_at is None:
+                self._slot_wait_started_at = now
+            if not self._slot_wait_logged:
+                busy = sum(1 for value in self._lane_busy if value)
+                ready = sum(1 for value in self._lane_ready if value.is_set())
+                print(
+                    f"ShazamService: Recognition slot waiting seq={self._request_sequence} "
+                    f"busy={busy}/{self.PARALLEL_RECOGNITION_LANES} "
+                    f"ready={ready}/{self.PARALLEL_RECOGNITION_LANES}"
+                )
+                self._slot_wait_logged = True
             return
 
         recording_seconds = self._recording_seconds
@@ -462,40 +554,61 @@ class ShazamService(QObject):
         if samples is None:
             return
 
-        # Build one fresh snapshot, then give it to whichever staggered lane is free.
-        # A second lane may therefore start while the first Shazam website attempt is
-        # still pending, instead of waiting 15-18 seconds for a no-match deadline.
+        # Take the snapshot only when a worker is actually available. This avoids queueing
+        # stale audio while preserving the intended time separation between confirmations.
         samples = self._resample_to_shazam_rate(samples, self._capture_sample_rate)
         audio_bytes = self._pcm_to_wav_bytes(samples)
         generation = self._generation
         language = str(self.config.get("shazam_language", "ja-JP") or "ja-JP")
         country = str(self.config.get("shazam_endpoint_country", "JP") or "JP")
+        lanes = self._group_lanes(group_index)
+        request_sequence = self._request_sequence
 
-        for offset in range(self.PARALLEL_RECOGNITION_LANES):
-            lane_index = (self._next_lane_index + offset) % self.PARALLEL_RECOGNITION_LANES
-            if self._lane_busy[lane_index]:
-                continue
-            request_sequence = self._request_sequence
-            try:
-                self._work_queues[lane_index].put_nowait((
-                    generation, lane_index, request_sequence, audio_bytes,
-                    language, country, self._cancel_current,
-                ))
-            except queue.Full:
-                # The lane may still be finishing its prewarm command. Try the other
-                # lane now; the 100 ms timer will retry if both queues are occupied.
-                continue
-
-            self._request_sequence += 1
+        self._group_busy[group_index] = True
+        for lane_index in lanes:
             self._lane_busy[lane_index] = True
-            self._recognition_busy = any(self._lane_busy)
-            self._next_lane_index = (lane_index + 1) % self.PARALLEL_RECOGNITION_LANES
-            self._next_lane_slot_at = now + self.LANE_STAGGER_SECONDS
-            print(
-                f"ShazamService: Scheduled recognition lane={lane_index + 1} "
-                f"seq={request_sequence} stagger={self.LANE_STAGGER_SECONDS:.1f}s"
-            )
+        self._pending_group_results[request_sequence] = {
+            "group_index": group_index,
+            "lanes": lanes,
+            "results": {},
+        }
+
+        try:
+            for lane_offset, lane_index in enumerate(lanes):
+                lane_start_delay = lane_offset * self.LANE_STAGGER_SECONDS
+                self._work_queues[lane_index].put_nowait((
+                    generation, group_index, lane_index, request_sequence, audio_bytes,
+                    language, country, self._cancel_current, lane_start_delay,
+                ))
+        except queue.Full:
+            # A shutdown/restart race may make a queue unavailable after the readiness
+            # check. Roll back without consuming the slot; the timer retries it shortly.
+            self._pending_group_results.pop(request_sequence, None)
+            self._group_busy[group_index] = False
+            for lane_index in lanes:
+                self._lane_busy[lane_index] = False
+            self._recognition_busy = any(self._group_busy) or any(self._lane_busy)
             return
+
+        waited = 0.0
+        if self._slot_wait_started_at is not None:
+            waited = max(0.0, now - self._slot_wait_started_at)
+        self._slot_wait_started_at = None
+        self._slot_wait_logged = False
+        self._request_sequence += 1
+        self._recognition_busy = True
+        # Fairness: start the next free-worker search after the worker just used.
+        self._next_group_index = (group_index + 1) % self.RECOGNITION_GROUPS
+        # Never catch up in a burst after saturation. Three seconds is measured from this
+        # real dispatch, so consecutive audio snapshots remain time-separated.
+        self._next_group_slot_at = now + self.GROUP_STAGGER_SECONDS
+        lane_text = "+".join(str(lane + 1) for lane in lanes)
+        wait_text = f" waited={waited:.1f}s" if waited > 0.05 else ""
+        print(
+            f"ShazamService: Scheduled recognition group={group_index + 1} "
+            f"lanes={lane_text} seq={request_sequence} "
+            f"slotInterval={self.GROUP_STAGGER_SECONDS:.1f}s pool=shared{wait_text}"
+        )
 
     def _worker_main(self, lane_index):
         from app.services.shazam_webview_client import RecognitionCancelled
@@ -520,29 +633,43 @@ class ShazamService(QObject):
                         # Prewarm is an optimization only. The real recognition request
                         # will retry startup and surface an error if it still cannot run.
                         print(f"ShazamService: WebView2 lane {lane_index + 1} prewarm failed: {exc}")
+                    finally:
+                        if not cancelled.is_set() and generation == self._generation:
+                            self._lane_ready[lane_index].set()
                     continue
 
-                generation, item_lane, request_sequence, audio_bytes, language, country, cancelled = item
+                (
+                    generation, group_index, item_lane, request_sequence, audio_bytes,
+                    language, country, cancelled, lane_start_delay,
+                ) = item
                 if cancelled.is_set() or generation != self._generation:
                     continue
                 title, artist, error_text = "", "", ""
+                raw_result = None
                 try:
+                    if lane_start_delay > 0 and cancelled.wait(lane_start_delay):
+                        continue
+                    if cancelled.is_set() or generation != self._generation:
+                        continue
                     result = recognizer.recognize(audio_bytes, language, cancelled)
                     if cancelled.is_set():
                         continue
-                    # Shared cache + lock prevents two staggered lanes from issuing the
-                    # same Apple Search/Lookup requests at the same time.
-                    with self._metadata_lock:
-                        title, artist = self._metadata_resolver.resolve(
-                            result, language, country, cancelled
-                        )
-                    if title or artist:
-                        print(
-                            f"ShazamService: WebView2 lane={lane_index + 1} seq={request_sequence} result "
-                            f"source={result.get('source', '')} "
-                            f"appleTrackId={result.get('appleTrackId', '')} "
-                            f"title={title!r} artist={artist!r}"
-                        )
+
+                    # Do NOT run Apple/iTunes localization here. Keeping metadata work
+                    # out of the lane worker releases this WebView immediately for its
+                    # next fixed slot; localization happens after recognition returns.
+                    raw_result = dict(result or {})
+                    title = str(raw_result.get("title") or "").strip()
+                    artist = str(raw_result.get("artist") or "").strip()
+                    self._raw_lane_results[(generation, item_lane, request_sequence)] = raw_result
+                    print(
+                        f"ShazamService: WebView2 raw group={group_index + 1} "
+                        f"lane={lane_index + 1} seq={request_sequence} "
+                        f"source={raw_result.get('source', '')} "
+                        f"shazamTrackId={raw_result.get('shazamTrackId', '')} "
+                        f"appleTrackId={raw_result.get('appleTrackId', '')} "
+                        f"title={title!r} artist={artist!r}"
+                    )
                 except RecognitionCancelled:
                     continue
                 except Exception as exc:
@@ -558,85 +685,338 @@ class ShazamService(QObject):
         finally:
             recognizer.close()
 
+    @staticmethod
+    def _raw_result_track_id(raw_result):
+        if not isinstance(raw_result, dict):
+            return ""
+        for key in ("shazamTrackId", "appleTrackId"):
+            value = str(raw_result.get(key) or "").strip()
+            if re.fullmatch(r"[0-9]{6,20}", value):
+                return value
+        url = str(raw_result.get("url") or "")
+        match = re.search(r"/(?:song|track)/([0-9]{6,20})(?:/|$)", url, re.I)
+        return match.group(1) if match else ""
+
+    @classmethod
+    def _lane_result_is_usable(cls, result, raw_result=None):
+        title, _artist, error = result
+        if error:
+            return False
+        if str(title or "").strip():
+            return True
+        if not isinstance(raw_result, dict):
+            return False
+        if str(raw_result.get("title") or "").strip():
+            return True
+        return bool(cls._raw_result_track_id(raw_result))
+
     def _handle_recognition_finished(
         self, generation, lane_index, request_sequence, title, artist, error_text
     ):
-        # A late callback from before stop/restart must not release a lane
-        # that is already processing a request in the new generation.
+        raw_key = (generation, lane_index, request_sequence)
+        raw_result = self._raw_lane_results.pop(raw_key, None)
+
+        # A late callback from before stop/restart must not release a lane/group that
+        # is already processing a request in the new generation.
         if generation != self._generation or not self._active:
             return
         if 0 <= lane_index < len(self._lane_busy):
             self._lane_busy[lane_index] = False
-        self._recognition_busy = any(self._lane_busy)
+        pending = self._pending_group_results.get(request_sequence)
+        if pending is None or lane_index not in pending["lanes"]:
+            # The group may already have been completed/cleared or belong to a cancelled
+            # generation. Do not let an orphaned callback alter current recognition state.
+            self._recognition_busy = any(self._group_busy) or any(self._lane_busy)
+            print(
+                f"ShazamService: Ignored orphaned lane result lane={lane_index + 1} "
+                f"seq={request_sequence}"
+            )
+            return
+
+        pending.setdefault("raw_results", {})[lane_index] = raw_result
+        pending["results"][lane_index] = (
+            str(title or "").strip(),
+            str(artist or "").strip(),
+            str(error_text or "").strip(),
+        )
+        self._finalize_pending_group(generation, request_sequence, pending)
+
+    def _finalize_pending_group(
+        self, generation, request_sequence, pending, missing_error=""
+    ):
+        if self._pending_group_results.get(request_sequence) is not pending:
+            return
+
+        timer = pending.get("confirmation_timer")
+        if timer is not None:
+            timer.stop()
+            if hasattr(timer, "deleteLater"):
+                timer.deleteLater()
+
+        group_index = pending["group_index"]
+        lanes = pending["lanes"]
+        results = [
+            pending["results"].get(lane, ("", "", missing_error))
+            for lane in lanes
+        ]
+        raw_results = [
+            pending.get("raw_results", {}).get(lane)
+            for lane in lanes
+        ]
+        self._pending_group_results.pop(request_sequence, None)
+        self._group_busy[group_index] = False
+        self._recognition_busy = any(self._group_busy) or any(self._lane_busy)
 
         try:
-            if error_text:
-                message = (
-                    f"Shazam recognition lane {lane_index + 1} failed: {error_text}"
-                )
-                # One lane failing is recoverable while the other lane is still racing.
-                # Keep the user-visible error channel for the case where both are idle.
-                if not self._recognition_busy:
-                    self.error_occurred.emit(message)
-                    self.status_changed.emit(message)
-                print(f"ShazamService: {message}")
-                return
-
-            if not title:
-                if not self._recognition_busy:
-                    self.status_changed.emit("Shazam: no match")
-                return
-
-            # Parallel lanes can finish out of order. Never allow an older audio snapshot
-            # to overwrite a newer recognized track that has already been published.
-            if request_sequence < self._latest_published_sequence:
-                print(
-                    f"ShazamService: Ignored stale lane result lane={lane_index + 1} "
-                    f"seq={request_sequence} latest={self._latest_published_sequence} "
-                    f"title={title!r}"
-                )
-                return
-            self._latest_published_sequence = request_sequence
-
-            # Artist can be temporarily unavailable when the live Shazam route exposes
-            # title identity before artist metadata. Keep the valid title instead of
-            # dropping a recognition; YouTube search accepts an empty artist.
-            artist = str(artist or "").strip()
-            track_key = (title, artist)
-            previous_track = self._last_track
-            # Compare successive valid results, including suppressed variants.
-            self._last_track = track_key
-            if is_same_track(previous_track, track_key):
-                self.status_changed.emit(f"Shazam: {artist} - {title}")
-                return
-
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            entry = (timestamp, title, artist)
-            # The first live result after application startup still needs to
-            # trigger playback, even if it matches the restored history head.
-            if (
-                previous_track is None
-                and self._history
-                and is_same_track(self._history[0][1:], track_key)
-            ):
-                self._history[0] = entry
-            else:
-                self._history.insert(0, entry)
-            del self._history[self.HISTORY_LIMIT:]
-            self._save_history()
-
-            self.history_updated.emit(list(self._history))
-            self.new_track_detected.emit(entry)
-            self.status_changed.emit(f"Shazam: {artist} - {title}")
-            print(
-                f"ShazamService: Recognized lane={lane_index + 1} seq={request_sequence} "
-                f"{artist} - {title}"
+            self._handle_confirmed_group_result(
+                group_index, request_sequence, lanes, results, raw_results
             )
         finally:
-            # Keep both lanes filled on a staggered cadence. The global slot protects
-            # Shazam.com from simultaneous bursts while still overlapping slow attempts.
+            # A completed worker may satisfy a slot that was waiting because all four
+            # workers were busy. The scheduler still enforces 3 seconds between dispatches.
             if self._active and generation == self._generation:
                 self._recognize_tick()
+
+    @staticmethod
+    def _temporal_observations_match(previous, current):
+        if not previous or not current:
+            return False
+        # Keep the existing title-prefix same-track rule unchanged. Two independent,
+        # time-separated observations are the only confirmation guard used here.
+        return is_same_track(previous["track"], current["track"])
+
+    def _stage_temporal_result(
+        self, group_index, request_sequence, title="", artist="", raw_result=None
+    ):
+        if request_sequence < self._next_temporal_sequence:
+            return
+        title = str(title or "").strip()
+        artist = str(artist or "").strip()
+        observation = None
+        if title:
+            observation = {
+                "group_index": group_index,
+                "sequence": request_sequence,
+                "track": (title, artist),
+            }
+        self._temporal_results[request_sequence] = observation
+        self._drain_temporal_results()
+
+    def _drain_temporal_results(self):
+        while self._next_temporal_sequence in self._temporal_results:
+            sequence = self._next_temporal_sequence
+            observation = self._temporal_results.pop(sequence)
+            self._next_temporal_sequence += 1
+
+            if observation is None:
+                self._last_temporal_observation = None
+                continue
+
+            previous = self._last_temporal_observation
+            self._last_temporal_observation = observation
+            title, artist = observation["track"]
+            if previous is None:
+                print(
+                    f"ShazamService: Candidate pending seq={sequence} "
+                    f"title={title!r} artist={artist!r}"
+                )
+                continue
+
+            if not self._temporal_observations_match(previous, observation):
+                print(
+                    f"ShazamService: Candidate changed/rejected prevSeq={previous['sequence']} "
+                    f"seq={sequence} title={title!r}"
+                )
+                continue
+
+            print(
+                f"ShazamService: Temporal confirmation prevSeq={previous['sequence']} "
+                f"seq={sequence} {artist} - {title}"
+            )
+            self._publish_confirmed_track(
+                observation["group_index"], sequence, title, artist
+            )
+
+    def _resolve_or_publish_confirmed_track(
+        self, group_index, request_sequence, raw_result, fallback_title, fallback_artist
+    ):
+        fallback_title = str(fallback_title or "").strip()
+        fallback_artist = str(fallback_artist or "").strip()
+        if not isinstance(raw_result, dict):
+            # Unit-test/direct-call compatibility and any legacy path that already carries
+            # finalized metadata: publish immediately without creating another worker.
+            if fallback_title:
+                self._stage_temporal_result(
+                    group_index, request_sequence, fallback_title, fallback_artist, raw_result
+                )
+            return
+
+        # The WebView is already localized to ja-JP. Strong request-scoped sources that
+        # contain both title and artist need no Apple round trip at all. This is the common
+        # fast path for JSON-LD / recognition-response results and removes the ~0.5-1 s
+        # Apple lookup/search that used to sit on the critical path. Incomplete/route-only
+        # results still use the existing resolver below.
+        from app.services.itunes_metadata import clean_metadata, is_generic_ui_title
+        raw_title = clean_metadata(raw_result.get("title"))
+        raw_artist = clean_metadata(raw_result.get("artist"))
+        source = str(raw_result.get("source") or "").split("+", 1)[0].casefold()
+        trusted_complete_sources = {
+            "jsonld", "recognition-response", "recognition-network",
+            "track-heading", "track-heading-nearby", "route-slug-dom",
+        }
+        if (
+            raw_title and raw_artist
+            and not is_generic_ui_title(raw_title)
+            and source in trusted_complete_sources
+        ):
+            title = fallback_title or raw_title
+            artist = fallback_artist or raw_artist
+            print(
+                f"ShazamService: Using complete live Shazam metadata without Apple lookup "
+                f"group={group_index + 1} seq={request_sequence} "
+                f"source={source} title={title!r} artist={artist!r}"
+            )
+            self._stage_temporal_result(
+                group_index, request_sequence, title, artist, raw_result
+            )
+            return
+
+        self._metadata_raw_results[request_sequence] = raw_result
+        generation = self._generation
+        cancelled = self._cancel_current
+        language = str(self.config.get("shazam_language", "ja-JP") or "ja-JP")
+        country = str(self.config.get("shazam_endpoint_country", "JP") or "JP")
+
+        def resolve_once():
+            title, artist = fallback_title, fallback_artist
+            error_text = ""
+            try:
+                if cancelled.is_set() or generation != self._generation:
+                    return
+                with self._metadata_lock:
+                    resolved_title, resolved_artist = self._metadata_resolver.resolve(
+                        raw_result, language, country, cancelled
+                    )
+                title = str(resolved_title or title).strip()
+                artist = str(resolved_artist or artist).strip()
+            except Exception as exc:
+                error_text = str(exc)
+            if cancelled.is_set() or self._shutting_down:
+                return
+            try:
+                self._metadata_finished.emit(
+                    generation, group_index, request_sequence, title, artist, error_text
+                )
+            except RuntimeError:
+                pass
+
+        threading.Thread(
+            target=resolve_once,
+            name=f"ShazamMetadata-{request_sequence}",
+            daemon=True,
+        ).start()
+
+    def _handle_metadata_finished(
+        self, generation, group_index, request_sequence, title, artist, error_text
+    ):
+        if generation != self._generation or not self._active:
+            return
+        title = str(title or "").strip()
+        artist = str(artist or "").strip()
+        if error_text:
+            print(
+                f"ShazamService: Deferred metadata resolution failed seq={request_sequence}: "
+                f"{error_text}; using Shazam fallback"
+            )
+        raw_result = self._metadata_raw_results.pop(request_sequence, None)
+        if not title:
+            print(
+                f"ShazamService: Confirmed identity had no usable title after metadata "
+                f"resolution group={group_index + 1} seq={request_sequence}"
+            )
+            self._stage_temporal_result(group_index, request_sequence, raw_result=raw_result)
+            return
+        print(
+            f"ShazamService: Deferred metadata resolved group={group_index + 1} "
+            f"seq={request_sequence} title={title!r} artist={artist!r}"
+        )
+        self._stage_temporal_result(
+            group_index, request_sequence, title, artist, raw_result
+        )
+
+    def _handle_confirmed_group_result(
+        self, group_index, request_sequence, lanes, results, raw_results=None
+    ):
+        raw_results = list(raw_results or [None] * len(results))
+        if len(raw_results) < len(results):
+            raw_results.extend([None] * (len(results) - len(raw_results)))
+
+        # New architecture: one independently timed recognition per slot. Accuracy is
+        # obtained from two consecutive slots, not by replaying one snapshot to a peer.
+        result = results[0] if results else ("", "", "")
+        raw_result = raw_results[0] if raw_results else None
+        if not self._lane_result_is_usable(result, raw_result):
+            title, artist, error = result
+            if error:
+                print(
+                    f"ShazamService: Recognition failed lane={lanes[0] + 1 if lanes else '?'} "
+                    f"seq={request_sequence}: {error}"
+                )
+            else:
+                print(f"ShazamService: No match seq={request_sequence}")
+            self._stage_temporal_result(group_index, request_sequence, raw_result=raw_result)
+            return
+
+        title, artist, _error = result
+        self._resolve_or_publish_confirmed_track(
+            group_index, request_sequence, raw_result, title, artist
+        )
+
+    def _publish_confirmed_track(self, group_index, request_sequence, title, artist):
+        # Groups can finish out of order. Never allow an older audio snapshot to
+        # overwrite a newer confirmed track that has already been published.
+        if request_sequence < self._latest_published_sequence:
+            print(
+                f"ShazamService: Ignored stale confirmed group={group_index + 1} "
+                f"seq={request_sequence} latest={self._latest_published_sequence} "
+                f"title={title!r}"
+            )
+            return
+        self._latest_published_sequence = request_sequence
+
+        artist = str(artist or "").strip()
+        title = str(title or "").strip()
+        track_key = (title, artist)
+        previous_track = self._last_track
+        # Compare successive confirmed results, including suppressed variants.
+        self._last_track = track_key
+        if is_same_track(previous_track, track_key):
+            self.status_changed.emit(f"Shazam: {artist} - {title}")
+            return
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        entry = (timestamp, title, artist)
+        # The first live confirmed result after application startup still needs to
+        # trigger playback, even if it matches the restored history head.
+        if (
+            previous_track is None
+            and self._history
+            and is_same_track(self._history[0][1:], track_key)
+        ):
+            self._history[0] = entry
+        else:
+            self._history.insert(0, entry)
+        del self._history[self.HISTORY_LIMIT:]
+        self._save_history()
+
+        self.history_updated.emit(list(self._history))
+        self.new_track_detected.emit(entry)
+        self.status_changed.emit(f"Shazam: {artist} - {title}")
+        lane_text = "+".join(str(lane + 1) for lane in self._group_lanes(group_index))
+        print(
+            f"ShazamService: Confirmed group={group_index + 1} lanes={lane_text} "
+            f"seq={request_sequence} {artist} - {title}"
+        )
 
     def _close_stream(self):
         stream = self._stream

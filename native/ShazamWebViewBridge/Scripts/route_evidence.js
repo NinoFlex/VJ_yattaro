@@ -54,6 +54,43 @@
     }
     return '';
   };
+  const loose = s => clean(s).normalize('NFKC').toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '');
+  const artistNoise = s => {
+    const t = clean(s);
+    if (!t || t.length > 140 || generic(t)) return true;
+    if (/^\d[\d,.]*$/.test(t)) return true;
+    if (/^\d[\d,.]*\s*[•·・|/-]\s*(?:anime|pop|rock|j-?pop|hip[ -]?hop|soundtrack|dance|electronic|r&b|alternative|metal|country|classical|jazz|blues|latin|k-?pop)$/i.test(t)) return true;
+    if (/^(?:anime|pop|rock|j-?pop|hip[ -]?hop|soundtrack|dance|electronic|r&b|alternative|metal|country|classical|jazz|blues|latin|k-?pop)$/i.test(t)) return true;
+    if (/^(?:get the app|concerts|charts|radio spins|connect apple music|apple music|share|共有|再生|play|lyrics|歌詞|video|videos)$/i.test(t)) return true;
+    return false;
+  };
+  const nearbyArtist = (titleElement, title) => {
+    if (!titleElement || !visible(titleElement)) return '';
+    const wanted = loose(title);
+    const titleRect = titleElement.getBoundingClientRect();
+    const candidates = [];
+    let root = titleElement.parentElement || document;
+    for (let depth = 0; root && depth < 6; depth++, root = root.parentElement) {
+      if (!root.querySelectorAll) continue;
+      for (const e of root.querySelectorAll('a,span,p,div')) {
+        if (e === titleElement || titleElement.contains?.(e) || e.contains?.(titleElement)) continue;
+        if (!visible(e) || structuralUI(e)) continue;
+        const t = clean(e.innerText || e.textContent);
+        if (artistNoise(t) || loose(t) === wanted || (wanted && loose(t).includes(wanted))) continue;
+        const r = e.getBoundingClientRect();
+        const gap = r.top - titleRect.bottom;
+        if (gap < -8 || gap > 180) continue;
+        if (r.right < titleRect.left - 80 || r.left > titleRect.right + 260) continue;
+        const childPenalty = Math.min(6, e.children?.length || 0) * 80;
+        const horizontal = Math.abs(r.left - titleRect.left) * 0.2;
+        candidates.push({text: t, score: Math.max(0, gap) * 4 + childPenalty + horizontal});
+      }
+      if (candidates.length) break;
+    }
+    candidates.sort((a, b) => a.score - b.score || a.text.length - b.text.length);
+    return candidates[0]?.text || '';
+  };
   const artistFromNode = node => {
     if (!node || typeof node !== 'object') return '';
     const by = node.byArtist || node.author || node.artist || node.creator;
@@ -82,8 +119,11 @@
   const route = (() => {
     try {
       const u = new URL(location.href);
-      const m = u.pathname.match(/^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(song|track)\/(\d{6,20})(?:\/|$)/i);
-      return m ? {kind: m[1].toLowerCase(), id: m[2], url: u.href} : null;
+      const m = u.pathname.match(/^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(song|track)\/(\d{6,20})(?:\/([^/?#]+))?(?:\/|$)/i);
+      if (!m) return null;
+      let slugTitle = '';
+      try { slugTitle = decodeURIComponent(m[3] || '').replace(/[-_]+/g, ' ').trim(); } catch (_) {}
+      return {kind: m[1].toLowerCase(), id: m[2], url: u.href, slugTitle};
     } catch (_) { return null; }
   })();
   if (!route) return null;
@@ -102,14 +142,16 @@
       if (appleMusicUrl) break;
     }
     const region = root || h.closest('article,section,[role="main"],main') || h.parentElement || document;
+    const explicitArtist = visibleArtist(region);
+    const proximityArtist = explicitArtist ? '' : nearbyArtist(h, title);
     const candidate = {
       title,
-      artist: visibleArtist(region),
+      artist: explicitArtist || proximityArtist,
       appleTrackId: appleId(appleMusicUrl),
       appleMusicUrl,
       shazamTrackId: route.id,
       url: route.url,
-      evidence: 'track-heading'
+      evidence: proximityArtist ? 'track-heading-nearby' : 'track-heading'
     };
     if (candidate.appleTrackId || candidate.artist) return candidate;
     if (!headingCandidate) headingCandidate = candidate;
@@ -134,6 +176,29 @@
         if (artist || !headingCandidate) return candidate;
       }
     } catch (_) {}
+  }
+
+  // Some Shazam layouts render the title/artist as ordinary div/span text with
+  // no artist link, data-testid or semantic heading. On an exact recognized route,
+  // use the route slug only as a title anchor, then read the nearest visible line
+  // below it as the artist. This is intentionally strict: the visible title must
+  // match the route slug after punctuation/width normalization.
+  if (route.slugTitle && !bad(route.slugTitle)) {
+    const wanted = loose(route.slugTitle);
+    const scanRoot = document.querySelector?.('main,[role="main"]') || document.body || document;
+    for (const e of scanRoot.querySelectorAll('h1,h2,h3,div,span,p')) {
+      if (!visible(e) || structuralUI(e)) continue;
+      const displayedTitle = clean(e.innerText || e.textContent);
+      if (!displayedTitle || loose(displayedTitle) !== wanted || bad(displayedTitle)) continue;
+      const artist = nearbyArtist(e, displayedTitle);
+      if (artist) {
+        return {
+          title: displayedTitle, artist,
+          appleTrackId: '', appleMusicUrl: '',
+          shazamTrackId: route.id, url: route.url, evidence: 'route-slug-dom'
+        };
+      }
+    }
   }
 
   if (headingCandidate) return headingCandidate;

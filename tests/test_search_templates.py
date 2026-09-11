@@ -138,6 +138,68 @@ class YouTubeSearchRequestTests(unittest.TestCase):
         )
 
 
+class YouTubeCandidateFilterTests(unittest.TestCase):
+    @staticmethod
+    def _item(video_id, title, description=''):
+        return {
+            'id': {'videoId': video_id},
+            'snippet': {
+                'title': title,
+                'description': description,
+                'thumbnails': {},
+            },
+        }
+
+    def test_utatte_mita_and_hiite_mita_titles_are_removed_from_candidates(self):
+        thread = YouTubeSearchThread(['test-key'], 0, 'song')
+        response = {
+            'items': [
+                self._item('official', '曲名 / Artist Official MV'),
+                self._item('sing', '【歌ってみた】曲名 / cover singer'),
+                self._item('play', '曲名を弾いてみた Guitar Cover'),
+                self._item('live', '曲名 Live'),
+            ]
+        }
+
+        with patch.object(thread, '_request_json', return_value=response), \
+             patch.object(thread, '_filter_shorts', side_effect=lambda videos, ids: videos) as filter_shorts:
+            videos = thread._search_youtube()
+
+        self.assertEqual([video['video_id'] for video in videos], ['official', 'live'])
+        self.assertEqual(filter_shorts.call_args.args[1], ['official', 'live'])
+
+    def test_keywords_in_description_alone_do_not_remove_candidate(self):
+        thread = YouTubeSearchThread(['test-key'], 0, 'song')
+        response = {
+            'items': [
+                self._item('official', '曲名 Official MV', '歌ってみた動画も公開中'),
+            ]
+        }
+
+        with patch.object(thread, '_request_json', return_value=response), \
+             patch.object(thread, '_filter_shorts', side_effect=lambda videos, ids: videos):
+            videos = thread._search_youtube()
+
+        self.assertEqual([video['video_id'] for video in videos], ['official'])
+
+    def test_only_excluded_results_count_as_empty_for_query_fallback(self):
+        thread = YouTubeSearchThread(
+            ['test-key'], 0, 'song artist', fallback_queries=['song']
+        )
+        thread.search_completed = Mock()
+        thread.search_error = Mock()
+        thread.api_key_switched = Mock()
+        with patch.object(
+            thread,
+            '_search_with_key_rotation',
+            side_effect=[[], [{'video_id': 'official'}]],
+        ) as search:
+            thread.run()
+
+        self.assertEqual(search.call_args_list, [call('song artist'), call('song')])
+        thread.search_completed.emit.assert_called_once_with([{'video_id': 'official'}])
+
+
 class SearchFallbackQueryTests(unittest.TestCase):
     _service = SearchTemplateTests._service
     TITLE = '\u8131\u3052\u3070\u3044\u3044\u3063\u3066\u30e2\u30f3\u3058\u3083\u306a\u3044! (loves. \u521d\u97f3\u30df\u30af)'
@@ -430,7 +492,7 @@ class SearchFallbackWiringTests(unittest.TestCase):
         exec(compile(module, 'main.py', 'exec'), namespace)
         return namespace['search_youtube']
 
-    def _run_main(self, title, artist, from_list, values=None):
+    def _run_main(self, title, artist, from_list, values=None, source_mode='shazam'):
         service = object.__new__(YouTubeService)
         service.config_service = _Config(values or {})
         service.is_configured = Mock(return_value=True)
@@ -441,7 +503,7 @@ class SearchFallbackWiringTests(unittest.TestCase):
         fake_logger = types.ModuleType('app.utils.logger')
         fake_logger.info, fake_logger.error = Mock(), Mock()
         window = types.SimpleNamespace(
-            source_mode='shazam', youtube_search_thread=None,
+            source_mode=source_mode, youtube_search_thread=None,
             _set_searching_state=Mock(), _set_youtube_search_error=Mock(),
             _refresh_connection_statuses=Mock(),
             on_youtube_search_completed=Mock(), on_youtube_search_error=Mock(),
@@ -474,6 +536,23 @@ class SearchFallbackWiringTests(unittest.TestCase):
         ])
         self.assertFalse(window._active_search_allow_auto_play)
         self.assertFalse(hasattr(window, '_current_track_info'))
+        thread.start.assert_called_once()
+
+    def test_shazam_title_only_history_search_never_auto_plays(self):
+        window, service, thread = self._run_main('たくさん', '', True)
+        self.assertEqual(window._current_track_info, {
+            'title': 'たくさん', 'artist': '', 'comment': ''
+        })
+        self.assertFalse(window._active_search_allow_auto_play)
+        service.search_videos.assert_called_once()
+        thread.start.assert_called_once()
+
+    def test_rekordbox_title_only_behavior_is_unchanged(self):
+        window, service, thread = self._run_main(
+            'Instrumental Track', '', True, source_mode='rekordbox'
+        )
+        self.assertTrue(window._active_search_allow_auto_play)
+        service.search_videos.assert_called_once()
         thread.start.assert_called_once()
 
     def test_empty_sanitized_input_reports_error_without_starting_thread(self):

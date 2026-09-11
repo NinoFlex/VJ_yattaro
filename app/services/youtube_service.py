@@ -20,6 +20,7 @@ _GUEST_CREDIT = re.compile(
     re.IGNORECASE,
 )
 _MAX_SEARCH_QUERIES = 3
+_EXCLUDED_CANDIDATE_TITLE_TERMS = ("歌ってみた", "弾いてみた")
 _VERSION_SUFFIX = re.compile(
     r"^(?:[([]|(?:live|remix|mix|edit|version|ver|cover|instrumental|karaoke|"
     r"remaster(?:ed)?|part)\b)", re.IGNORECASE,
@@ -323,14 +324,20 @@ class YouTubeSearchThread(QThread):
         videos = []
         video_ids = []
 
-        # まず検索結果から動画IDを収集
+        # まず検索結果から動画IDを収集。歌唱/演奏カバーは候補から除外する。
+        excluded_count = 0
         for item in items:
             video_id = item.get('id', {}).get('videoId')
             if not video_id:
                 continue
-            video_ids.append(video_id)
 
-            snippet = item['snippet']
+            snippet = item.get('snippet', {})
+            title = str(snippet.get('title', '') or '')
+            if any(term in title for term in _EXCLUDED_CANDIDATE_TITLE_TERMS):
+                excluded_count += 1
+                continue
+
+            video_ids.append(video_id)
 
             # サムネイルURLを取得
             thumbnails = snippet.get('thumbnails', {})
@@ -338,11 +345,17 @@ class YouTubeSearchThread(QThread):
 
             videos.append({
                 'video_id': video_id,
-                'title': snippet['title'],
+                'title': title,
                 'thumbnail_url': thumbnail_url,
                 'description': snippet.get('description', ''),
                 'url': f"https://www.youtube.com/watch?v={video_id}"
             })
+
+        if excluded_count:
+            print(
+                f"YouTubeSearchThread: excluded {excluded_count} cover candidate(s) "
+                f"matching {', '.join(_EXCLUDED_CANDIDATE_TITLE_TERMS)}"
+            )
 
         # 動画の詳細情報を取得して長さを確認
         if video_ids and not self._is_aborted:
