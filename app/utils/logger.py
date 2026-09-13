@@ -20,8 +20,11 @@ class LogLevel(IntEnum):
 class Logger:
     """Non-blocking application logger with a single background file writer."""
 
-    MAX_LOG_BYTES = 5 * 1024 * 1024
-    BACKUP_COUNT = 4
+    # Keep log files small enough to share/inspect easily.  The active file is
+    # rotated at roughly 1000 KiB and five previous generations are retained as
+    # vj_yattaro.log.1 ... vj_yattaro.log.5.
+    MAX_LOG_BYTES = 1000 * 1024
+    BACKUP_COUNT = 5
     QUEUE_MAX = 10000
     BATCH_MAX = 256
 
@@ -61,6 +64,53 @@ class Logger:
 
     def _should_log(self, level: LogLevel) -> bool:
         return self._enabled and level >= self._level
+
+    # Routine success/status messages are useful while debugging, but they are
+    # far too chatty for normal operation.  stdout is still shown on the console;
+    # these lines are only omitted from the INFO-level log file.  Selecting DEBUG
+    # restores them without changing call sites throughout the application.
+    _ROUTINE_INFO_MARKERS = (
+        "UI: Player feedback received - state:",
+        "UI: YouTube video state updated to ",
+        "UI: Set current_playing_video_id to:",
+        "UI: Updating delegate - ",
+        "Delegate: set_video_state called - ",
+        "Delegate: Updated all items to maintain current video border",
+        "UI: Selected thumbnail border color updated for state:",
+        "UI: Thumbnail loaded for video ",
+        "ShazamService: Audio level ",
+        "ShazamService: Scheduled recognition ",
+        " Official page requested app-supplied audio; stream running.",
+        " Live PCM health ",
+        " App live PCM bridge armed in WebView2",
+        " Live PCM reached WebView2 ",
+        " Navigation success=True status=200 uri=",
+        " Ready; WebView2=",
+        " Recognition finished with no usable match (",
+        " source=no-match shazamTrackId=",
+        " prewarm ready",
+        "HotkeyService: Registered Win32 hotkey ",
+        "HotkeyService: Unregistered all Win32 hotkeys",
+        "UI: Hotkeys reloaded - ",
+        "MidiService: Updating config. Device=",
+        "UI: MIDI config reloaded - Device:",
+        "PlayerHttpServer: Queued command ",
+        "PlayerHttpServer: ACK ",
+        "UI: Sent SET_CONFIG to player",
+        "UI: Requested one-shot A/B player state snapshots",
+        "ConfigService: Config saved to ",
+    )
+
+    @classmethod
+    def _is_routine_info_line(cls, line: str) -> bool:
+        return any(marker in line for marker in cls._ROUTINE_INFO_MARKERS)
+
+    def _should_capture_stream_line(self, line: str, level: LogLevel) -> bool:
+        if not self._should_log(level):
+            return False
+        if level == LogLevel.INFO and self._level != LogLevel.DEBUG:
+            return not self._is_routine_info_line(line)
+        return True
 
     def _enqueue_line(self, formatted_message: str):
         if not self._enabled or self._shutdown:
@@ -262,7 +312,8 @@ class LoggerStream:
         if "\n" in self.line_buffer:
             lines = self.line_buffer.split("\n")
             for line in lines[:-1]:
-                self.logger._enqueue_line(line)
+                if self.logger._should_capture_stream_line(line, self.level):
+                    self.logger._enqueue_line(line)
                 try:
                     stream = self.logger._stderr if self.level == LogLevel.ERROR else self.logger._stdout
                     if stream and hasattr(stream, "write"):

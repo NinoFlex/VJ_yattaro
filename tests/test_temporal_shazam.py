@@ -3,7 +3,7 @@ import queue
 import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -14,7 +14,6 @@ class TemporalConfirmationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.config = {
-            'shazam_recording_seconds': 6,
             'shazam_language': 'ja-JP',
             'shazam_endpoint_country': 'JP',
         }
@@ -49,6 +48,40 @@ class TemporalConfirmationTests(unittest.TestCase):
         self.assertEqual(self.svc._group_lanes(0), (0,))
         self.assertEqual(self.svc._group_lanes(3), (3,))
 
+
+    def test_capture_format_prefers_stereo_when_endpoint_supports_it(self):
+        class FakeSD:
+            def query_devices(self, device=None, kind=None):
+                return {'max_input_channels': 2, 'default_samplerate': 48000}
+            def check_input_settings(self, **kwargs):
+                if kwargs['channels'] != 2 or kwargs['samplerate'] != 48000:
+                    raise RuntimeError('unsupported')
+        rate, channels = self.svc._select_capture_format(FakeSD(), 35)
+        self.assertEqual((rate, channels), (48000, 2))
+
+    def test_live_audio_agc_raises_quiet_signal_before_fanout(self):
+        class Sink:
+            def __init__(self):
+                self.payload = None
+            def feed_live_audio(self, pcm, sample_rate):
+                self.payload = (pcm, sample_rate)
+            def close(self):
+                pass
+        sinks = [Sink() for _ in self.svc._web_recognizers]
+        self.svc._web_recognizers = sinks
+        self.svc._capture_sample_rate = 48000
+        self.svc._active = True
+        # About -46 dBFS RMS, similar to the failing real-device log. Repeated blocks
+        # let the smoothed AGC converge without any discontinuous one-block jump.
+        block = np.full((480, 2), 160, dtype=np.int16)
+        for _ in range(30):
+            self.svc._audio_callback(block, len(block), None, None)
+        pcm, sample_rate = sinks[0].payload
+        out = np.frombuffer(pcm, dtype='<i2').astype(np.float32) / 32768.0
+        raw = block[:, 0].astype(np.float32) / 32768.0
+        self.assertEqual(sample_rate, 48000)
+        self.assertGreater(float(np.sqrt(np.mean(out * out))), float(np.sqrt(np.mean(raw * raw))) * 4.0)
+
     def test_single_result_is_only_pending(self):
         self.svc._stage_temporal_result(0, 0, '白い雪のプリンセスは', 'のぼる↑')
         self.assertEqual(self.svc.get_history(), [])
@@ -77,17 +110,51 @@ class TemporalConfirmationTests(unittest.TestCase):
         self.svc._stage_temporal_result(0, 0, 'ABCD song', 'A')
         self.assertEqual(self.svc.get_history()[0][1:], ('ABCD song', 'A'))
 
+    def test_two_matching_later_sequences_bypass_stuck_head(self):
+        # seq=0 is still outstanding. Two independent later listening windows already
+        # agree, so they may confirm without waiting for the slow head request.
+        self.svc._stage_temporal_result(1, 1, 'ABCD song', 'A')
+        self.assertEqual(self.svc.get_history(), [])
+        self.svc._stage_temporal_result(2, 2, 'ABCD song live', 'B')
+        self.assertEqual(self.svc.get_history()[0][1:], ('ABCD song live', 'B'))
+        self.assertEqual(self.svc._next_temporal_sequence, 3)
+
+    def test_single_later_sequence_never_bypasses_stuck_head(self):
+        self.svc._stage_temporal_result(1, 1, 'ABCD song', 'A')
+        self.assertEqual(self.svc.get_history(), [])
+        self.assertEqual(self.svc._next_temporal_sequence, 0)
+        self.assertIn(1, self.svc._temporal_results)
+
+    def test_mismatching_later_sequences_do_not_bypass_stuck_head(self):
+        self.svc._stage_temporal_result(1, 1, 'ABCD song', 'A')
+        self.svc._stage_temporal_result(2, 2, 'WXYZ song', 'B')
+        self.assertEqual(self.svc.get_history(), [])
+        self.assertEqual(self.svc._next_temporal_sequence, 0)
+
+    def test_late_result_for_bypassed_head_is_ignored(self):
+        self.svc._stage_temporal_result(1, 1, 'ABCD song', 'A')
+        self.svc._stage_temporal_result(2, 2, 'ABCD song live', 'B')
+        before = list(self.svc.get_history())
+        self.svc._stage_temporal_result(0, 0, 'OLD track', 'Old')
+        self.assertEqual(self.svc.get_history(), before)
+        self.assertEqual(self.svc._next_temporal_sequence, 3)
+
+    def test_matching_pair_can_bypass_intervening_completed_noise(self):
+        # seq=0 is stuck, seq=1 is a one-off false result, seq=2/3 agree. The matched
+        # pair is sufficient evidence; seq=1 is superseded rather than blocking it.
+        self.svc._stage_temporal_result(1, 1, 'Noise Track', 'X')
+        self.svc._stage_temporal_result(2, 2, 'After Run', 'シーズ')
+        self.svc._stage_temporal_result(3, 3, 'After Run', 'シーズ')
+        self.assertEqual(self.svc.get_history()[0][1:], ('After Run', 'シーズ'))
+        self.assertEqual(self.svc._next_temporal_sequence, 4)
+
     def test_busy_preferred_lane_borrows_another_free_lane(self):
         self._ready_all_lanes()
         self.svc._lane_busy[0] = True
         self.svc._group_busy[0] = True
         self.svc._next_group_index = 0
         self.svc._next_group_slot_at = 99.0
-        samples = np.zeros(16000 * 6, dtype=np.int16)
-        with patch('time.monotonic', return_value=100.0), \
-             patch.object(self.svc, '_snapshot_latest', return_value=samples), \
-             patch.object(self.svc, '_resample_to_shazam_rate', return_value=samples), \
-             patch.object(self.svc, '_pcm_to_wav_bytes', return_value=b'wav'):
+        with patch('time.monotonic', return_value=100.0):
             self.svc._recognize_tick()
 
         self.assertEqual(self.svc._request_sequence, 1)
@@ -114,11 +181,7 @@ class TemporalConfirmationTests(unittest.TestCase):
         # immediately with fresh audio instead of waiting for lane 1's next 12-second phase.
         self.svc._lane_busy[2] = False
         self.svc._group_busy[2] = False
-        samples = np.zeros(16000 * 6, dtype=np.int16)
-        with patch('time.monotonic', return_value=101.5), \
-             patch.object(self.svc, '_snapshot_latest', return_value=samples), \
-             patch.object(self.svc, '_resample_to_shazam_rate', return_value=samples), \
-             patch.object(self.svc, '_pcm_to_wav_bytes', return_value=b'wav'):
+        with patch('time.monotonic', return_value=101.5):
             self.svc._recognize_tick()
 
         self.assertEqual(self.svc._request_sequence, 1)
@@ -131,20 +194,45 @@ class TemporalConfirmationTests(unittest.TestCase):
     def test_no_catchup_burst_after_busy_wait(self):
         self._ready_all_lanes()
         self.svc._next_group_slot_at = 99.0
-        samples = np.zeros(16000 * 6, dtype=np.int16)
-        with patch('time.monotonic', return_value=100.0), \
-             patch.object(self.svc, '_snapshot_latest', return_value=samples), \
-             patch.object(self.svc, '_resample_to_shazam_rate', return_value=samples), \
-             patch.object(self.svc, '_pcm_to_wav_bytes', return_value=b'wav'):
+        with patch('time.monotonic', return_value=100.0):
             self.svc._recognize_tick()
         self.assertEqual(self.svc._request_sequence, 1)
 
         # Even if another lane is free, 100 ms later must not dispatch a second request.
-        with patch('time.monotonic', return_value=100.1), \
-             patch.object(self.svc, '_snapshot_latest', return_value=samples):
+        with patch('time.monotonic', return_value=100.1):
             self.svc._recognize_tick()
         self.assertEqual(self.svc._request_sequence, 1)
         self._drain_work_queues()
+
+    def test_dispatch_contains_live_sample_rate_not_wav_snapshot(self):
+        self._ready_all_lanes()
+        self.svc._capture_sample_rate = 48000
+        self.svc._next_group_slot_at = 0.0
+        with patch('time.monotonic', return_value=100.0):
+            self.svc._recognize_tick()
+        item = self.svc._work_queues[0].get_nowait()
+        self.assertEqual(item[0:4], (1, 0, 0, 0))
+        self.assertEqual(item[-1], 48000)
+        self.assertNotIn(b'RIFF', item)
+
+    def test_audio_callback_fans_live_pcm_to_all_active_recognizers(self):
+        recognizers = []
+        for _ in range(4):
+            fake = types.SimpleNamespace(feed_live_audio=Mock(return_value=True), close=Mock())
+            recognizers.append(fake)
+        self.svc._web_recognizers = recognizers
+        self.svc._capture_sample_rate = 48000
+        samples = np.array([[1], [-2], [32767], [-32768]], dtype=np.int16)
+        self.svc._audio_callback(samples, 4, None, None)
+        payloads = []
+        for fake in recognizers:
+            fake.feed_live_audio.assert_called_once()
+            pcm, sample_rate = fake.feed_live_audio.call_args.args
+            self.assertEqual(sample_rate, 48000)
+            self.assertEqual(len(pcm), 8)
+            payloads.append(pcm)
+        self.assertTrue(all(pcm == payloads[0] for pcm in payloads))
+
 
 
 if __name__ == '__main__':

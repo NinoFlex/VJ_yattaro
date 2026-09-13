@@ -41,16 +41,20 @@ Shazamモードは**4本の独立WebView2レーンを共有ワーカープール
 
 - 全体では新しい認識開始を**3秒以上**ずらします。
 - あるレーンがbusyでも、別の空きレーンがあればそのレーンへ次の認識を投入します。
-- 4レーンすべてがbusyの場合、その認識スロットを捨てません。最初にレーンが空いた時点で最新の録音スナップショットを作って即時投入します。
+- 4レーンすべてがbusyの場合、その認識スロットを捨てません。最初にレーンが空いた時点で、そのレーンをライブ音声へ接続して即時開始します。
 - busy待ちから復帰した後は、追いつくための連続投入を行わず、実際に投入した時刻から次の3秒を数えます。
 - そのためShazam応答が12秒を少し超えても、旧固定レーン方式のように各レーンの次の12秒周期を丸ごと失いにくくなっています。
+
+各レーンには録音済みWAVをループ再生せず、認識開始後のマイクPCMを継続的に流します。各レーンは3秒以上ずれた時刻からライブ音声を聞き始めます。
 
 誤検出対策は、同じ録音を複数回投げるのではなく、**時間の異なる2回の認識結果**で行います。
 
 - 1回目の新しい曲は`Candidate pending`として内部保留し、履歴追加・YouTube検索・動画切替を行いません。
 - 次の有効な認識でも同一曲と判定された場合だけ`Temporal confirmation`となり、初めて確定します。
-- `no-match`が入った場合は連続確認をリセットします。
-- 認識完了順が前後しても、要求連番`seq`順に処理します。
+- `no-match`が通常の時系列処理に入った場合は連続確認をリセットします。
+- 原則として認識完了順ではなく要求連番`seq`順に処理します。
+- ただし古い`seq`が未応答のままでも、**後続の連続した2つの`seq`が同一曲で一致した場合だけ**、その一致ペアで古いheadを追い越して確定できます。
+- 後続が1件だけ、または2件が不一致なら追い越しません。追い越された古い結果が後から返っても無視します。
 
 同一曲判定は従来どおり`track_matching.py`の`is_same_track()`を使います。
 
@@ -148,8 +152,13 @@ APIキーは個人用の`config.json`で管理し、ソースへ書き込まな�
 内部構成は[Shazam連携](docs/INTEGRATION.md)を参照してください。
 WindowsでのEXEビルド、実マイク、実際のShazam認識は今回の作業環境では未検証です。
 
-ログは通常`vj_yattaro.log`です。認識画面を表示して調査する場合だけ、
-アプリを終了した状態で次を実行します。
+ログは通常`vj_yattaro.log`です。通常のINFOログでは高頻度の成功通知（プレイヤー状態更新、
+Hotkey再登録成功、ShazamライブPCMのhealth/bridge通知など）を省略し、認識結果・候補判定・
+待ち状態・警告・エラーを中心に記録します。ログは約1000KiBでローテーションし、
+`vj_yattaro.log.1`〜`vj_yattaro.log.5`の5世代を保持します。`log_level=DEBUG`では
+省略した詳細ログも記録されます。
+
+認識画面を表示して調査する場合だけ、アプリを終了した状態で次を実行します。
 
 ```powershell
 $env:VJ_SHAZAM_DEBUG = "1"
@@ -158,3 +167,7 @@ $env:VJ_SHAZAM_DEBUG = "1"
 
 通常起動へ戻す際は、アプリを終了して`Remove-Item Env:VJ_SHAZAM_DEBUG`を実行します。
 サイトの同意画面が出た場合は利用者が手動で操作してください。
+
+## Live microphone AGC
+Live PCM capture supports up to stereo input, downmixes to mono, and applies conservative software AGC before Shazam recognition.
+Each Shazam `getUserMedia()` request receives a fresh `MediaStreamTrack`; stopping an earlier probe track cannot terminate the subsequent recognition stream.

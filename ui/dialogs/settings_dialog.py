@@ -216,12 +216,6 @@ class SettingsDialog(QDialog):
         else:
             self.shazam_country_combo.setEditText(shazam_country)
 
-        try:
-            shazam_recording_seconds = int(self.config_service.get("shazam_recording_seconds", 6))
-        except (TypeError, ValueError):
-            shazam_recording_seconds = 6
-        self.shazam_recording_seconds_spin.setValue(max(5, min(20, shazam_recording_seconds)))
-
         self.always_on_top_checkbox.setChecked(bool(self.config_service.get("always_on_top", False)))
         self.bring_to_front_on_hotkey_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_hotkey", True)))
         self.bring_to_front_on_search_checkbox.setChecked(bool(self.config_service.get("bring_to_front_on_search", False)))
@@ -490,19 +484,10 @@ class SettingsDialog(QDialog):
         locale_help.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", locale_help)
 
-        self.shazam_recording_seconds_spin = QSpinBox()
-        self.shazam_recording_seconds_spin.setRange(5, 20)
-        self.shazam_recording_seconds_spin.setSuffix(" 秒")
-        self.shazam_recording_seconds_spin.setValue(6)
-        self.shazam_recording_seconds_spin.setToolTip(
-            "Shazamへ送る直近の音声時間を5〜20秒で指定します。"
-        )
-        layout.addRow("録音時間:", self.shazam_recording_seconds_spin)
-
         info_label = QLabel(
-            "mono / int16 で常時取り込み、可能なら16 kHzを使用します。\n"
-            "16 kHz非対応のマイクはネイティブ周波数で取得し、判定時だけ16 kHzへ変換します。\n"
-            "指定した5〜20秒分を保持し、3秒ごとに最新の録音区間をShazam判定します。"
+            "mono / int16 で常時取り込み、取得したPCMをWebView2へリアルタイム配信します。\n"
+            "4レーンを共有し、認識開始は3秒以上ずらします。WAVの6秒ループ再生は行いません。\n"
+            "新曲は時間差のある2回のタイトル一致で確定します。"
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet(self._muted_style("font-size: 10px;"))
@@ -1152,7 +1137,6 @@ class SettingsDialog(QDialog):
         if shazam_language.lower() == "jp-jp":
             shazam_language = "ja-JP"
         shazam_endpoint_country = self.shazam_country_combo.currentText().strip().upper() or "JP"
-        shazam_recording_seconds = max(5, min(20, int(self.shazam_recording_seconds_spin.value())))
         
         # MIDI設定の取得
         midi_port_name = self.midi_device_combo.currentText()
@@ -1184,7 +1168,6 @@ class SettingsDialog(QDialog):
         )
         print(f"Settings: Saving Rekordbox YouTube Search Template: {youtube_search_template_rekordbox}")
         print(f"Settings: Saving Shazam YouTube Search Template: {youtube_search_template_shazam}")
-        print(f"Settings: Saving Shazam recording duration: {shazam_recording_seconds}s")
 
         if not self.youtube_api_key_store.save(youtube_api_keys, youtube_active_key_index):
             QMessageBox.critical(
@@ -1223,7 +1206,6 @@ class SettingsDialog(QDialog):
             "shazam_input_device": shazam_input_device,
             "shazam_language": shazam_language,
             "shazam_endpoint_country": shazam_endpoint_country,
-            "shazam_recording_seconds": shazam_recording_seconds,
             "player_track_info_position": self._get_track_info_position_value(),
             "midi_port_name": midi_port_name,
             "midi_move_up": midi_move_up,

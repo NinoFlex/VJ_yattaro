@@ -7,13 +7,11 @@ Optional: pip install playwright && playwright install chromium
 Run: python tests/browser_checks.py [--chromium /path/to/chromium]
 """
 import argparse
-import base64
-import io
-import json
-import math
-from pathlib import Path
 import struct
-import wave
+import math
+import base64
+import json
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,13 +28,6 @@ TRACK = {'matches': [{'id': 'matched'}], 'track': {
     'title': '\u7d05\u84ee\u83ef', 'subtitle': 'LiSA', 'url': 'https://www.shazam.com/track/1234567/song',
     'hub': {'options': [{'actions': [{'uri': 'https://music.apple.com/jp/album/test/1234567?i=1825279997'}]}]}}}
 
-
-def make_wav():
-    file = io.BytesIO()
-    with wave.open(file, 'wb') as wav:
-        wav.setparams((1, 2, 16000, 96000, 'NONE', 'not compressed'))
-        wav.writeframes(b''.join(struct.pack('<h', int(10000 * math.sin(2 * math.pi * 440 * i / 16000))) for i in range(96000)))
-    return base64.b64encode(file.getvalue()).decode('ascii')
 
 
 def main():
@@ -55,7 +46,10 @@ def main():
                 route.fulfill(status=200, content_type='text/html', body=HTML)
         context.route('**/*', fulfill)
         context.add_init_script('''window.__messages=[]; window.chrome=window.chrome||{};
-            window.chrome.webview={postMessage(m){window.__messages.push(m)}};
+            window.__webviewHandlers=[];
+            window.chrome.webview={postMessage(m){window.__messages.push(m)},
+              addEventListener(t,fn){if(t==='message')window.__webviewHandlers.push(fn)}};
+            window.__postHostMessage=m=>window.__webviewHandlers.forEach(fn=>fn({data:m}));
             window.__speakerConnections=0;
             const _connect=AudioNode.prototype.connect;
             AudioNode.prototype.connect=function(dest,...args){
@@ -127,8 +121,8 @@ def main():
         checks.append('scoped newly displayed result dialog is captured')
 
         page.goto('http://localhost:8765/ja-jp')
-        result = page.evaluate('(args)=>__vjAudioBridge.load(args[0],args[1])', [make_wav(), ID])
-        assert result['ok'] and 5.99 < result['duration'] < 6.01
+        result = page.evaluate('(args)=>__vjAudioBridge.startLive(args[0],args[1])', [16000, ID])
+        assert result['ok'] and result['sampleRate'] == 16000
         page.evaluate('''()=>{document.querySelector('#start').onclick=async()=>{
           try {window.__inputStream=await navigator.mediaDevices.getUserMedia({audio:true});}
           catch(e){window.__inputError=e.toString()}
@@ -136,6 +130,18 @@ def main():
         page.click('#start')
         page.wait_for_function('window.__inputStream || window.__inputError')
         assert not page.evaluate('window.__inputError || ""')
+        fresh = page.evaluate('''async()=>{
+          const first=__inputStream; const firstTrack=first.getAudioTracks()[0]; firstTrack.stop();
+          const second=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false}});
+          window.__inputStream=second; const secondTrack=second.getAudioTracks()[0];
+          return {differentStream:first!==second,differentTrack:firstTrack!==secondTrack,
+                  firstState:firstTrack.readyState,secondState:secondTrack.readyState};
+        }''')
+        assert fresh == {'differentStream': True, 'differentTrack': True, 'firstState': 'ended', 'secondState': 'live'}, fresh
+        checks.append('second getUserMedia call receives a fresh live track after the first track is stopped')
+        pcm = base64.b64encode(b''.join(struct.pack('<h', int(10000 * math.sin(2 * math.pi * 440 * i / 16000))) for i in range(16000))).decode('ascii')
+        for _ in range(2):
+            page.evaluate('(args)=>__postHostMessage({source:"VJHost",type:"audio-chunk",id:args[0],pcm16Base64:args[1]})', [ID, pcm])
         stats = page.evaluate('''async()=>{
           const ctx=new AudioContext(); await ctx.resume();
           const source=ctx.createMediaStreamSource(__inputStream);
@@ -143,15 +149,15 @@ def main():
           const sink=ctx.createMediaStreamDestination();
           source.connect(analyser);analyser.connect(sink);
           const recorder=new MediaRecorder(sink.stream);recorder.start();
-          await new Promise(r=>setTimeout(r,800));
+          await new Promise(r=>setTimeout(r,500));
           const samples=new Float32Array(analyser.fftSize);analyser.getFloatTimeDomainData(samples);
           const rms=Math.sqrt(samples.reduce((a,x)=>a+x*x,0)/samples.length);
           recorder.stop(); await ctx.close();
           return {rms,tracks:__inputStream.getAudioTracks().length,speakers:__speakerConnections};
         }''')
-        assert stats['rms'] > 0.1 and stats['tracks'] == 1, stats
+        assert stats['rms'] > 0.05 and stats['tracks'] == 1, stats
         assert stats['speakers'] == 0, stats
-        checks.append('WAV becomes a non-silent microphone MediaStream without any speaker connection')
+        checks.append('live PCM becomes a non-silent microphone MediaStream without any speaker connection')
         page.evaluate('__vjAudioBridge.stop()')
         error = page.evaluate('navigator.mediaDevices.getUserMedia({audio:true}).then(()=>"unexpected",e=>e.name)')
         assert error == 'NotReadableError'

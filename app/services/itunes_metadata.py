@@ -41,12 +41,17 @@ _UI_TITLE_LABELS = {
     "フッター", "footer", "shazam フッター", "shazam footer",
     "ヘッダー", "header", "shazam ヘッダー", "shazam header",
     "ナビゲーション", "navigation", "shazam ナビゲーション", "shazam navigation",
+    "世界トップ200チャート", "global top 200 chart", "global top 200",
 }
 
 
 def is_generic_ui_title(value: str) -> bool:
     text = unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
     if text in {x.casefold() for x in _UI_TITLE_LABELS}:
+        return True
+    if re.fullmatch(r"(?:世界|global)\s*トップ?\s*\d{1,4}\s*(?:チャート|chart)", text, re.I):
+        return True
+    if re.fullmatch(r"global\s*top\s*\d{1,4}(?:\s*chart)?", text, re.I):
         return True
     return bool(re.fullmatch(r"shazam\s*(?:フッター|footer|ヘッダー|header|ナビゲーション|navigation)", text, re.I))
 

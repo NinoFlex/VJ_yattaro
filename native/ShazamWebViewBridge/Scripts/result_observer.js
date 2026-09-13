@@ -35,6 +35,7 @@
     const folded = s.toLowerCase();
     if (uiTitleLabels.has(folded)) return '';
     if (/^shazam\s*(?:フッター|footer|ヘッダー|header|ナビゲーション|navigation)$/i.test(s)) return '';
+    if (/^(?:世界\s*トップ\s*\d{1,4}\s*チャート|global\s*top\s*\d{1,4}(?:\s*chart)?)$/i.test(s)) return '';
     return s;
   };
   const appleId = value => {

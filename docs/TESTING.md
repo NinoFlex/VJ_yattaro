@@ -40,10 +40,13 @@ PythonのテストはQtと通信をモック化しています。実機の認識
 - 次の有効結果が既存のタイトル前方一致ルールで同一曲なら確定すること。
 - 異なるタイトルが1回だけ入っても確定されないこと。
 - `A → X → A`で単発の`X`を履歴追加しないこと。
-- 認識完了順が前後しても要求連番`seq`順で判定すること。
+- 通常の認識完了順が前後しても要求連番`seq`順で判定すること。
+- head `seq`が未応答でも、後続の連続2 `seq`が同一曲ならその一致ペアでheadを追い越して確定できること。
+- 後続が1件だけ、または後続2件が不一致ならheadを追い越さないこと。
+- head追い越し後に古い結果が返っても履歴や現在曲を巻き戻さないこと。
 - round-robin上の優先レーンがbusyでも、別の空きレーンへ認識を投入すること。
 - 4レーンすべてbusyの場合は要求連番とスロットを消費せず待機すること。
-- 待機中にworkerが空けば、そのworkerへ最新スナップショットを投入して再開すること。
+- 待機中にworkerが空けば、そのworkerをライブPCM配信へ接続して再開すること。
 - busy解消直後にcatch-upで認識を連続投入せず、実投入時刻から3秒空けること。
 - Shazam offsetに依存せず、従来の`is_same_track()`だけで2回確認すること。
 
@@ -102,13 +105,13 @@ WindowsのPython 3.12環境での実行、PowerShell/.NET/PyInstallerによるEX
 MIDI・ホットキー等の実機操作は、この環境では未確認です。
 
 EXE利用時はソースを置き換えるだけでは変更が反映されません。
-`build.cmd`で再ビルドしてください。実機では同じ録音を本家・カバーの表記で連続認識させ、
+`build.cmd`で再ビルドしてください。実機では同じ楽曲を本家・カバーの表記で連続認識させ、
 履歴と動画選択が繰り返し切り替わらないこと、別曲へ変えると検索が行われること、
 動画のループ再生が継続することを確認してください。
 
-4レーン認識の実機確認では、通常時に`Scheduled recognition ... slotInterval=3.0s pool=shared`が出ることを確認してください。4レーンすべてが使用中なら`Recognition slot waiting`が1回出て、workerが空いた後の次の`Scheduled recognition`に`waited=...s`が付いて再開します。旧`Skipped busy/unready`が連続して12秒周期を失う動きは発生しない想定です。
+4レーン認識の実機確認では、通常時に`Scheduled recognition ... slotInterval=3.0s pool=shared`が出ることを確認してください。WebView2側では`App live PCM bridge armed in WebView2.`の後に`Official page requested app-supplied audio; stream running.`が出ます。4レーンすべてが使用中なら`Recognition slot waiting`が1回出て、workerが空いた後の次の`Scheduled recognition`に`waited=...s`が付いて再開します。旧`Skipped busy/unready`が連続して12秒周期を失う動きは発生しない想定です。
 
-曲認識では1回目に`Candidate pending`、次の有効認識も同一曲なら`Temporal confirmation`が出てから履歴が増えることを確認します。単発の別曲は履歴・YouTube検索・動画切替へ進まないことを確認してください。
+曲認識では1回目に`Candidate pending`、3秒以上ずれて開始した次の有効認識も同一曲なら`Temporal confirmation`が出てから履歴が増えることを確認します。単発の別曲は履歴・YouTube検索・動画切替へ進まないことを確認してください。Shazam.com直マイクと比較し、`Recognition start`から`Recognized`までの時間もログで比較してください。
 
 検索修正の実機確認では、提示された結合文字列を入力し、ログの
 `YouTubeSearchThread: query`、`API returned`、`usable video(s)`を確認してください。
@@ -134,3 +137,17 @@ semantic headingだけ存在しartist属性がない場合の`track-heading-near
 実機確認ではログの `Route evidence` / `Recognized route` の `source` が
 `route-slug-dom` または `track-heading-nearby` になり、`artist=Anastasia (CV: Sumire Uesaka)`
 が出るか確認してください。WebView2ヘルパーのreadyメッセージ版は`1.2.7-speed1`です。
+
+### Live PCM recognition diagnostics
+
+Live recognition now uses one continuous Web Audio generator backed by a PCM ring buffer rather than scheduling many short AudioBufferSourceNode clips. During a real recognition, stderr should contain:
+
+- `Live PCM reached WebView2 peak=... rms=... queuedMs=...` shortly after the bridge is armed. A peak/RMS near zero indicates the selected PortAudio input is silent or is the wrong device.
+- `Live PCM health queuedMs=... pushedMs=... consumedMs=... underflowMs=...` after roughly three seconds. Large `underflowMs` indicates that PCM delivery cannot keep up with real time.
+- `Recognized ...` when Shazam returns a usable match.
+
+The temporal two-hit guard and sequence look-ahead run only after a raw Shazam result exists; repeated `source=no-match` therefore points to the audio/WebView recognition path rather than temporal adjudication.
+
+
+## Live input level diagnostics
+A healthy run logs `ShazamService: Audio level rawPeak=... rawRms=... agcGain=... outPeak=... outRms=...`. Very quiet raw input is automatically raised (up to 32x); silence is not boosted. Two-channel endpoints are captured as stereo and downmixed before AGC.

@@ -15,31 +15,39 @@ function fixture(host = 'www.shazam.com') {
   const document = {body, querySelectorAll: () => [], querySelector: () => null};
   let nativeCalls = 0;
   const connections = [];
+  const webviewHandlers = [];
+  let processorRef = null;
   class AudioContext {
-    constructor() {this.state = 'suspended';this.currentTime=0;this.destination={speaker:true};}
-    async decodeAudioData() {return {duration:6,numberOfChannels:1,sampleRate:48000};}
+    constructor(opts={}) {this.state = 'suspended';this.currentTime=0;this.sampleRate=opts.sampleRate||48000;this.destination={speaker:true};}
     async resume(){this.state='running';}
     async close(){this.state='closed';}
     createMediaStreamDestination(){
       const track={readyState:'live',addEventListener(){},stop(){this.readyState='ended'}};
       return {channelCount:2, stream:{getAudioTracks:()=>[track],getTracks:()=>[track]}};
     }
-    createBufferSource(){return {connect(dest){connections.push(dest)},disconnect(){},start(){},stop(){}};}
+    createBuffer(channels,length,sampleRate){
+      const data=new Float32Array(length);
+      return {duration:length/sampleRate,getChannelData:()=>data};
+    }
+    createBufferSource(){return {buffer:null,onended:null,connect(dest){connections.push(dest)},disconnect(){},start(){},stop(){}};}
+    createScriptProcessor(){processorRef={onaudioprocess:null,connect(dest){connections.push(dest)},disconnect(){}};return processorRef;}
+    createConstantSource(){return {offset:{value:0},connect(dest){connections.push(dest)},disconnect(){},start(){},stop(){}};}
   }
   class XMLHttpRequest {send(){} addEventListener(){}}
   const world = {console, URL, Uint8Array, Set, Object, String, Array, AudioContext, XMLHttpRequest,
     DOMException, navigator:{mediaDevices:{async getUserMedia(){nativeCalls++;return {};}}},
     location, document, history:{pushState(s,t,url){location.href=new URL(url,location.href).href;},replaceState(s,t,url){location.href=new URL(url,location.href).href;}},
     MutationObserver:class {observe(){}},
-    addEventListener(){}, queueMicrotask, getComputedStyle:()=>({display:'block',visibility:'visible'}),
+    addEventListener(){}, queueMicrotask, setTimeout:()=>0, getComputedStyle:()=>({display:'block',visibility:'visible'}),
     atob:s=>Buffer.from(s,'base64').toString('binary'),
     fetch:async()=>({headers:{get:()=> 'application/json'},clone(){return {text:async()=>JSON.stringify(world.payload)}}}),
-    chrome:{webview:{postMessage:value=>messages.push(value)}}};
+    chrome:{webview:{postMessage:value=>messages.push(value),addEventListener(type,fn){if(type==='message')webviewHandlers.push(fn)}}}};
   world.window=world;world.top=world;
   const ctx=vm.createContext(world);
   for(const file of ['audio_bridge.js','result_observer.js'])
     vm.runInContext(fs.readFileSync(path.join(scripts,file),'utf8'),ctx,{filename:file});
-  return {ctx,world,messages,connections,nativeCalls:()=>nativeCalls};
+  return {ctx,world,messages,connections,nativeCalls:()=>nativeCalls,processor:()=>processorRef,
+    hostMessage:data=>webviewHandlers.forEach(fn=>fn({data}))};
 }
 
 function routeEvidenceFixture({headingTitle = '', jsonLd = null} = {}) {
@@ -172,21 +180,41 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
   assert.equal(f.messages.length,0);ok('Shazam UI label Overview cannot become a track title');
   f.world.__vjResults.inspectRecognition({matches:[{}],track:{title:'Shazam フッター',subtitle:'Metizone'}},a);
   assert.equal(f.messages.length,0);ok('Shazam footer UI label cannot become a track title');
+  f.world.__vjResults.inspectRecognition({matches:[{}],track:{title:'世界トップ200チャート',subtitle:'HUGEL, Imael Angel & Ultra Nate'}},a);
+  assert.equal(f.messages.length,0);ok('global chart heading cannot become a track title');
   assert.equal(f.world.__vjResults.appleId('https://music.apple.com/jp/album/x/1234567'),'');
   assert.equal(f.world.__vjResults.appleId('https://evil.test/?i=1825279997'),'');ok('album and untrusted URLs are rejected');
   f.world.payload=track;
   await f.world.fetch('/recognition-fixture');await new Promise(setImmediate);
   assert.equal(f.messages.at(-1).evidence,'recognition-response');ok('fetch observer receives response clone');
-  const loaded=await f.world.__vjAudioBridge.load(Buffer.from('fixture').toString('base64'),a);
-  assert.equal(loaded.ok,true);
+  const armed=await f.world.__vjAudioBridge.startLive(48000,a);
+  assert.equal(armed.ok,true);
+  const probeStream=await f.world.navigator.mediaDevices.getUserMedia({audio:true});
+  const probeTrack=probeStream.getAudioTracks()[0];
+  assert.equal(probeTrack.readyState,'live');
+  probeTrack.stop();
+  assert.equal(probeTrack.readyState,'ended');
   const stream=await f.world.navigator.mediaDevices.getUserMedia({audio:true});
-  assert.equal(stream.getAudioTracks()[0].readyState,'live');
+  const recognitionTrack=stream.getAudioTracks()[0];
+  assert.notEqual(stream,probeStream);
+  assert.notEqual(recognitionTrack,probeTrack);
+  assert.equal(recognitionTrack.readyState,'live');
+  ok('each getUserMedia call gets a fresh live MediaStreamTrack after the prior track is stopped');
+  const pcmSamples=new Int16Array(7000);
+  for(let i=0;i<pcmSamples.length;i++) pcmSamples[i]=(i&1)?-12000:12000;
+  const pcm=Buffer.from(pcmSamples.buffer).toString('base64');
+  f.hostMessage({source:'VJHost',type:'audio-chunk',id:a,pcm16Base64:pcm});
+  const rendered=new Float32Array(2048);
+  f.processor().onaudioprocess({outputBuffer:{getChannelData:()=>rendered}});
+  assert(rendered.some(x=>Math.abs(x)>0.1));
   assert.equal(f.nativeCalls(),0);
-  assert(f.connections.length>0 && f.connections.every(x=>!x.speaker));ok('audio graph supplies media stream without native mic or speaker routing (mock)');
+  assert(f.connections.length>0 && f.connections.every(x=>!x.speaker));ok('live PCM ring renders non-silent continuous media stream without native mic or speaker routing (mock)');
   f.world.__vjAudioBridge.stop();
-  assert.equal(stream.getAudioTracks()[0].readyState,'ended');
+  assert.equal(recognitionTrack.readyState,'ended');
   await assert.rejects(()=>f.world.navigator.mediaDevices.getUserMedia({audio:true}),{name:'NotReadableError'});
-  assert.equal(f.nativeCalls(),0);ok('stop closes supplied audio with no OS microphone fallback');
+  assert.equal(f.nativeCalls(),0);ok('stop closes live supplied audio with no OS microphone fallback');
+  const audioBridgeSource=fs.readFileSync(path.join(scripts,'audio_bridge.js'),'utf8');
+  assert.doesNotMatch(audioBridgeSource,/source\.loop\s*=\s*true/);ok('live bridge never loops a bounded WAV snapshot');
   const other=fixture('example.test');
   assert.equal(other.world.__vjAudioBridge,undefined);
   assert.equal(other.world.__vjResults,undefined);ok('production origin guards leave other sites untouched');

@@ -60,7 +60,6 @@ class ConfigService:
             "shazam_input_device": None,
             "shazam_language": "ja-JP",
             "shazam_endpoint_country": "JP",
-            "shazam_recording_seconds": 6,
             "midi_port_name": "",
             "midi_move_up": -1,
             "midi_move_down": -1,
@@ -83,6 +82,14 @@ class ConfigService:
                 with open(self._config_file, "r", encoding="utf-8") as f:
                     file_config = json.load(f)
                     self.config.update(file_config)
+
+                # Live PCM recognition no longer uses a configurable recording duration.
+                # Remove the obsolete key from older config.json files so the persisted
+                # settings reflect the current live-stream-only implementation.
+                if "shazam_recording_seconds" in file_config:
+                    self.config.pop("shazam_recording_seconds", None)
+                    self.save_config({})
+                    print("ConfigService: Removed obsolete shazam_recording_seconds setting")
 
                 # Legacy migration: Japanese language tag is ja-JP, not jp-JP.
                 # Older builds stored jp-JP, which can make Shazam return

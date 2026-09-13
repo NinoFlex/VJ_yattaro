@@ -1,30 +1,29 @@
-import io
 import json
+import math
 import queue
 import re
 import sys
 import threading
 import time
-import wave
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.services.track_matching import deduplicate_history, is_same_track
 
 
 class ShazamService(QObject):
-    """Microphone -> fixed ring buffer -> Shazam recognition service.
+    """Microphone -> live PCM fanout -> Shazam recognition service.
 
-    Audio capture and the public Qt/history contract are unchanged. Recognition uses four
-    independent WebView2 workers in a shared pool. New recognition starts are spaced by at
-    least three seconds. If all workers are busy, the due slot is held instead of discarded;
-    a fresh audio snapshot is submitted as soon as any worker becomes free, and the next
-    start is scheduled three seconds after that actual dispatch. A track is published only
-    after two consecutive time-separated recognition results match using the existing
-    title-prefix rule. No ShazamIO library or private Shazam API is used.
+    One PortAudio input stream is captured continuously and fanned out to four independent
+    WebView2 workers only while each lane is recognizing. New recognition starts are spaced
+    by at least three seconds. If all workers are busy, the due slot is held instead of
+    discarded and starts as soon as one worker becomes free. Each WebView therefore receives
+    fresh microphone PCM continuously after its own start time instead of a looping WAV
+    snapshot. A track is published only after two consecutive time-separated recognition
+    results match using the existing title-prefix rule. No ShazamIO library or private
+    Shazam API is used.
     """
 
     history_updated = Signal(list)
@@ -35,11 +34,13 @@ class ShazamService(QObject):
     _metadata_finished = Signal(int, int, int, str, str, str)
 
     SAMPLE_RATE = 16000
-    CHANNELS = 1
+    CHANNELS = 1  # preferred minimum; stereo-capable endpoints are captured as 2ch and downmixed
+    MAX_CAPTURE_CHANNELS = 2
     DTYPE = "int16"
-    MIN_RECORDING_SECONDS = 5
-    MAX_RECORDING_SECONDS = 20
-    DEFAULT_RECORDING_SECONDS = 6
+    AGC_TARGET_RMS = 0.08
+    AGC_MAX_GAIN = 32.0
+    AGC_MIN_GAIN = 0.5
+    AGC_NOISE_GATE_RMS = 0.00025
     RECOGNITION_INTERVAL_MS = 100
     RECOGNITION_GROUPS = 4
     LANES_PER_GROUP = 1
@@ -54,14 +55,9 @@ class ShazamService(QObject):
 
         self.config = ConfigService()
         self._capture_sample_rate = self.SAMPLE_RATE
-        self._recording_seconds = self._get_recording_seconds()
-        self._ring = np.zeros(
-            self._capture_sample_rate * self._recording_seconds,
-            dtype=np.int16,
-        )
-        self._ring_lock = threading.Lock()
-        self._write_pos = 0
-        self._samples_available = 0
+        self._capture_channels = self.CHANNELS
+        self._agc_gain = 1.0
+        self._last_audio_level_log = 0.0
 
         self._stream = None
         self._active = False
@@ -257,9 +253,11 @@ class ShazamService(QObject):
             elif device is not None:
                 device = int(device)
 
-            capture_rate = self._select_capture_sample_rate(sd, device)
-            self._recording_seconds = self._get_recording_seconds()
-            self._configure_capture_buffer(capture_rate)
+            capture_rate, capture_channels = self._select_capture_format(sd, device)
+            self._capture_sample_rate = int(capture_rate)
+            self._capture_channels = int(capture_channels)
+            self._agc_gain = 1.0
+            self._last_audio_level_log = 0.0
 
             # Only load/start the Shazam worker after the selected microphone has
             # passed validation. This keeps a failed Shazam start as lightweight as possible.
@@ -286,7 +284,7 @@ class ShazamService(QObject):
             self._stream = sd.InputStream(
                 device=device,
                 samplerate=capture_rate,
-                channels=self.CHANNELS,
+                channels=self._capture_channels,
                 dtype=self.DTYPE,
                 callback=self._audio_callback,
                 blocksize=0,
@@ -304,11 +302,20 @@ class ShazamService(QObject):
                     # cancelled item is still leaving the queue during a quick restart.
                     self._lane_ready[lane_index].set()
             self._recognize_timer.start()
-            self.status_changed.emit("Shazam: microphone capture started")
+            self.status_changed.emit("Shazam: live microphone capture started")
+            try:
+                info = sd.query_devices(device, "input") if device is not None else sd.query_devices(kind="input")
+                device_name = str(info.get("name", "system-default"))
+                hostapi_index = int(info.get("hostapi", -1))
+                hostapis = sd.query_hostapis()
+                hostapi_name = (str(hostapis[hostapi_index].get("name", ""))
+                                if 0 <= hostapi_index < len(hostapis) else "")
+            except Exception:
+                device_name, hostapi_name = "unknown", ""
             print(
-                f"ShazamService: Started (device={device}, "
-                f"capture={capture_rate}Hz/mono/int16, shazam={self.SAMPLE_RATE}Hz, "
-                f"recording={self._recording_seconds}s)"
+                f"ShazamService: Started (device={device}, name={device_name!r}, hostapi={hostapi_name!r}, "
+                f"capture={capture_rate}Hz/{capture_channels}ch/int16->mono, input=live-stream-agc, "
+                f"laneInterval={self.GROUP_STAGGER_SECONDS:.1f}s)"
             )
             return True
         except Exception as e:
@@ -395,24 +402,63 @@ class ShazamService(QObject):
         if not self._active:
             return
 
-        samples = np.asarray(indata[:, 0], dtype=np.int16)
-        count = len(samples)
-        ring_size = len(self._ring)
+        # Browser getUserMedia normally applies microphone processing such as automatic
+        # gain control. Our app-supplied MediaStream bypasses that path, so raw PortAudio
+        # levels can be 20-40 dB quieter than shazam.com sees from a real browser mic.
+        # Capture up to stereo, downmix, then apply a conservative smoothed AGC before
+        # fanning the same live PCM to all recognizing lanes.
+        try:
+            samples = indata.astype("float32", copy=False) / 32768.0
+            if getattr(samples, "ndim", 1) > 1:
+                mono = samples.mean(axis=1)
+            else:
+                mono = samples
 
-        with self._ring_lock:
-            if count >= ring_size:
-                self._ring[:] = samples[-ring_size:]
-                self._write_pos = 0
-                self._samples_available = ring_size
-                return
+            if len(mono):
+                raw_peak = float(abs(mono).max())
+                raw_rms = float(math.sqrt(float((mono * mono).mean())))
+            else:
+                raw_peak = raw_rms = 0.0
 
-            first = min(count, ring_size - self._write_pos)
-            self._ring[self._write_pos:self._write_pos + first] = samples[:first]
-            remaining = count - first
-            if remaining:
-                self._ring[:remaining] = samples[first:]
-            self._write_pos = (self._write_pos + count) % ring_size
-            self._samples_available = min(ring_size, self._samples_available + count)
+            if raw_rms >= self.AGC_NOISE_GATE_RMS:
+                desired = self.AGC_TARGET_RMS / max(raw_rms, 1e-9)
+                desired = max(self.AGC_MIN_GAIN, min(self.AGC_MAX_GAIN, desired))
+                # Raise quiet audio reasonably quickly, reduce gain more gently to avoid
+                # audible pumping between consecutive PortAudio blocks.
+                alpha = 0.20 if desired > self._agc_gain else 0.06
+                self._agc_gain += (desired - self._agc_gain) * alpha
+            else:
+                # Do not crank silence/noise to maximum gain. Slowly return toward unity.
+                self._agc_gain += (1.0 - self._agc_gain) * 0.02
+
+            processed = mono * self._agc_gain
+            processed = processed.clip(-0.98, 0.98)
+            if raw_rms < self.AGC_NOISE_GATE_RMS * 0.25:
+                processed = processed * 0.0
+            out_peak = float(abs(processed).max()) if len(processed) else 0.0
+            out_rms = float(math.sqrt(float((processed * processed).mean()))) if len(processed) else 0.0
+            pcm_bytes = (processed * 32767.0).astype("<i2").tobytes()
+
+            now = time.monotonic()
+            if now - self._last_audio_level_log >= 3.0:
+                self._last_audio_level_log = now
+                print(
+                    "ShazamService: Audio level "
+                    f"rawPeak={raw_peak:.4f} rawRms={raw_rms:.4f} "
+                    f"agcGain={self._agc_gain:.2f} outPeak={out_peak:.4f} outRms={out_rms:.4f}"
+                )
+        except Exception as exc:
+            # Keep audio callback failures observable without bringing PortAudio down.
+            print(f"ShazamService: Audio preprocessing failed: {exc}")
+            return
+
+        for recognizer in self._web_recognizers:
+            try:
+                recognizer.feed_live_audio(pcm_bytes, self._capture_sample_rate)
+            except Exception:
+                # Recognition workers own IPC failures. Never log/block from PortAudio's
+                # real-time callback if one helper is being restarted.
+                pass
 
     @staticmethod
     def _check_shazam_runtime_dependencies():
@@ -420,81 +466,54 @@ class ShazamService(QObject):
         WebViewRecognizer.check_available()
 
     @classmethod
-    def _select_capture_sample_rate(cls, sd, device):
-        """Pick a sample rate accepted by the selected PortAudio input device.
+    def _select_capture_format(cls, sd, device):
+        """Return (sample_rate, channels) accepted by the selected input endpoint.
 
-        16 kHz is preferred to keep the capture buffer small. Some Windows host APIs
-        (especially WDM-KS/WASAPI endpoints) only accept their native 44.1/48 kHz
-        rate, so fall back to the device default and resample only the configured
-        recognition snapshot.
+        Windows endpoints are not guaranteed to accept mono even when they expose input.
+        Prefer stereo when available so system/loopback-style sources cannot lose a signal
+        that lives on only one side; the callback safely downmixes to mono for Shazam.
         """
-        rates = [cls.SAMPLE_RATE]
         try:
             info = sd.query_devices(device, "input") if device is not None else sd.query_devices(kind="input")
+        except Exception:
+            info = {}
+        try:
+            max_inputs = max(1, int(info.get("max_input_channels", cls.CHANNELS) or cls.CHANNELS))
+        except Exception:
+            max_inputs = cls.CHANNELS
+        channel_candidates = []
+        if max_inputs >= 2:
+            channel_candidates.append(min(cls.MAX_CAPTURE_CHANNELS, max_inputs))
+        if 1 not in channel_candidates:
+            channel_candidates.append(1)
+
+        rates = [cls.SAMPLE_RATE]
+        try:
             default_rate = int(round(float(info.get("default_samplerate", 0) or 0)))
             if default_rate > 0 and default_rate not in rates:
                 rates.append(default_rate)
         except Exception:
             pass
-
         for fallback in (48000, 44100, 32000):
             if fallback not in rates:
                 rates.append(fallback)
 
         errors = []
-        for rate in rates:
-            try:
-                sd.check_input_settings(
-                    device=device,
-                    channels=cls.CHANNELS,
-                    dtype=cls.DTYPE,
-                    samplerate=rate,
-                )
-                return int(rate)
-            except Exception as e:
-                errors.append(f"{rate}Hz: {e}")
+        for channels in channel_candidates:
+            for rate in rates:
+                try:
+                    sd.check_input_settings(
+                        device=device, channels=channels, dtype=cls.DTYPE, samplerate=rate,
+                    )
+                    return int(rate), int(channels)
+                except Exception as e:
+                    errors.append(f"{rate}Hz/{channels}ch: {e}")
+        raise RuntimeError("No supported input format. " + " / ".join(errors))
 
-        raise RuntimeError("No supported input sample rate. " + " / ".join(errors))
-
-    def _get_recording_seconds(self):
-        """Return the configured Shazam recording duration clamped to 5..20 seconds."""
-        try:
-            seconds = int(self.config.get(
-                "shazam_recording_seconds",
-                self.DEFAULT_RECORDING_SECONDS,
-            ))
-        except (TypeError, ValueError):
-            seconds = self.DEFAULT_RECORDING_SECONDS
-        return max(self.MIN_RECORDING_SECONDS, min(self.MAX_RECORDING_SECONDS, seconds))
-
-    def _configure_capture_buffer(self, sample_rate):
-        self._capture_sample_rate = int(sample_rate)
-        with self._ring_lock:
-            self._ring = np.zeros(
-                self._capture_sample_rate * self._recording_seconds,
-                dtype=np.int16,
-            )
-            self._write_pos = 0
-            self._samples_available = 0
-
-    def _reset_ring(self):
-        with self._ring_lock:
-            self._ring.fill(0)
-            self._write_pos = 0
-            self._samples_available = 0
-
-    def _snapshot_latest(self, seconds):
-        sample_count = int(self._capture_sample_rate * seconds)
-        with self._ring_lock:
-            if self._samples_available < sample_count:
-                return None
-
-            ring_size = len(self._ring)
-            start = (self._write_pos - sample_count) % ring_size
-            if start < self._write_pos:
-                return self._ring[start:self._write_pos].copy()
-
-            return np.concatenate((self._ring[start:], self._ring[:self._write_pos])).copy()
+    @classmethod
+    def _select_capture_sample_rate(cls, sd, device):
+        # Backward-compatible helper retained for tests/older callers.
+        return cls._select_capture_format(sd, device)[0]
 
     @classmethod
     def _group_lanes(cls, group_index):
@@ -549,15 +568,9 @@ class ShazamService(QObject):
                 self._slot_wait_logged = True
             return
 
-        recording_seconds = self._recording_seconds
-        samples = self._snapshot_latest(recording_seconds)
-        if samples is None:
-            return
-
-        # Take the snapshot only when a worker is actually available. This avoids queueing
-        # stale audio while preserving the intended time separation between confirmations.
-        samples = self._resample_to_shazam_rate(samples, self._capture_sample_rate)
-        audio_bytes = self._pcm_to_wav_bytes(samples)
+        # The chosen lane consumes future live PCM; no historical WAV snapshot is created.
+        # Dispatch can start immediately after the helper is ready because page preparation
+        # itself gives PortAudio time to deliver the first live blocks.
         generation = self._generation
         language = str(self.config.get("shazam_language", "ja-JP") or "ja-JP")
         country = str(self.config.get("shazam_endpoint_country", "JP") or "JP")
@@ -577,8 +590,9 @@ class ShazamService(QObject):
             for lane_offset, lane_index in enumerate(lanes):
                 lane_start_delay = lane_offset * self.LANE_STAGGER_SECONDS
                 self._work_queues[lane_index].put_nowait((
-                    generation, group_index, lane_index, request_sequence, audio_bytes,
+                    generation, group_index, lane_index, request_sequence,
                     language, country, self._cancel_current, lane_start_delay,
+                    self._capture_sample_rate,
                 ))
         except queue.Full:
             # A shutdown/restart race may make a queue unavailable after the readiness
@@ -600,7 +614,7 @@ class ShazamService(QObject):
         # Fairness: start the next free-worker search after the worker just used.
         self._next_group_index = (group_index + 1) % self.RECOGNITION_GROUPS
         # Never catch up in a burst after saturation. Three seconds is measured from this
-        # real dispatch, so consecutive audio snapshots remain time-separated.
+        # real dispatch, so consecutive live listening windows remain time-separated.
         self._next_group_slot_at = now + self.GROUP_STAGGER_SECONDS
         lane_text = "+".join(str(lane + 1) for lane in lanes)
         wait_text = f" waited={waited:.1f}s" if waited > 0.05 else ""
@@ -639,8 +653,8 @@ class ShazamService(QObject):
                     continue
 
                 (
-                    generation, group_index, item_lane, request_sequence, audio_bytes,
-                    language, country, cancelled, lane_start_delay,
+                    generation, group_index, item_lane, request_sequence,
+                    language, country, cancelled, lane_start_delay, capture_sample_rate,
                 ) = item
                 if cancelled.is_set() or generation != self._generation:
                     continue
@@ -651,13 +665,13 @@ class ShazamService(QObject):
                         continue
                     if cancelled.is_set() or generation != self._generation:
                         continue
-                    result = recognizer.recognize(audio_bytes, language, cancelled)
+                    result = recognizer.recognize_live(capture_sample_rate, language, cancelled)
                     if cancelled.is_set():
                         continue
 
                     # Do NOT run Apple/iTunes localization here. Keeping metadata work
-                    # out of the lane worker releases this WebView immediately for its
-                    # next fixed slot; localization happens after recognition returns.
+                    # out of the lane worker releases this WebView immediately for the
+                    # shared pool; localization happens after recognition returns.
                     raw_result = dict(result or {})
                     title = str(raw_result.get("title") or "").strip()
                     artist = str(raw_result.get("artist") or "").strip()
@@ -802,40 +816,106 @@ class ShazamService(QObject):
         self._temporal_results[request_sequence] = observation
         self._drain_temporal_results()
 
-    def _drain_temporal_results(self):
-        while self._next_temporal_sequence in self._temporal_results:
-            sequence = self._next_temporal_sequence
-            observation = self._temporal_results.pop(sequence)
-            self._next_temporal_sequence += 1
+    def _find_temporal_bypass_pair(self):
+        """Return the earliest newer matching pair that can safely bypass a stuck head.
 
-            if observation is None:
-                self._last_temporal_observation = None
+        Normal processing remains request-sequence ordered. The only exception is when the
+        current head has not finished yet but two *later, consecutive* request sequences have
+        both finished with the same track. One result alone can never bypass the head, so the
+        existing two-observation false-positive guard is preserved.
+        """
+        head = self._next_temporal_sequence
+        if head in self._temporal_results:
+            return None
+
+        for sequence in sorted(key for key in self._temporal_results if key > head):
+            next_sequence = sequence + 1
+            if next_sequence not in self._temporal_results:
                 continue
-
-            previous = self._last_temporal_observation
-            self._last_temporal_observation = observation
-            title, artist = observation["track"]
-            if previous is None:
-                print(
-                    f"ShazamService: Candidate pending seq={sequence} "
-                    f"title={title!r} artist={artist!r}"
-                )
+            first = self._temporal_results.get(sequence)
+            second = self._temporal_results.get(next_sequence)
+            if not first or not second:
                 continue
+            if self._temporal_observations_match(first, second):
+                return sequence, next_sequence
+        return None
 
-            if not self._temporal_observations_match(previous, observation):
-                print(
-                    f"ShazamService: Candidate changed/rejected prevSeq={previous['sequence']} "
-                    f"seq={sequence} title={title!r}"
-                )
-                continue
+    def _bypass_stuck_temporal_head(self):
+        pair = self._find_temporal_bypass_pair()
+        if pair is None:
+            return False
 
+        first_sequence, second_sequence = pair
+        old_head = self._next_temporal_sequence
+        # Results older than the confirmed look-ahead pair are superseded. A later callback
+        # for any of these request sequences is ignored by _stage_temporal_result().
+        for sequence in list(self._temporal_results):
+            if old_head <= sequence < first_sequence:
+                self._temporal_results.pop(sequence, None)
+
+        first = self._temporal_results[first_sequence]
+        title, artist = first["track"]
+        print(
+            f"ShazamService: Temporal head bypass seq={old_head}..{first_sequence - 1} "
+            f"using matched lookahead seq={first_sequence}/{second_sequence} "
+            f"{artist} - {title}"
+        )
+        self._next_temporal_sequence = first_sequence
+        # Do not compare the first look-ahead result with an observation from before the gap.
+        # The pair itself supplies the required two independent observations.
+        self._last_temporal_observation = None
+        return True
+
+    def _process_temporal_observation(self, sequence, observation):
+        if observation is None:
+            self._last_temporal_observation = None
+            return
+
+        previous = self._last_temporal_observation
+        self._last_temporal_observation = observation
+        title, artist = observation["track"]
+        if previous is None:
             print(
-                f"ShazamService: Temporal confirmation prevSeq={previous['sequence']} "
-                f"seq={sequence} {artist} - {title}"
+                f"ShazamService: Candidate pending seq={sequence} "
+                f"title={title!r} artist={artist!r}"
             )
-            self._publish_confirmed_track(
-                observation["group_index"], sequence, title, artist
+            return
+
+        if not self._temporal_observations_match(previous, observation):
+            print(
+                f"ShazamService: Candidate changed/rejected prevSeq={previous['sequence']} "
+                f"seq={sequence} title={title!r}"
             )
+            return
+
+        print(
+            f"ShazamService: Temporal confirmation prevSeq={previous['sequence']} "
+            f"seq={sequence} {artist} - {title}"
+        )
+        self._publish_confirmed_track(
+            observation["group_index"], sequence, title, artist
+        )
+
+    def _drain_temporal_results(self):
+        while True:
+            made_progress = False
+            while self._next_temporal_sequence in self._temporal_results:
+                sequence = self._next_temporal_sequence
+                observation = self._temporal_results.pop(sequence)
+                self._next_temporal_sequence += 1
+                self._process_temporal_observation(sequence, observation)
+                made_progress = True
+
+            # Head-of-line blocking is relaxed only when two later consecutive requests
+            # independently agree. This keeps single false recognitions from being promoted.
+            if self._bypass_stuck_temporal_head():
+                made_progress = True
+                continue
+
+            if not made_progress:
+                break
+            # We drained everything currently contiguous and there is no safe bypass.
+            break
 
     def _resolve_or_publish_confirmed_track(
         self, group_index, request_sequence, raw_result, fallback_title, fallback_artist
@@ -973,7 +1053,7 @@ class ShazamService(QObject):
         )
 
     def _publish_confirmed_track(self, group_index, request_sequence, title, artist):
-        # Groups can finish out of order. Never allow an older audio snapshot to
+        # Groups can finish out of order. Never allow an older listening window to
         # overwrite a newer confirmed track that has already been published.
         if request_sequence < self._latest_published_sequence:
             print(
@@ -1031,36 +1111,6 @@ class ShazamService(QObject):
             stream.close()
         except Exception:
             pass
-
-    @classmethod
-    def _resample_to_shazam_rate(cls, samples, source_rate):
-        source_rate = int(source_rate)
-        if source_rate == cls.SAMPLE_RATE:
-            return samples.astype(np.int16, copy=False)
-        if len(samples) == 0:
-            return samples.astype(np.int16, copy=False)
-
-        # Fast path for exact integer ratios such as the common 48 kHz -> 16 kHz case.
-        if source_rate % cls.SAMPLE_RATE == 0:
-            step = source_rate // cls.SAMPLE_RATE
-            return samples[::step].astype(np.int16, copy=False)
-
-        # Generic lightweight linear resampling for 44.1 kHz and other native rates.
-        target_len = max(1, int(round(len(samples) * cls.SAMPLE_RATE / source_rate)))
-        source_pos = np.arange(len(samples), dtype=np.float64)
-        target_pos = np.linspace(0, len(samples) - 1, target_len, dtype=np.float64)
-        converted = np.interp(target_pos, source_pos, samples.astype(np.float64, copy=False))
-        return np.clip(converted, -32768, 32767).astype(np.int16)
-
-    @classmethod
-    def _pcm_to_wav_bytes(cls, samples):
-        buffer = io.BytesIO()
-        with wave.open(buffer, "wb") as wav:
-            wav.setnchannels(cls.CHANNELS)
-            wav.setsampwidth(np.dtype(np.int16).itemsize)
-            wav.setframerate(cls.SAMPLE_RATE)
-            wav.writeframes(samples.astype(np.int16, copy=False).tobytes())
-        return buffer.getvalue()
 
     @staticmethod
     def _get_base_dir():

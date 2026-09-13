@@ -2,7 +2,6 @@
 import base64
 import hashlib
 import importlib.util
-import io
 import json
 from pathlib import Path
 import queue
@@ -13,9 +12,7 @@ import time
 import types
 import unittest
 from unittest.mock import patch, Mock
-import wave
 
-import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -227,6 +224,34 @@ class MetadataTests(unittest.TestCase):
         with patch('requests.get', side_effect=request):
             self.assertEqual(resolver.resolve(result, 'ja-JP', 'JP'), ('Trilogy', 'Kia Mazzi'))
 
+    def test_global_chart_heading_is_recognized_as_shazam_ui_label(self):
+        self.assertTrue(is_generic_ui_title('世界トップ200チャート'))
+        self.assertTrue(is_generic_ui_title('Global Top 200 Chart'))
+        self.assertFalse(is_generic_ui_title('Top 200 feat. Someone'))
+
+    def test_chart_heading_uses_verified_apple_song_title(self):
+        resolver = ITunesMetadataResolver()
+        en = self._json_response({'results': [
+            {'kind': 'song', 'trackId': 6778877440, 'trackName': "Movin' To The Sun",
+             'artistName': 'HUGEL, Imael Angel & Ultra Nate'}]})
+        jp = self._json_response({'results': [
+            {'kind': 'song', 'trackId': 6778877440, 'trackName': "Movin' To The Sun",
+             'artistName': 'HUGEL, Imael Angel & Ultra Nate'}]})
+        def request(url, *args, **kwargs):
+            return jp if kwargs.get('params', {}).get('lang') == 'ja_jp' else en
+        result = {
+            'title': '世界トップ200チャート',
+            'artist': 'HUGEL, Imael Angel & Ultra Nate',
+            'source': 'new-result-heading',
+            'appleTrackId': '6778877440',
+            'appleMusicUrl': 'https://music.apple.com/jp/album/movin-to-the-sun/6778877191?i=6778877440',
+        }
+        with patch('requests.get', side_effect=request):
+            self.assertEqual(
+                resolver.resolve(result, 'ja-JP', 'JP'),
+                ("Movin' To The Sun", 'HUGEL, Imael Angel & Ultra Nate'),
+            )
+
     def test_overview_is_recognized_as_shazam_ui_label(self):
         self.assertTrue(is_generic_ui_title('概要'))
         self.assertTrue(is_generic_ui_title('Overview'))
@@ -410,15 +435,19 @@ class MetadataTests(unittest.TestCase):
 
 
 class ClientTests(unittest.TestCase):
-    def test_invalid_audio_does_not_launch_helper(self):
+    def test_invalid_sample_rate_does_not_launch_helper(self):
         client = WebViewRecognizer()
-        with self.assertRaises(ValueError): client.recognize(b'bad', 'ja-JP', threading.Event())
+        with patch.object(client, '_ensure_started') as start:
+            with self.assertRaises(ValueError):
+                client.recognize_live(1000, 'ja-JP', threading.Event())
+            start.assert_not_called()
 
     def test_cancelled_work_never_launches_helper(self):
         cancel = threading.Event(); cancel.set()
         client = WebViewRecognizer()
         with patch.object(client, '_ensure_started') as start:
-            with self.assertRaises(RecognitionCancelled): client.recognize(b'RIFF' + b'\0' * 44, 'ja-JP', cancel)
+            with self.assertRaises(RecognitionCancelled):
+                client.recognize_live(48000, 'ja-JP', cancel)
             start.assert_not_called()
 
     def test_timeout_is_bounded(self):
@@ -433,22 +462,88 @@ class ClientTests(unittest.TestCase):
         client = WebViewRecognizer('../lane two!')
         self.assertEqual(client._instance_id, 'lanetwo')
 
-    def test_request_id_and_utf8_result(self):
+    def test_live_request_id_and_utf8_result(self):
         client = WebViewRecognizer()
         destination = queue.Queue()
+        writes = []
         class Input:
             def write(self, line):
                 req = json.loads(line)
-                self.request = req
-                destination.put({'type': 'result', 'id': 'stale', 'title': 'Ignore'})
-                destination.put({'type': 'result', 'id': req['id'], 'title': '\u7d05\u84ee\u83ef', 'artist': 'LiSA'})
+                writes.append(req)
+                if req['type'] == 'recognize-live':
+                    destination.put({'type': 'result', 'id': 'stale', 'title': 'Ignore'})
+                    destination.put({'type': 'result', 'id': req['id'], 'title': '\u7d05\u84ee\u83ef', 'artist': 'LiSA'})
             def flush(self): pass
         process = types.SimpleNamespace(stdin=Input(), poll=lambda: None)
         with patch.object(client, '_ensure_started', return_value=(process, destination)):
-            wav = b'RIFF' + b'\0' * 44
-            result = client.recognize(wav, 'ja-JP', threading.Event())
+            result = client.recognize_live(48000, 'ja-JP', threading.Event())
             self.assertEqual(result['title'], '\u7d05\u84ee\u83ef')
-            self.assertEqual(base64.b64decode(process.stdin.request['wavBase64']), wav)
+            self.assertEqual(writes[0]['type'], 'recognize-live')
+            self.assertEqual(writes[0]['sampleRate'], 48000)
+            self.assertNotIn('wavBase64', writes[0])
+
+    def test_feed_live_audio_is_nonblocking_and_request_scoped(self):
+        client = WebViewRecognizer()
+        q = queue.Queue(maxsize=2)
+        client._active_request_id = 'a' * 32
+        client._live_audio_queue = q
+        client._live_sample_rate = 48000
+        self.assertTrue(client.feed_live_audio(b'\x01\x00' * 32, 48000))
+        self.assertEqual(q.get_nowait(), b'\x01\x00' * 32)
+        self.assertFalse(client.feed_live_audio(b'\x02\x00', 44100))
+        client._active_request_id = None
+        self.assertFalse(client.feed_live_audio(b'\x02\x00', 48000))
+
+    def test_live_audio_batch_uses_request_scoped_audio_command(self):
+        client = WebViewRecognizer()
+        writes = []
+        class Input:
+            def write(self, line): writes.append(json.loads(line))
+            def flush(self): pass
+        process = types.SimpleNamespace(stdin=Input(), poll=lambda: None)
+        self.assertTrue(client._send_live_audio_batch(process, 'a' * 32, b'\x01\x00\x02\x00'))
+        self.assertEqual(writes[0]['type'], 'audio')
+        self.assertEqual(writes[0]['id'], 'a' * 32)
+        self.assertEqual(base64.b64decode(writes[0]['pcm16Base64']), b'\x01\x00\x02\x00')
+
+    def test_active_live_recognition_feeds_pcm_while_waiting_for_result(self):
+        client = WebViewRecognizer()
+        destination = queue.Queue()
+        writes = []
+        recognize_sent = threading.Event()
+        audio_sent = threading.Event()
+        class Input:
+            def write(self, line):
+                req = json.loads(line)
+                writes.append(req)
+                if req['type'] == 'recognize-live':
+                    recognize_sent.set()
+                elif req['type'] == 'audio':
+                    audio_sent.set()
+            def flush(self): pass
+        process = types.SimpleNamespace(stdin=Input(), poll=lambda: None)
+        client._process = process
+        holder = {}
+        def run():
+            with patch.object(client, '_ensure_started', return_value=(process, destination)):
+                holder['result'] = client.recognize_live(16000, 'ja-JP', threading.Event())
+        thread = threading.Thread(target=run)
+        thread.start()
+        self.assertTrue(recognize_sent.wait(1))
+        deadline = time.monotonic() + 1
+        while client._active_request_id is None and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertIsNotNone(client._active_request_id)
+        self.assertTrue(client.feed_live_audio(b'\x10\x00' * 3200, 16000))
+        self.assertTrue(audio_sent.wait(1))
+        request_id = next(item['id'] for item in writes if item['type'] == 'recognize-live')
+        destination.put({'type': 'result', 'id': request_id, 'title': 'Song', 'artist': 'Artist'})
+        thread.join(1)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(holder['result']['title'], 'Song')
+        audio = next(item for item in writes if item['type'] == 'audio')
+        self.assertEqual(audio['id'], request_id)
+        self.assertEqual(base64.b64decode(audio['pcm16Base64']), b'\x10\x00' * 3200)
 
     def test_cancel_current_sends_request_scoped_cancel_without_closing_helper(self):
         client = WebViewRecognizer()
@@ -462,429 +557,6 @@ class ClientTests(unittest.TestCase):
         self.assertTrue(client.cancel_current())
         self.assertEqual(writes, [{'type': 'cancel', 'id': 'a' * 32}])
         self.assertIs(client._process, process)
-
-
-@unittest.skip("legacy 2+2 recognition architecture; replaced by tests/test_temporal_shazam.py")
-class ServiceTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.config = {'shazam_recording_seconds': 6, 'shazam_language': 'ja-JP', 'shazam_endpoint_country': 'JP'}
-        fake_config = types.SimpleNamespace(get=lambda k, default=None: self.config.get(k, default))
-        with patch('app.services.config_service.ConfigService', return_value=fake_config), \
-             patch.object(ShazamService, '_get_history_path', return_value=Path(self.tmp.name) / 'shazam_history.json'):
-            self.svc = ShazamService()
-        self.svc._active = True
-        self.svc._generation = 9
-
-    def tearDown(self):
-        self.svc.shutdown()
-        for thread in self.svc._worker_threads:
-            if thread:
-                thread.join(2)
-        self.tmp.cleanup()
-
-    def _seed_pair(self, seq, group=0):
-        lanes = self.svc._group_lanes(group)
-        self.svc._group_busy[group] = True
-        for lane in lanes:
-            self.svc._lane_busy[lane] = True
-        self.svc._recognition_busy = True
-        self.svc._pending_group_results[seq] = {
-            'group_index': group,
-            'lanes': lanes,
-            'results': {},
-        }
-        return lanes
-
-    def _complete_pair(self, seq, left, right=None, group=0, left_error='', right_error=''):
-        if right is None:
-            right = left
-        lanes = self._seed_pair(seq, group)
-        self.svc._handle_recognition_finished(9, lanes[0], seq, left[0], left[1], left_error)
-        self.svc._handle_recognition_finished(9, lanes[1], seq, right[0], right[1], right_error)
-
-    def test_existing_history_and_signal_contract_requires_pair_confirmation(self):
-        lanes = self._seed_pair(0)
-        self.svc._handle_recognition_finished(9, lanes[0], 0, '\u7d05\u84ee\u83ef', 'LiSA', '')
-        self.assertEqual(self.svc.get_history(), [])
-        self.assertEqual(self.svc.new_track_detected.calls, [])
-        self.svc._handle_recognition_finished(9, lanes[1], 0, '\u7d05\u84ee\u83ef', 'LiSA', '')
-        history = self.svc.get_history()
-        self.assertEqual(len(history[0]), 3)
-        self.assertEqual(history[0][1:], ('\u7d05\u84ee\u83ef', 'LiSA'))
-        self.assertEqual(self.svc.new_track_detected.calls, [(history[0],)])
-        self.assertEqual(json.loads(self.svc._history_path.read_text())[0]['title'], '\u7d05\u84ee\u83ef')
-        self._complete_pair(1, ('\u7d05\u84ee\u83ef', 'LiSA'), group=1)
-        self.assertEqual(len(self.svc.get_history()), 1)
-
-    def test_stopped_generation_cannot_update_ui(self):
-        lanes = self._seed_pair(0)
-        self.svc._handle_recognition_finished(8, lanes[0], 0, 'Old song', 'Old artist', '')
-        self.assertEqual(self.svc.get_history(), [])
-        self.svc.stop()
-        self.svc._handle_recognition_finished(9, lanes[1], 0, 'Song', 'Artist', '')
-        self.assertEqual(self.svc.get_history(), [])
-
-    def test_history_limit_is_still_50(self):
-        for i in range(60):
-            self._complete_pair(i, (f'{i:04} Song', f'{i:04} Artist'), group=i % 2)
-        self.assertEqual(len(self.svc.get_history()), 50)
-        self.assertEqual(len(json.loads(self.svc._history_path.read_text())), 50)
-
-    def test_ring_and_recording_duration_are_preserved(self):
-        self.svc._audio_callback(np.arange(100000, dtype=np.int16).reshape(-1, 1), 100000, None, None)
-        samples = self.svc._snapshot_latest(6)
-        self.assertEqual(len(samples), 96000)
-        wav = self.svc._pcm_to_wav_bytes(samples)
-        with wave.open(io.BytesIO(wav)) as w:
-            self.assertEqual((w.getnchannels(), w.getframerate(), w.getnframes()), (1, 16000, 96000))
-
-    def test_low_latency_readiness_timer_is_100ms(self):
-        self.assertEqual(self.svc.RECOGNITION_INTERVAL_MS, 100)
-        self.assertEqual(self.svc._recognize_timer.interval, 100)
-
-    def test_dispatch_uses_two_staggered_two_lane_groups(self):
-        for ready in self.svc._lane_ready:
-            ready.set()
-        self.svc._audio_callback(np.zeros((96000, 1), np.int16), 96000, None, None)
-        self.svc._recognize_tick()
-        self.assertEqual(self.svc._lane_busy, [True, True, False, False])
-        self.assertEqual([q.qsize() for q in self.svc._work_queues], [1, 1, 0, 0])
-
-        first = self.svc._work_queues[0].queue[0]
-        second = self.svc._work_queues[1].queue[0]
-        self.assertEqual(first[3], second[3])  # same request sequence
-        self.assertIs(first[4], second[4])     # exact same immutable WAV bytes object
-        self.assertEqual(first[8], 0.0)        # lane A starts immediately
-        self.assertEqual(second[8], 1.0)       # lane B starts one second later
-
-        # The second pair retains the old 4 second stagger instead of bursting now.
-        self.svc._recognize_tick()
-        self.assertEqual([q.qsize() for q in self.svc._work_queues], [1, 1, 0, 0])
-        self.svc._next_group_slot_at = 0.0
-        self.svc._recognize_tick()
-        self.assertEqual(self.svc._lane_busy, [True, True, True, True])
-        self.assertEqual([q.qsize() for q in self.svc._work_queues], [1, 1, 1, 1])
-        third = self.svc._work_queues[2].queue[0]
-        fourth = self.svc._work_queues[3].queue[0]
-        self.assertEqual(third[3], fourth[3])
-        self.assertNotEqual(first[3], third[3])
-        self.assertEqual(third[8], 0.0)
-        self.assertEqual(fourth[8], 1.0)
-
-    def test_pair_workers_start_recognition_one_second_apart(self):
-        starts = []
-        starts_lock = threading.Lock()
-        recognizers = []
-        for index in range(4):
-            recognizer = Mock()
-            recognizer.close = Mock()
-            recognizer.prewarm = Mock()
-            if index < 2:
-                def recognize(_audio, _language, _cancelled, lane=index):
-                    with starts_lock:
-                        starts.append((lane, time.monotonic()))
-                    return {'title': 'Song A', 'artist': 'Artist A', 'source': 'recognition-response'}
-                recognizer.recognize.side_effect = recognize
-            recognizers.append(recognizer)
-        self.svc._web_recognizers = recognizers
-        self.svc._metadata_resolver.resolve = Mock(return_value=('Song A', 'Artist A'))
-        self.svc.LANE_STAGGER_SECONDS = 0.1
-        self.svc._ensure_worker_threads()
-        self.svc._lane_ready[0].set()
-        self.svc._lane_ready[1].set()
-        self.svc._audio_callback(np.zeros((96000, 1), np.int16), 96000, None, None)
-        self.svc._recognize_tick()
-
-        deadline = time.monotonic() + 2
-        while not self.svc.get_history() and time.monotonic() < deadline:
-            time.sleep(.01)
-        self.assertEqual(self.svc.get_history()[0][1:], ('Song A', 'Artist A'))
-        self.assertEqual(len(starts), 2)
-        starts_by_lane = dict(starts)
-        self.assertGreaterEqual(starts_by_lane[1] - starts_by_lane[0], 0.08)
-        self.assertLess(starts_by_lane[1] - starts_by_lane[0], 0.5)
-
-    def test_default_pair_lane_stagger_is_one_second(self):
-        self.assertEqual(ShazamService.LANE_STAGGER_SECONDS, 1.0)
-
-    def test_double_check_rejects_fuzzy_title_match(self):
-        # History de-duplication intentionally treats these as the same by 4-char prefix,
-        # but double-check confirmation must be stricter to improve recognition accuracy.
-        self._complete_pair(0, ('ABCD original', 'Alpha'), ('ABCD cover', 'Alpha'))
-        self.assertEqual(self.svc.get_history(), [])
-        self.assertEqual(self.svc.new_track_detected.calls, [])
-
-    def test_double_check_accepts_artist_mismatch_using_lane_a_artist(self):
-        self._complete_pair(0, ('Exact Song', 'Alpha'), ('Exact Song', 'Omega'))
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Alpha'))
-
-    def test_double_check_accepts_only_lane_a_recognition(self):
-        self._complete_pair(0, ('Exact Song', 'Alpha'), ('', ''))
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Alpha'))
-
-    def test_single_success_waits_at_most_four_seconds_for_partner(self):
-        lanes = self._seed_pair(0)
-        self.svc._handle_recognition_finished(9, lanes[0], 0, 'Exact Song', 'Alpha', '')
-        self.assertEqual(self.svc.get_history(), [])
-        pending = self.svc._pending_group_results[0]
-        timer = pending['confirmation_timer']
-        self.assertEqual(timer.interval, 4000)
-        self.assertTrue(timer.running)
-
-        # Simulate the four-second deadline without sleeping in the test.
-        timer.fire()
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Alpha'))
-        self.assertNotIn(0, self.svc._pending_group_results)
-
-    def test_partner_within_confirmation_window_is_still_double_checked(self):
-        lanes = self._seed_pair(0)
-        self.svc._handle_recognition_finished(9, lanes[0], 0, 'Exact Song', 'Alpha', '')
-        timer = self.svc._pending_group_results[0]['confirmation_timer']
-        self.svc._handle_recognition_finished(9, lanes[1], 0, 'Different Song', 'Alpha', '')
-        self.assertFalse(timer.running)
-        self.assertEqual(self.svc.get_history(), [])
-
-    def test_late_partner_after_confirmation_timeout_is_ignored(self):
-        lanes = self._seed_pair(0)
-        self.svc._handle_recognition_finished(9, lanes[0], 0, 'Exact Song', 'Alpha', '')
-        self.svc._pending_group_results[0]['confirmation_timer'].fire()
-        self.svc._handle_recognition_finished(9, lanes[1], 0, 'Different Song', 'Omega', '')
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Alpha'))
-        self.assertEqual(len(self.svc.get_history()), 1)
-
-    def test_peer_callback_after_deadline_cannot_veto_before_timer_event_runs(self):
-        lanes = self._seed_pair(0)
-        self.svc._handle_recognition_finished(9, lanes[0], 0, 'Exact Song', 'Alpha', '')
-        self.svc._pending_group_results[0]['confirmation_deadline'] = 0.0
-        self.svc._handle_recognition_finished(9, lanes[1], 0, 'Different Song', 'Omega', '')
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Alpha'))
-        self.assertEqual(len(self.svc.get_history()), 1)
-
-    def test_double_check_accepts_only_lane_b_recognition(self):
-        self._complete_pair(0, ('', ''), ('Exact Song', 'Beta'))
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Beta'))
-
-    def test_double_check_accepts_other_lane_when_lane_a_errors(self):
-        self._complete_pair(0, ('', ''), ('Exact Song', 'Beta'), left_error='temporary failure')
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Beta'))
-
-    def test_double_check_accepts_other_lane_when_lane_b_errors(self):
-        self._complete_pair(0, ('Exact Song', 'Alpha'), ('', ''), right_error='temporary failure')
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Alpha'))
-
-    def test_double_check_accepts_missing_artist_on_one_lane(self):
-        self._complete_pair(0, ('Exact Song', ''), (' exact   song ', 'Alpha'))
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Alpha'))
-
-    def test_double_check_rejects_when_neither_lane_recognizes(self):
-        self._complete_pair(0, ('', ''), ('', ''))
-        self.assertEqual(self.svc.get_history(), [])
-
-    def test_double_check_rejects_when_both_lanes_error(self):
-        self._complete_pair(0, ('', ''), ('', ''), left_error='left failure', right_error='right failure')
-        self.assertEqual(self.svc.get_history(), [])
-
-    def test_group_completion_does_not_overwrite_newer_confirmed_result(self):
-        self._complete_pair(4, ('New song', 'Artist'), group=1)
-        self._complete_pair(3, ('Old song', 'Artist'), group=0)
-        self.assertEqual(self.svc.get_history()[0][1:], ('New song', 'Artist'))
-        self.assertEqual(len(self.svc.get_history()), 1)
-
-    def test_title_only_route_fallback_is_reflected_and_deduped(self):
-        self._complete_pair(0, ('campari na', ''))
-        self.assertEqual(self.svc.get_history()[0][1:], ('campari na', ''))
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-        self._complete_pair(1, ('campari na', ''), group=1)
-        self.assertEqual(len(self.svc.get_history()), 1)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-
-    def test_worker_uses_webview_results_without_shazamio(self):
-        recognizers = []
-        for _ in range(4):
-            recognizer = Mock()
-            recognizer.close = Mock()
-            recognizer.prewarm = Mock()
-            recognizer.recognize.return_value = {
-                'title': 'Song A', 'artist': 'Artist A', 'source': 'recognition-response'
-            }
-            recognizers.append(recognizer)
-        self.svc._web_recognizers = recognizers
-        self.svc._metadata_resolver.resolve = Mock(return_value=('Song A', 'Artist A'))
-        self.svc._ensure_worker_threads()
-        self.svc._lane_ready[0].set()
-        self.svc._lane_ready[1].set()
-        self.svc._audio_callback(np.zeros((96000, 1), np.int16), 96000, None, None)
-        self.svc._recognize_tick()
-        deadline = time.monotonic() + 2
-        while not self.svc.get_history() and time.monotonic() < deadline:
-            time.sleep(.01)
-        self.assertEqual(self.svc.get_history()[0][1:], ('Song A', 'Artist A'))
-        recognizers[0].recognize.assert_called_once()
-        recognizers[1].recognize.assert_called_once()
-        # Complete request-scoped Shazam metadata is already localized and should not
-        # pay for an Apple lookup after pair confirmation.
-        self.svc._metadata_resolver.resolve.assert_not_called()
-
-    def test_timeout_cancels_slow_peer_instead_of_waiting_for_15_second_helper_deadline(self):
-        lanes = self._seed_pair(0)
-        peer = Mock()
-        peer.cancel_current.return_value = True
-        self.svc._web_recognizers[lanes[1]] = peer
-        self.svc._handle_recognition_finished(9, lanes[0], 0, 'Exact Song', 'Alpha', '')
-        self.svc._pending_group_results[0]['confirmation_timer'].fire()
-        peer.cancel_current.assert_called_once_with()
-        self.assertEqual(self.svc.get_history()[0][1:], ('Exact Song', 'Alpha'))
-
-    def test_same_route_only_identity_is_confirmed_before_metadata_and_resolved_once(self):
-        lanes = self._seed_pair(0)
-        raw_a = {
-            'title': '', 'artist': '', 'source': 'shazam-route',
-            'shazamTrackId': '1234567890',
-            'url': 'https://www.shazam.com/ja-jp/song/1234567890/example-song',
-        }
-        raw_b = dict(raw_a)
-        self.svc._metadata_resolver.resolve = Mock(return_value=('日本語曲名', '日本語アーティスト'))
-        self.svc._raw_lane_results[(9, lanes[0], 0)] = raw_a
-        self.svc._raw_lane_results[(9, lanes[1], 0)] = raw_b
-        self.svc._handle_recognition_finished(9, lanes[0], 0, '', '', '')
-        self.assertIn('confirmation_timer', self.svc._pending_group_results[0])
-        self.svc._handle_recognition_finished(9, lanes[1], 0, '', '', '')
-        deadline = time.monotonic() + 2
-        while not self.svc.get_history() and time.monotonic() < deadline:
-            time.sleep(.01)
-        self.assertEqual(self.svc.get_history()[0][1:], ('日本語曲名', '日本語アーティスト'))
-        self.assertEqual(self.svc._metadata_resolver.resolve.call_count, 1)
-
-    def test_different_route_only_ids_are_rejected_without_metadata_network_work(self):
-        lanes = self._seed_pair(0)
-        self.svc._metadata_resolver.resolve = Mock(return_value=('Should not', 'Run'))
-        self.svc._raw_lane_results[(9, lanes[0], 0)] = {
-            'shazamTrackId': '1234567890', 'source': 'shazam-route'}
-        self.svc._raw_lane_results[(9, lanes[1], 0)] = {
-            'shazamTrackId': '9876543210', 'source': 'shazam-route'}
-        self.svc._handle_recognition_finished(9, lanes[0], 0, '', '', '')
-        self.svc._handle_recognition_finished(9, lanes[1], 0, '', '', '')
-        self.assertEqual(self.svc.get_history(), [])
-        self.svc._metadata_resolver.resolve.assert_not_called()
-
-    def test_alternating_original_cover_emits_only_one_new_track(self):
-        original = ('\u7089\u5fc3\u878d\u89e3 (feat. \u93e1\u97f3\u30ea\u30f3)', 'iroha(sasaki)')
-        cover = ('\u7089\u5fc3\u878d\u89e3(\u30ab\u30d0\u30fc)feat. \u30ea\u30c4\u30ab', 'iroha')
-        with patch.object(self.svc, '_save_history', wraps=self.svc._save_history) as save:
-            for seq, track in enumerate((original, cover, original, cover)):
-                self._complete_pair(seq, track, group=seq % 2)
-            self.assertEqual(save.call_count, 1)
-        self.assertEqual(len(self.svc.get_history()), 1)
-        self.assertEqual(self.svc.get_history()[0][1:], original)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-        self.assertEqual(len(self.svc.history_updated.calls), 1)
-        self.assertEqual(self.svc._latest_published_sequence, 3)
-
-    def test_nonconsecutive_same_track_is_emitted_again(self):
-        tracks = (('ABCD original', 'Alpha'),
-                  ('Different song', 'Elsewhere'),
-                  ('ABCD cover', 'Omega'))
-        for seq, track in enumerate(tracks):
-            self._complete_pair(seq, track, group=seq % 2)
-        self.assertEqual(len(self.svc.get_history()), 3)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 3)
-
-    def test_four_character_history_rule_ignores_artist_changes_after_confirmation(self):
-        self._complete_pair(0, ('ABCD original', 'Alpha'))
-        self._complete_pair(1, ('ABCD cover', 'Omega'), group=1)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-
-    def test_only_three_matching_characters_emits_new_track(self):
-        self._complete_pair(0, ('ABCD first', 'Alpha'))
-        self._complete_pair(1, ('ABCE second', 'Alpha'), group=1)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 2)
-
-    def test_suppressed_detection_remains_the_previous_result(self):
-        for seq, title in enumerate(('ABCDEFGH', 'BCDEFGHI', 'CDEFGHIJ')):
-            self._complete_pair(seq, (title, 'Alpha'), group=seq % 2)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-        self.assertEqual(self.svc._last_track, ('CDEFGHIJ', 'Alpha'))
-
-    def test_new_run_is_not_merged_into_older_history_head(self):
-        for seq, title in enumerate(('ABCDEFGH', 'BCDEFGHI', 'CDEFGHIJ', 'ABCDEF reprise')):
-            self._complete_pair(seq, (title, 'Alpha'), group=seq % 2)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 2)
-        self.assertEqual(len(self.svc.get_history()), 2)
-
-    def test_no_match_or_error_does_not_reset_previous_track(self):
-        self._complete_pair(0, ('ABCD original', 'Alpha'))
-        self._complete_pair(1, ('', ''), group=1)
-        self._complete_pair(2, ('', ''), group=0, left_error='temporary failure')
-        self._complete_pair(3, ('ABCD cover', 'Omega'), group=1)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-
-    def test_late_confirmed_result_after_suppressed_cover_is_still_stale(self):
-        self._complete_pair(0, ('ABCD original', 'Alpha'))
-        self._complete_pair(4, ('ABCD cover', 'Omega'), group=1)
-        self._complete_pair(3, ('Different song', 'Elsewhere'), group=0)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-        self.assertEqual(self.svc._last_track, ('ABCD cover', 'Omega'))
-
-    def test_old_generation_cannot_release_current_pair(self):
-        self.svc._lane_busy = [True, True, True, True]
-        self.svc._group_busy = [True, True]
-        self.svc._recognition_busy = True
-        self.svc._handle_recognition_finished(8, 0, 99, 'Stale song', 'Alpha', '')
-        self.assertEqual(self.svc._lane_busy, [True, True, True, True])
-        self.assertEqual(self.svc._group_busy, [True, True])
-        self.assertTrue(self.svc._recognition_busy)
-        self.assertIsNone(self.svc._last_track)
-
-    def test_busy_groups_skip_audio_copy_resampling_and_wav_encoding(self):
-        self.svc._lane_busy = [True, True, True, True]
-        self.svc._group_busy = [True, True]
-        with patch.object(self.svc, '_snapshot_latest') as snapshot, \
-             patch.object(self.svc, '_resample_to_shazam_rate') as resample, \
-             patch.object(self.svc, '_pcm_to_wav_bytes') as encode:
-            self.svc._recognize_tick()
-        snapshot.assert_not_called()
-        resample.assert_not_called()
-        encode.assert_not_called()
-
-    def _write_history(self, rows):
-        payload = [dict(zip(('timestamp', 'title', 'artist'), row)) for row in rows]
-        self.svc._history_path.write_text(json.dumps(payload), encoding='utf-8')
-
-    def test_loading_compacts_adjacent_covers_without_rewriting_file(self):
-        rows = [('3', 'ABCD cover', 'Omega'), ('2', 'ABCD original', 'Alpha'),
-                ('1', 'Different song', 'Elsewhere')]
-        self._write_history(rows)
-        before = self.svc._history_path.read_bytes()
-        self.assertEqual(self.svc._load_history(), [rows[0], rows[2]])
-        self.assertEqual(self.svc._history_path.read_bytes(), before)
-
-    def test_loading_preserves_nonconsecutive_repeats(self):
-        rows = [('3', 'ABCD cover', 'Omega'), ('2', 'Different song', 'Elsewhere'),
-                ('1', 'ABCD original', 'Alpha')]
-        self._write_history(rows)
-        self.assertEqual(self.svc._load_history(), rows)
-
-    def test_loading_preserves_title_only_recognition(self):
-        rows = [('1', 'ABC', '')]
-        self._write_history(rows)
-        self.assertEqual(self.svc._load_history(), rows)
-
-    def test_first_live_confirmed_result_after_restart_updates_head_and_triggers_search(self):
-        self.svc._history = [('1', 'ABCD original', 'Alpha')]
-        self._complete_pair(0, ('ABCD cover', 'Omega'))
-        self.assertEqual(len(self.svc.get_history()), 1)
-        self.assertEqual(self.svc.get_history()[0][1:], ('ABCD cover', 'Omega'))
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-        self._complete_pair(1, ('ABCD original', 'Alpha'), group=1)
-        self.assertEqual(len(self.svc.new_track_detected.calls), 1)
-
-    def test_next_new_track_saves_compacted_history(self):
-        self._write_history([('2', 'ABCD cover', 'Omega'), ('1', 'ABCD original', 'Alpha')])
-        self.svc._history = self.svc._load_history()
-        self._complete_pair(0, ('Different song', 'Elsewhere'))
-        saved = json.loads(self.svc._history_path.read_text())
-        self.assertEqual([row['title'] for row in saved], ['Different song', 'ABCD cover'])
 
 
 class PreservationTests(unittest.TestCase):
@@ -934,6 +606,18 @@ class PreservationTests(unittest.TestCase):
         self.assertIn('pool=shared', service)
         self.assertIn('Recognition slot waiting', service)
         self.assertIn('def _find_available_group', service)
+        self.assertIn('recognize_live', service)
+        self.assertIn('feed_live_audio', service)
+        self.assertIn('"type": "recognize-live"', client)
+        self.assertIn('"type": "audio"', client)
+        self.assertIn('protocol = 2', bridge)
+        audio_bridge = (ROOT / 'native/ShazamWebViewBridge/Scripts/audio_bridge.js').read_text(encoding='utf-8')
+        self.assertIn('startLive(sampleRate, id)', audio_bridge)
+        self.assertIn('type = "audio-chunk"', bridge)
+        self.assertNotIn('source.loop = true', audio_bridge)
+        self.assertIn('live-pcm-ring-fresh-track', audio_bridge)
+        self.assertIn('const mediaDestination = current.createMediaStreamDestination()', audio_bridge)
+        self.assertNotIn('__vjAudioBridge.load(', bridge)
 
     def test_no_shazamio_runtime_import(self):
         import ast

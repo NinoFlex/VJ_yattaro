@@ -119,8 +119,8 @@ internal sealed class BridgeHost : Form
             await core.AddScriptToExecuteOnDocumentCreatedAsync(Script("result_observer.js"));
             await NavigateHomeAsync(_lifetime.Token);
             _ready = true;
-            Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-WAV");
-            Program.Send(new { type = "ready", protocol = 1, version = "1.3.1-pool4" });
+            Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-live-pcm");
+            Program.Send(new { type = "ready", protocol = 2, version = "1.4.2-live-fresh-track" });
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -180,31 +180,50 @@ internal sealed class BridgeHost : Form
                 if (_busy && string.Equals(_currentRecognitionId, id, StringComparison.Ordinal) &&
                     _currentRecognitionCancellation is not null)
                 {
-                    _currentCancelReason = "peer-confirmation-timeout";
+                    _currentCancelReason = "request-cancel";
                     Program.Log($"Recognition cancel requested id={id} reason={_currentCancelReason}");
                     _currentRecognitionCancellation.Cancel();
                 }
                 return;
             }
-            if (type != "recognize" || !Regex.IsMatch(id, @"\A[a-f0-9]{32}\z"))
+            if (type == "audio")
+            {
+                if (!Regex.IsMatch(id, @"\A[a-f0-9]{32}\z"))
+                    throw new InvalidOperationException("Invalid live audio command");
+                var pcm = ReadString(root, "pcm16Base64");
+                if (pcm.Length < 4 || pcm.Length > 400000)
+                    throw new InvalidOperationException("Invalid live PCM payload length");
+                // Audio can arrive while RecognizeAsync is awaiting page operations. Only
+                // forward chunks for the currently active request; stale lane audio is dropped.
+                if (_busy && string.Equals(_currentRecognitionId, id, StringComparison.Ordinal) &&
+                    _webView.CoreWebView2 is not null)
+                {
+                    _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                    {
+                        source = "VJHost", type = "audio-chunk", id, pcm16Base64 = pcm
+                    }, Program.JsonOptions));
+                }
+                return;
+            }
+            if (type != "recognize-live" || !Regex.IsMatch(id, @"\A[a-f0-9]{32}\z"))
                 throw new InvalidOperationException("Invalid recognition command");
             if (!_ready || _busy) throw new InvalidOperationException("Shazam helper is not ready or is busy");
-            var audio = ReadString(root, "wavBase64");
-            if (audio.Length < 60 || audio.Length > 2000000)
-                throw new InvalidOperationException("Invalid WAV payload length");
+            if (!root.TryGetProperty("sampleRate", out var sampleRateValue) ||
+                !sampleRateValue.TryGetInt32(out var sampleRate) || sampleRate < 8000 || sampleRate > 96000)
+                throw new InvalidOperationException("Invalid live PCM sample rate");
             _busy = ownsCycle = true;
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             deadline.CancelAfter(TimeSpan.FromSeconds(75));
             _currentRecognitionId = id;
             _currentRecognitionCancellation = deadline;
             _currentCancelReason = "";
-            result = await RecognizeAsync(id, audio, deadline.Token);
+            result = await RecognizeAsync(id, sampleRate, deadline.Token);
             shouldSend = true;
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
-            error = _currentCancelReason == "peer-confirmation-timeout"
-                ? "Shazam recognition cancelled after peer confirmation timeout"
+            error = _currentCancelReason == "request-cancel"
+                ? "Shazam recognition cancelled"
                 : "Shazam recognition exceeded its 75 second deadline";
             shouldSend = true;
         }
@@ -247,10 +266,11 @@ internal sealed class BridgeHost : Form
             url = result?.Url ?? "", source = result?.Evidence ?? "no-match", error });
     }
 
-    private async Task<Candidate?> RecognizeAsync(string id, string audio, CancellationToken token)
+    private async Task<Candidate?> RecognizeAsync(string id, int sampleRate, CancellationToken token)
     {
         // Every attempt starts from, or reuses when already ready, the official Shazam home page.
-        // The app-supplied recording remains the only audio source; WebView2 never opens a native mic.
+        // Python remains the only physical microphone owner. The selected input is forwarded
+        // continuously as live PCM; WebView2 never opens a native microphone itself.
         _cycle = null;
         var button = await PrepareHomeAsync(token);
         var baselineTrackIds = await GetAppleTrackIdsAsync(token);
@@ -261,7 +281,7 @@ internal sealed class BridgeHost : Form
         _cycle = id;
         var load = "(async()=>{if(!window.__vjAudioBridge||!window.__vjResults)" +
             "throw new Error('Shazam page audio bridge unavailable');" +
-            "await window.__vjAudioBridge.load(" + JsonSerializer.Serialize(audio) + "," +
+            "await window.__vjAudioBridge.startLive(" + sampleRate.ToString() + "," +
             JsonSerializer.Serialize(id) + ");window.__vjResults.arm(" + JsonSerializer.Serialize(id) +
             ");return true;})()";
         await EvaluateAsync(load, token);
@@ -594,8 +614,18 @@ internal sealed class BridgeHost : Form
                 case "audio-error":
                     _audioError = ReadString(root, "error");
                     break;
-                case "audio-loaded":
-                    Program.Log("App recording decoded by WebView2.");
+                case "audio-live-armed":
+                    Program.Log("App live PCM bridge armed in WebView2.");
+                    break;
+                case "audio-live-data":
+                    Program.Log($"Live PCM reached WebView2 peak={ReadDouble(root, "peak"):F4} " +
+                        $"rms={ReadDouble(root, "rms"):F4} queuedMs={ReadInt(root, "queuedMs")} " +
+                        $"inputRate={ReadInt(root, "inputSampleRate")} contextRate={ReadInt(root, "contextSampleRate")}");
+                    break;
+                case "audio-live-health":
+                    Program.Log($"Live PCM health queuedMs={ReadInt(root, "queuedMs")} " +
+                        $"pushedMs={ReadInt(root, "pushedMs")} consumedMs={ReadInt(root, "consumedMs")} " +
+                        $"underflowMs={ReadInt(root, "underflowMs")}");
                     break;
                 case "no-match":
                     _definiteNoMatch = true;
@@ -885,6 +915,20 @@ internal sealed class BridgeHost : Form
         return !Regex.IsMatch(compact,
             @"\A(?:(?:shazam\s*)?(?:フッター|footer|ヘッダー|header|ナビゲーション|navigation)|概要|overview|歌詞|lyrics|ビデオ|videos?|ミュージックビデオ|music video|関連|related|クレジット|credits|トップソング|top songs|アルバム|albums|おすすめ|featured)\z",
             RegexOptions.IgnoreCase);
+    }
+
+    private static int ReadInt(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value)) return 0;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)) return number;
+        return 0;
+    }
+
+    private static double ReadDouble(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value)) return 0;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)) return number;
+        return 0;
     }
 
     private static string ReadString(JsonElement root, string name) =>
