@@ -44,7 +44,7 @@ function fixture(host = 'www.shazam.com') {
     chrome:{webview:{postMessage:value=>messages.push(value),addEventListener(type,fn){if(type==='message')webviewHandlers.push(fn)}}}};
   world.window=world;world.top=world;
   const ctx=vm.createContext(world);
-  for(const file of ['audio_bridge.js','result_observer.js'])
+  for(const file of ['audio_bridge.js','metadata_fields.js','result_observer.js'])
     vm.runInContext(fs.readFileSync(path.join(scripts,file),'utf8'),ctx,{filename:file});
   return {ctx,world,messages,connections,nativeCalls:()=>nativeCalls,processor:()=>processorRef,
     hostMessage:data=>webviewHandlers.forEach(fn=>fn({data}))};
@@ -61,7 +61,7 @@ function routeEvidenceFixture({headingTitle = '', jsonLd = null} = {}) {
   const script = jsonLd ? {textContent: JSON.stringify(jsonLd)} : null;
   const document = {
     querySelectorAll(selector) {
-      if (selector === 'h1,[data-testid*="title" i]') return heading ? [heading] : [];
+      if (selector === 'h1,[data-testid="track-title"],[data-testid="song-title"]') return heading ? [heading] : [];
       if (selector === 'script[type="application/ld+json"]') return script ? [script] : [];
       return [];
     }
@@ -74,7 +74,10 @@ function routeEvidenceFixture({headingTitle = '', jsonLd = null} = {}) {
   world.window = world;
   const source = fs.readFileSync(path.join(scripts, 'route_evidence.js'), 'utf8')
     .replace('__BASELINE_TRACK_IDS__', '[]');
-  return vm.runInContext(source, vm.createContext(world), {filename: 'route_evidence.js'});
+  world.location.hostname = 'www.shazam.com'; world.location.protocol = 'https:';
+  const ctx = vm.createContext(world);
+  vm.runInContext(fs.readFileSync(path.join(scripts, 'metadata_fields.js'), 'utf8'), ctx);
+  return vm.runInContext(source, ctx, {filename: 'route_evidence.js'});
 }
 
 
@@ -122,7 +125,7 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
     body: container,
     querySelector() { return container; },
     querySelectorAll(selector) {
-      if (selector === 'h1,[data-testid*="title" i]') return semanticHeading ? [title] : [];
+      if (selector === 'h1,[data-testid="track-title"],[data-testid="song-title"]') return semanticHeading ? [title] : [];
       if (selector === 'script[type="application/ld+json"]') return [];
       if (selector === 'h1,h2,h3,div,span,p') return all;
       return [];
@@ -136,7 +139,10 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
   world.window = world;
   const source = fs.readFileSync(path.join(scripts, 'route_evidence.js'), 'utf8')
     .replace('__BASELINE_TRACK_IDS__', '[]');
-  return vm.runInContext(source, vm.createContext(world), {filename: 'route_evidence.js'});
+  world.location.hostname = 'www.shazam.com'; world.location.protocol = 'https:';
+  const ctx = vm.createContext(world);
+  vm.runInContext(fs.readFileSync(path.join(scripts, 'metadata_fields.js'), 'utf8'), ctx);
+  return vm.runInContext(source, ctx, {filename: 'route_evidence.js'});
 }
 
 (async()=>{
@@ -234,15 +240,15 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
 
   const nearbyHeading = routeSlugDomFixture({semanticHeading: true});
   assert.equal(nearbyHeading.title, 'たくさん!');
-  assert.equal(nearbyHeading.artist, 'Anastasia (CV: Sumire Uesaka)');
-  assert.equal(nearbyHeading.evidence, 'track-heading-nearby');
-  ok('plain nearby artist text is recovered below a semantic Shazam title');
+  assert.equal(nearbyHeading.artist, '');
+  assert.equal(nearbyHeading.evidence, 'track-heading');
+  ok('unmarked nearby text is no longer guessed as the artist below a heading');
 
   const slugAnchored = routeSlugDomFixture();
-  assert.equal(slugAnchored.title, 'たくさん!');
-  assert.equal(slugAnchored.artist, 'Anastasia (CV: Sumire Uesaka)');
-  assert.equal(slugAnchored.evidence, 'route-slug-dom');
-  ok('route slug anchors visible title and nearby artist when Shazam uses plain div/span markup');
+  assert.equal(slugAnchored.title, '');
+  assert.equal(slugAnchored.artist, '');
+  assert.equal(slugAnchored.evidence, 'route-only');
+  ok('route slug without an explicit artist field returns identity only, never nearby text');
 
   const bridgeSource = fs.readFileSync(path.join(__dirname, '..', 'native', 'ShazamWebViewBridge', 'BridgeHost.cs'), 'utf8');
   assert.match(bridgeSource, /RouteEvidenceWindow\s*=\s*TimeSpan\.FromSeconds\(4\)/);

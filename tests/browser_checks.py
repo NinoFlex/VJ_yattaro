@@ -56,14 +56,16 @@ def main():
               if(dest instanceof AudioDestinationNode) window.__speakerConnections++;
               return _connect.call(this,dest,...args);
             };''')
-        for name in ('audio_bridge.js', 'result_observer.js'):
+        production_scripts = []
+        for name in ('audio_bridge.js', 'metadata_fields.js', 'result_observer.js'):
             production = (SCRIPTS / name).read_text(encoding='utf-8')
             assert "['www.shazam.com', 'shazam.com']" in production
             # Test-only fixture adaptation. No production files are modified.
             fixture = production.replace("['www.shazam.com', 'shazam.com']", "['localhost']")
             fixture = fixture.replace("location.protocol !== 'https:'", "location.protocol !== 'http:'")
             fixture = fixture.replace("u.protocol !== 'https:'", "u.protocol !== 'http:'")
-            context.add_init_script(script=fixture)
+            production_scripts.append(fixture)
+        context.add_init_script(script='\n'.join(production_scripts))
         page = context.new_page()
         page.goto('http://localhost:8765/ja-jp')
         page.evaluate('(id)=>__vjResults.arm(id)', ID)

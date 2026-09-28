@@ -116,7 +116,8 @@ internal sealed class BridgeHost : Form
                 Close();
             };
             await core.AddScriptToExecuteOnDocumentCreatedAsync(Script("audio_bridge.js"));
-            await core.AddScriptToExecuteOnDocumentCreatedAsync(Script("result_observer.js"));
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(
+                Script("metadata_fields.js") + "\n" + Script("result_observer.js"));
             await NavigateHomeAsync(_lifetime.Token);
             _ready = true;
             Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-live-pcm");
@@ -390,7 +391,7 @@ internal sealed class BridgeHost : Form
         if (string.IsNullOrWhiteSpace(routeCandidate.ShazamTrackId)) return null;
         var deadline = Stopwatch.StartNew();
         Candidate? best = null;
-        var script = Script("route_evidence.js").Replace(
+        var script = Script("metadata_fields.js") + "\n" + Script("route_evidence.js").Replace(
             "__BASELINE_TRACK_IDS__", JsonSerializer.Serialize(baselineTrackIds), StringComparison.Ordinal);
 
         while (deadline.Elapsed < RouteEvidenceWindow)

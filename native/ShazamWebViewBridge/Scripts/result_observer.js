@@ -61,10 +61,13 @@
       return {kind: m[1].toLowerCase(), id: m[2], url: u.href};
     } catch (_) { return null; }
   };
+  const fields = window.__vjTrackMetadata;
+  if (!fields) return;
+  const cleanArtist = fields.cleanArtist;
   const publish = (candidate, id = cycle) => {
     if (!id || id !== cycle) return;
     candidate.title = cleanTitle(candidate.title);
-    candidate.artist = clean(candidate.artist);
+    candidate.artist = cleanArtist(candidate.artist);
     candidate.appleTrackId = /^\d{6,20}$/.test(candidate.appleTrackId || '') ? candidate.appleTrackId : '';
     candidate.shazamTrackId = /^\d{6,20}$/.test(candidate.shazamTrackId || '') ? candidate.shazamTrackId : '';
     if (!candidate.appleTrackId && !candidate.shazamTrackId && !(candidate.title && candidate.artist)) return;
@@ -107,7 +110,7 @@
       }
       if (p.matches.length === 0 || !p.track) continue;
       const t = p.track;
-      const title = cleanTitle(t.title), artist = clean(t.subtitle || t.artist);
+      const title = cleanTitle(t.title), artist = cleanArtist(t.subtitle || t.artist);
       if (!title || !artist) continue;
       const appleMusicUrl = findAppleLink(t);
       const shazamRoute = route(t.url || '');
@@ -177,38 +180,26 @@
     if (!element?.closest) return false;
     return !!element.closest('footer,[role="contentinfo"],nav,[role="navigation"],header');
   };
-  const readRegion = region => {
-    if (!region?.querySelector || !region?.querySelectorAll || structuralUI(region)) return null;
-    const titleNode = region.querySelector('h1,h2,[data-testid="track-title"],[data-testid="song-title"]');
-    const artistNode = region.querySelector('a[href*="/artist/"],[data-testid="artist-name"],[data-testid="track-subtitle"]');
-    if (structuralUI(titleNode) || structuralUI(artistNode)) return null;
-    const title = cleanTitle(titleNode?.textContent), artist = clean(artistNode?.textContent);
-    const links = Array.from(region.querySelectorAll('a[href]'));
-    const appleMusicUrl = links.map(a => a.href).find(h => appleId(h)) || '';
-    if (title && artist) {
-      const candidate = {title, artist, appleMusicUrl, appleTrackId: appleId(appleMusicUrl),
-        url: location.href, evidence: 'result-region'};
-      publish(candidate);
-      return candidate;
-    }
-    return null;
-  };
-
   const pairFromHeading = heading => {
     if (!heading || !visible(heading) || structuralUI(heading)) return null;
     const title = cleanTitle(heading.textContent);
     if (!title) return null;
-    let region = heading;
-    for (let depth = 0; region && depth < 6; depth++, region = region.parentElement) {
-      if (!region.querySelector || !region.querySelectorAll) continue;
-      const artistNode = region.querySelector('a[href*="/artist/"],[data-testid*="artist" i],[data-testid*="subtitle" i]');
-      if (structuralUI(artistNode)) continue;
-      const artist = clean(artistNode?.textContent);
-      if (!artist) continue;
-      const links = Array.from(region.querySelectorAll('a[href]'));
-      const appleMusicUrl = links.map(a => a.href).find(h => appleId(h)) || '';
-      return {title, artist, appleMusicUrl, appleTrackId: appleId(appleMusicUrl),
-        url: location.href, evidence: 'new-result-heading'};
+    const binding = fields.artistNearTitle(heading);
+    if (!binding) return null;
+    const links = Array.from(binding.region.querySelectorAll('a[href]'));
+    const appleMusicUrl = links.filter(e => visible(e) && !structuralUI(e)).map(e => e.href).find(h => appleId(h)) || '';
+    return {title, artist: binding.artist, appleMusicUrl, appleTrackId: appleId(appleMusicUrl),
+      url: location.href, evidence: 'new-result-heading'};
+  };
+  const readRegion = region => {
+    if (!region?.querySelectorAll || structuralUI(region)) return null;
+    for (const heading of region.querySelectorAll(fields.TITLE_SELECTOR)) {
+      const candidate = pairFromHeading(heading);
+      if (candidate) {
+        candidate.evidence = 'result-region';
+        publish(candidate);
+        return candidate;
+      }
     }
     return null;
   };
@@ -216,7 +207,7 @@
   const visiblePairs = () => {
     const result = [];
     if (!document.querySelectorAll) return result;
-    for (const h of document.querySelectorAll('h1,h2,h3,[data-testid*="title" i]')) {
+    for (const h of document.querySelectorAll(fields.HEADING_SELECTOR)) {
       const candidate = pairFromHeading(h);
       if (candidate) result.push(candidate);
     }
@@ -249,21 +240,19 @@
     if (!cycle || !document.body) return;
     const r = route(location.href);
     if (r) {
-      // JSON-LD is accepted only on a recognized song/track route, never on home.
-      for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+      const heading = [...document.querySelectorAll(fields.TITLE_SELECTOR)]
+        .find(e => visible(e) && !structuralUI(e) && cleanTitle(e.textContent));
+      let titleHint = cleanTitle(heading?.textContent);
+      if (!titleHint) {
         try {
-          const raw = JSON.parse(script.textContent);
-          const values = Array.isArray(raw) ? raw : (raw['@graph'] || [raw]);
-          for (const item of values) {
-            const types = [].concat(item['@type'] || []);
-            if (!types.includes('MusicRecording')) continue;
-            const artist = [].concat(item.byArtist || []).map(a => a?.name || '').filter(Boolean).join(', ');
-            if (cleanTitle(item.name) && clean(artist)) publish({title: item.name, artist,
-              shazamTrackId: r.id, appleTrackId: '', appleMusicUrl: '',
-              url: location.href, evidence: 'jsonld'});
-          }
+          const m = new URL(location.href).pathname.match(/\/(?:song|track)\/\d{6,20}\/([^/?#]+)/i);
+          titleHint = decodeURIComponent(m?.[1] || '').replace(/[-_]+/g, ' ').trim();
         } catch (_) {}
       }
+      const item = fields.readRecording(location.href, titleHint);
+      if (item && cleanTitle(item.title) && cleanArtist(item.artist))
+        publish({title: item.title, artist: item.artist, shazamTrackId: r.id,
+          appleTrackId: '', appleMusicUrl: '', url: location.href, evidence: 'jsonld'});
       readRegion(document.querySelector('main') || document.body);
     } else {
       // Prefer newly shown result dialogs, then accept only title+artist pairs that

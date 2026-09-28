@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.services.track_matching import deduplicate_history, is_same_track
+from app.services.itunes_metadata import clean_artist
 
 
 class ShazamService(QObject):
@@ -805,7 +806,7 @@ class ShazamService(QObject):
         if request_sequence < self._next_temporal_sequence:
             return
         title = str(title or "").strip()
-        artist = str(artist or "").strip()
+        artist = clean_artist(artist)
         observation = None
         if title:
             observation = {
@@ -921,7 +922,8 @@ class ShazamService(QObject):
         self, group_index, request_sequence, raw_result, fallback_title, fallback_artist
     ):
         fallback_title = str(fallback_title or "").strip()
-        fallback_artist = str(fallback_artist or "").strip()
+        source = str(raw_result.get("source") or "") if isinstance(raw_result, dict) else ""
+        fallback_artist = clean_artist(fallback_artist, source)
         if not isinstance(raw_result, dict):
             # Unit-test/direct-call compatibility and any legacy path that already carries
             # finalized metadata: publish immediately without creating another worker.
@@ -938,11 +940,19 @@ class ShazamService(QObject):
         # results still use the existing resolver below.
         from app.services.itunes_metadata import clean_metadata, is_generic_ui_title
         raw_title = clean_metadata(raw_result.get("title"))
-        raw_artist = clean_metadata(raw_result.get("artist"))
+        raw_artist = clean_artist(raw_result.get("artist"), source)
+        if raw_result.get("artist") and not raw_artist:
+            print(
+                f"ShazamService: Rejected untrusted/UI artist seq={request_sequence} "
+                f"source={source} artist={raw_result.get('artist')!r}"
+            )
+        # Preserve identity and title, but never send rejected UI text into lookup,
+        # caches, or the exception/timeout fallback.
+        raw_result = dict(raw_result, artist=raw_artist)
         source = str(raw_result.get("source") or "").split("+", 1)[0].casefold()
         trusted_complete_sources = {
             "jsonld", "recognition-response", "recognition-network",
-            "track-heading", "track-heading-nearby", "route-slug-dom",
+            "track-heading", "route-slug-artist",
         }
         if (
             raw_title and raw_artist
@@ -978,7 +988,7 @@ class ShazamService(QObject):
                         raw_result, language, country, cancelled
                     )
                 title = str(resolved_title or title).strip()
-                artist = str(resolved_artist or artist).strip()
+                artist = clean_artist(resolved_artist) or fallback_artist
             except Exception as exc:
                 error_text = str(exc)
             if cancelled.is_set() or self._shutting_down:
@@ -1002,7 +1012,7 @@ class ShazamService(QObject):
         if generation != self._generation or not self._active:
             return
         title = str(title or "").strip()
-        artist = str(artist or "").strip()
+        artist = clean_artist(artist)
         if error_text:
             print(
                 f"ShazamService: Deferred metadata resolution failed seq={request_sequence}: "
@@ -1064,7 +1074,7 @@ class ShazamService(QObject):
             return
         self._latest_published_sequence = request_sequence
 
-        artist = str(artist or "").strip()
+        artist = clean_artist(artist)
         title = str(title or "").strip()
         track_key = (title, artist)
         previous_track = self._last_track

@@ -26,7 +26,7 @@ _REJECT = (
 _LIVE_SOURCES = {
     "track-heading", "dialog-heading", "jsonld", "meta", "og:title",
     "apple-track-id", "dialog-apple-track-id", "recognition-response",
-    "result-region", "new-result-heading",
+    "result-region", "new-result-heading", "route-slug-artist", "recognition-network",
 }
 
 _VISIBLE_HEADING_SOURCES = {"track-heading", "dialog-heading", "result-region", "new-result-heading"}
@@ -63,6 +63,39 @@ def clean_metadata(value) -> str:
         return ""
     folded = text.casefold()
     if any(x.casefold() in folded for x in _REJECT):
+        return ""
+    return text
+
+
+# These pre-fix sources guessed the artist from nearby arbitrary page text. Do
+# not trust them even when an older, not-yet-rebuilt helper is still installed.
+_PROXIMITY_ARTIST_SOURCES = {"track-heading-nearby", "route-slug-dom"}
+_ARTIST_PROMO = re.compile(
+    r"apple\s*music\s*(?:\u306b|\u3067|\u3092|\u3068)"
+    r"|\u66f2\u5168\u4f53\u3092\u30d5\u30eb\u518d\u751f"
+    r"|\u958b\u767a\u8005\u5411\u3051\s*shazamkit|shazamkit\s+for\s+developers"
+    r"|(?:connect(?:\s+to)?|listen(?:\s+now)?\s+(?:on|in)|open\s+in|play\s+(?:on|in)|try|subscribe\s+to)\s+apple\s*music\b"
+    r"|connect\s+(?:with|to)\s+shazam|full\s+songs?\s+(?:in|on)\s+shazam", re.I,
+)
+_ARTIST_UI = re.compile(
+    r"(?:apple\s*music|connect\s+apple\s*music|get\s+the\s+app|download\s+shazam|open\s+in\s+shazam"
+    r"|\u306b\u63a5\u7d9a|\u30a2\u30d7\u30ea\u3092\u5165\u624b|\u30a2\u30d7\u30ea\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9"
+    r"|shazam\s+(?:footer|header|navigation)|\u6982\u8981|\u6b4c\u8a5e|\u5171\u6709|\u518d\u751f)", re.I,
+)
+
+
+def clean_artist(value, source: str = "") -> str:
+    """Reject Shazam UI/CTA text without rejecting bands such as Live or 311.
+
+    Source is supplied only for *raw* bridge values. Once independently resolved,
+    the recovered artist is checked without the original source's provenance.
+    """
+    text = clean_metadata(value)
+    if str(source or "").split("+", 1)[0].casefold() in _PROXIMITY_ARTIST_SOURCES:
+        return ""
+    folded = unicodedata.normalize("NFKC", text).casefold()
+    folded = re.sub(r"[\u200b-\u200d\ufeff]", "", folded)
+    if _ARTIST_PROMO.search(folded) or _ARTIST_UI.fullmatch(folded):
         return ""
     return text
 
@@ -232,9 +265,9 @@ def _parse_og_artist(value: str) -> str:
     compact = re.sub(r"\s*[-–—|]\s*Shazam\s*$", "", compact, flags=re.I).strip()
     by = re.match(r"^(.*?)\s+by\s+(.+)$", compact, flags=re.I)
     if by:
-        return clean_metadata(by.group(2))
+        return clean_artist(by.group(2))
     if " - " in compact:
-        return clean_metadata(compact.rsplit(" - ", 1)[1])
+        return clean_artist(compact.rsplit(" - ", 1)[1])
     return ""
 
 
@@ -604,6 +637,7 @@ class ITunesMetadataResolver:
     def _cache(self, key: tuple, value: tuple[str, str], seconds: float = 86400) -> tuple[str, str]:
         if len(self._result_cache) >= 512:
             self._result_cache.pop(next(iter(self._result_cache)))
+        value = (value[0], clean_artist(value[1]))
         self._result_cache[key] = (time.monotonic() + seconds, value)
         return value
 
@@ -612,7 +646,9 @@ class ITunesMetadataResolver:
         if is_generic_ui_title(observed_title):
             print(f"ShazamMetadata: ignored Shazam UI label misread as title: {observed_title!r}")
             observed_title = ""
-        observed_artist = clean_metadata(result.get("artist"))
+        observed_artist = clean_artist(result.get("artist"), result.get("source", ""))
+        if result.get("artist") and not observed_artist:
+            print(f"ShazamMetadata: ignored untrusted/UI artist: {result.get('artist')!r}")
         route_url = _safe_shazam_song_url(str(result.get("url") or ""))
         route_id = str(result.get("shazamTrackId") or "").strip()
         parsed_route_id, _ = _shazam_route_identity(route_url)
@@ -692,7 +728,7 @@ class ITunesMetadataResolver:
         # stale unrelated pages while recovering cases such as a romanized route slug
         # ("Hikari") whose ja-JP page title is Japanese ("光").
         route_page = None
-        if (route_url and not observed_artist and not live_title and not trusted_title
+        if (route_url and not observed_artist
                 and not self._cancelled(cancelled)):
             route_page = self._shazam_page_metadata(route_url, cancelled)
             page_title, page_artist, page_url, identity_verified = route_page
@@ -745,7 +781,8 @@ class ITunesMetadataResolver:
                 f"identityVerified={identity_verified} pageUrl={page_url!r}"
             )
             if page_title and _route_metadata_compatible(route_title, page_title, identity_verified):
-                return self._cache(cache_key, (page_title, observed_artist), 3600)
+                performer = observed_artist or (clean_artist(page_artist) if identity_verified else "")
+                return self._cache(cache_key, (page_title, performer), 3600)
             if page_title:
                 print(f"ShazamMetadata: rejected unrelated Shazam metadata routeTitle={route_title!r} metadataTitle={page_title!r}")
 
@@ -765,4 +802,4 @@ class ITunesMetadataResolver:
         if route_title:
             print(f"ShazamMetadata: route title selected after Apple verification failed shazamTrackId={route_id} title={route_title!r}")
             return self._cache(cache_key, (route_title, observed_artist), 45)
-        return "", observed_artist
+        return "", clean_artist(observed_artist)
