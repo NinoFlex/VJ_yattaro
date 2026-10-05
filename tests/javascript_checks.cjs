@@ -227,7 +227,7 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
 
   const delayedArtist = routeEvidenceFixture({
     headingTitle: 'Star',
-    jsonLd: {'@type':'MusicRecording', name:'Star', byArtist:{name:'日本語アーティスト'}}
+    jsonLd: {'@type':'MusicRecording', url:'https://www.shazam.com/ja-jp/song/6793804469/star', name:'Star', byArtist:{name:'日本語アーティスト'}}
   });
   assert.equal(delayedArtist.evidence, 'jsonld');
   assert.equal(delayedArtist.artist, '日本語アーティスト');
@@ -239,10 +239,10 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
   ok('route-only remains the bounded fallback when detailed metadata never appears');
 
   const nearbyHeading = routeSlugDomFixture({semanticHeading: true});
-  assert.equal(nearbyHeading.title, 'たくさん!');
+  assert.equal(nearbyHeading.title, '');
   assert.equal(nearbyHeading.artist, '');
-  assert.equal(nearbyHeading.evidence, 'track-heading');
-  ok('unmarked nearby text is no longer guessed as the artist below a heading');
+  assert.equal(nearbyHeading.evidence, 'route-only');
+  ok('unbound generic heading cannot provide a title or artist');
 
   const slugAnchored = routeSlugDomFixture();
   assert.equal(slugAnchored.title, '');

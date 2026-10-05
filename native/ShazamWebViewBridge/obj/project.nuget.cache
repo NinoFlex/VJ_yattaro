@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "vz7uKRqfosE=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\NINO\\git\\VJ_yattaro\\native\\ShazamWebViewBridge\\ShazamWebViewBridge.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\NINO\\.nuget\\packages\\microsoft.web.webview2\\1.0.4191.47\\microsoft.web.webview2.1.0.4191.47.nupkg.sha512",
+    "C:\\Users\\NINO\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\8.0.30\\microsoft.netcore.app.runtime.win-x64.8.0.30.nupkg.sha512",
+    "C:\\Users\\NINO\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\8.0.30\\microsoft.windowsdesktop.app.runtime.win-x64.8.0.30.nupkg.sha512",
+    "C:\\Users\\NINO\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\8.0.30\\microsoft.aspnetcore.app.runtime.win-x64.8.0.30.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -933,6 +933,22 @@ class ShazamService(QObject):
                 )
             return
 
+        # Enforce the same structural contract at the Python boundary. In
+        # particular, legacy helpers must not send homepage text to Apple lookup
+        # and turn a chart's unrelated Apple link into a trusted track identity.
+        evidence_source = source.split("+", 1)[0].casefold()
+        allowed_sources = {
+            "track-primary-header", "jsonld", "recognition-response",
+            "recognition-network", "shazam-route", "route-only",
+        }
+        if evidence_source not in allowed_sources:
+            print(
+                f"ShazamService: Rejected non-structural source={source!r} "
+                f"seq={request_sequence}; rebuild the WebView helper if using an old binary"
+            )
+            self._stage_temporal_result(group_index, request_sequence)
+            return
+
         # The WebView is already localized to ja-JP. Strong request-scoped sources that
         # contain both title and artist need no Apple round trip at all. This is the common
         # fast path for JSON-LD / recognition-response results and removes the ~0.5-1 s
@@ -952,7 +968,7 @@ class ShazamService(QObject):
         source = str(raw_result.get("source") or "").split("+", 1)[0].casefold()
         trusted_complete_sources = {
             "jsonld", "recognition-response", "recognition-network",
-            "track-heading", "route-slug-artist",
+            "track-primary-header",
         }
         if (
             raw_title and raw_artist

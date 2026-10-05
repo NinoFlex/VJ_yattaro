@@ -6,8 +6,6 @@
   let cycle = '';
   let lastKey = '';
   let latest = null;
-  let knownDialogs = new Set();
-  let knownPairs = new Set();
   let noMatchSent = false;
   const badText = /requested page|page (?:was )?not found|music discovery|\u8981\u6c42\u3055\u308c\u305f\u30da\u30fc\u30b8\u306f\u898b\u3064\u304b\u308a\u307e\u305b\u3093|\u30e6\u30fc\u30b6\u30fc\u304c\u4ecaShazam\u3067\u898b\u3064\u3051\u3066\u3044\u308b\u66f2|\u97f3\u697d\u767a\u898b\u3001\u30c1\u30e3\u30fc\u30c8/i;
   const uiTitleLabels = new Set(['概要','overview','歌詞','lyrics','ビデオ','video','videos',
@@ -152,21 +150,18 @@
     if (!cycle) return;
     const r = route(value);
     if (!r) return;
-    // Capture the current result card before the site's SPA replaces it with a
-    // detail/404 page. If text was found, bind that text to this exact /song ID.
-    scanDOM();
-    if (latest && latest.title && latest.artist) {
-      publish({...latest, shazamTrackId: r.id, url: r.url, evidence: latest.evidence + '+shazam-route'});
-    } else {
-      publish({title: '', artist: '', shazamTrackId: r.id, appleTrackId: '', appleMusicUrl: '',
-        url: r.url, evidence: 'shazam-route'});
-    }
+    // A route identifies a track, not the text left on the previous page. Do not
+    // attach old DOM text to a new ID. The primary-page reader will bind its own
+    // text only after the current canonical/structured identity agrees.
+    publish({title: '', artist: '', shazamTrackId: r.id, appleTrackId: '', appleMusicUrl: '',
+      url: r.url, evidence: 'shazam-route'});
   };
   for (const name of ['pushState', 'replaceState']) {
     const original = history[name];
     history[name] = function(state, title, url) {
-      if (url) inspectRoute(url);
-      return original.apply(this, arguments); // Do not corrupt the site's router state.
+      const result = original.apply(this, arguments);
+      if (url) inspectRoute(location.href);
+      return result; // Do not corrupt the site's router state.
     };
   }
   addEventListener('popstate', () => inspectRoute(location.href));
@@ -175,52 +170,6 @@
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     return rect.width > 1 && rect.height > 1 && style.display !== 'none' && style.visibility !== 'hidden';
-  };
-  const structuralUI = element => {
-    if (!element?.closest) return false;
-    return !!element.closest('footer,[role="contentinfo"],nav,[role="navigation"],header');
-  };
-  const pairFromHeading = heading => {
-    if (!heading || !visible(heading) || structuralUI(heading)) return null;
-    const title = cleanTitle(heading.textContent);
-    if (!title) return null;
-    const binding = fields.artistNearTitle(heading);
-    if (!binding) return null;
-    const links = Array.from(binding.region.querySelectorAll('a[href]'));
-    const appleMusicUrl = links.filter(e => visible(e) && !structuralUI(e)).map(e => e.href).find(h => appleId(h)) || '';
-    return {title, artist: binding.artist, appleMusicUrl, appleTrackId: appleId(appleMusicUrl),
-      url: location.href, evidence: 'new-result-heading'};
-  };
-  const readRegion = region => {
-    if (!region?.querySelectorAll || structuralUI(region)) return null;
-    for (const heading of region.querySelectorAll(fields.TITLE_SELECTOR)) {
-      const candidate = pairFromHeading(heading);
-      if (candidate) {
-        candidate.evidence = 'result-region';
-        publish(candidate);
-        return candidate;
-      }
-    }
-    return null;
-  };
-
-  const visiblePairs = () => {
-    const result = [];
-    if (!document.querySelectorAll) return result;
-    for (const h of document.querySelectorAll(fields.HEADING_SELECTOR)) {
-      const candidate = pairFromHeading(h);
-      if (candidate) result.push(candidate);
-    }
-    return result;
-  };
-  const pairKey = c => `${c.title}\u001f${c.artist}`.toLowerCase();
-  const scanNewPairs = () => {
-    for (const candidate of visiblePairs()) {
-      const key = pairKey(candidate);
-      if (knownPairs.has(key)) continue;
-      knownPairs.add(key);
-      publish(candidate);
-    }
   };
   const scanFailure = () => {
     if (!cycle || noMatchSent || route(location.href)) return;
@@ -238,29 +187,13 @@
   };
   function scanDOM() {
     if (!cycle || !document.body) return;
-    const r = route(location.href);
-    if (r) {
-      const heading = [...document.querySelectorAll(fields.TITLE_SELECTOR)]
-        .find(e => visible(e) && !structuralUI(e) && cleanTitle(e.textContent));
-      let titleHint = cleanTitle(heading?.textContent);
-      if (!titleHint) {
-        try {
-          const m = new URL(location.href).pathname.match(/\/(?:song|track)\/\d{6,20}\/([^/?#]+)/i);
-          titleHint = decodeURIComponent(m?.[1] || '').replace(/[-_]+/g, ' ').trim();
-        } catch (_) {}
-      }
-      const item = fields.readRecording(location.href, titleHint);
-      if (item && cleanTitle(item.title) && cleanArtist(item.artist))
-        publish({title: item.title, artist: item.artist, shazamTrackId: r.id,
-          appleTrackId: '', appleMusicUrl: '', url: location.href, evidence: 'jsonld'});
-      readRegion(document.querySelector('main') || document.body);
+    if (route(location.href)) {
+      const item = fields.readPrimaryTrack(location.href);
+      if (item) publish(item);
     } else {
-      // Prefer newly shown result dialogs, then accept only title+artist pairs that
-      // were not visible when this recognition cycle was armed. This catches the
-      // transient Shazam result card even when it is not marked role=dialog.
-      for (const region of document.querySelectorAll('[role="dialog"],dialog,[aria-modal="true"]'))
-        if (visible(region) && !knownDialogs.has(region)) readRegion(region);
-      scanNewPairs();
+      // No DOM song extraction on the home page: an asynchronously inserted
+      // heading, chart, artist list or arbitrary dialog is NOT a recognition.
+      // Actual matches arrive through the request-scoped response or track route.
       scanFailure();
     }
   }
@@ -274,8 +207,6 @@
   window.__vjResults = {
     arm(id) {
       cycle = id; lastKey = ''; latest = null; noMatchSent = false;
-      knownDialogs = new Set(Array.from(document.querySelectorAll('[role="dialog"],dialog,[aria-modal="true"]')).filter(visible));
-      knownPairs = new Set(visiblePairs().map(pairKey));
       return true;
     },
     stop() { cycle = ''; latest = null; lastKey = ''; noMatchSent = false; },

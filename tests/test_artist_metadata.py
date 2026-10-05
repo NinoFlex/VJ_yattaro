@@ -53,7 +53,7 @@ class ResolverArtistTests(unittest.TestCase):
     def setUp(self):
         self.resolver = ITunesMetadataResolver()
         self.raw = {'title': 'Orange', 'artist': PROMO, 'url': URL,
-                    'shazamTrackId': '40820351', 'source': 'route-slug-dom'}
+                    'shazamTrackId': '40820351', 'source': 'jsonld'}
 
     def test_page_recovers_artist_even_when_title_was_already_available(self):
         with patch.object(self.resolver, '_resolve_route_id_candidate', return_value=None), \
@@ -120,7 +120,7 @@ class ServiceArtistTests(unittest.TestCase):
         self.svc._active = True
         self.svc._generation = 1
         self.raw = {'title': 'Orange', 'artist': PROMO, 'url': URL,
-                    'shazamTrackId': '40820351', 'source': 'route-slug-dom'}
+                    'shazamTrackId': '40820351', 'source': 'jsonld'}
 
     def tearDown(self):
         self.svc.shutdown()
@@ -135,22 +135,21 @@ class ServiceArtistTests(unittest.TestCase):
     def test_legacy_source_does_not_take_the_complete_fast_path(self):
         with patch.object(self.svc._metadata_resolver, 'resolve', return_value=('Orange', 'Fixture Artist')) as resolve, \
              patch.object(self.svc, '_stage_temporal_result') as stage:
-            self.resolve()
-            resolve.assert_called_once()
-            self.assertEqual(resolve.call_args.args[0]['artist'], '')
-            self.assertEqual(stage.call_args.args[2:4], ('Orange', 'Fixture Artist'))
+            self.resolve(dict(self.raw, source='route-slug-dom'))
+            resolve.assert_not_called()
+            self.assertEqual(stage.call_args.args, (0, 0))
 
     def test_complete_trusted_result_keeps_no_lookup_fast_path(self):
         with patch.object(self.svc._metadata_resolver, 'resolve') as resolve, \
              patch.object(self.svc, '_stage_temporal_result') as stage:
-            self.resolve(dict(self.raw, artist='Fixture Artist', source='route-slug-artist'))
+            self.resolve(dict(self.raw, artist='Fixture Artist', source='track-primary-header'))
             resolve.assert_not_called()
             self.assertEqual(stage.call_args.args[2:4], ('Orange', 'Fixture Artist'))
 
     def test_pollution_is_rejected_even_for_trusted_source(self):
         with patch.object(self.svc._metadata_resolver, 'resolve', return_value=('Orange', '')) as resolve, \
              patch.object(self.svc, '_stage_temporal_result') as stage:
-            self.resolve(dict(self.raw, source='track-heading'))
+            self.resolve(dict(self.raw, source='track-primary-header'))
             resolve.assert_called_once()
             self.assertEqual(stage.call_args.args[2:4], ('Orange', ''))
 

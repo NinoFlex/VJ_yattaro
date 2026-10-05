@@ -1,7 +1,9 @@
-"""Real Chromium DOM fixtures; all requests are intercepted (no live Shazam).
+"""Offline Chromium tests for identity-bound Shazam primary metadata.
 
-Run: python tests/artist_metadata_checks.py [--chromium /path/to/chromium]
-Optional test dependency only: playwright + Chromium. App dependencies unchanged.
+Run: python tests/artist_metadata_checks.py --chromium /path/to/chromium
+Test-only dependency: playwright and a Chromium browser. No live service calls.
+The included HTML fixtures contain the primary header and JSON-LD copied from
+both user-supplied saved pages; generated hash suffixes are not fixed selectors.
 """
 import argparse
 import html
@@ -11,9 +13,22 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / 'native/ShazamWebViewBridge/Scripts'
+FIXTURES = ROOT / 'tests/fixtures/shazam_structural'
 URL = 'https://www.shazam.com/ja-jp/track/40820351/orange'
-PROMO = 'Apple Music \u306b\u63a5\u7d9a\u3057\u3066\u3001Shazam \u5185\u3067\u66f2\u5168\u4f53\u3092\u30d5\u30eb\u518d\u751f\u3057\u307e\u3057\u3087\u3046\u3002 \u306b\u63a5\u7d9a'
-KIT = '\u958b\u767a\u8005\u5411\u3051ShazamKit'
+PROMO = 'Apple Music \u306b\u63a5\u7d9a\u3057\u3066\u3001Shazam \u5185\u3067\u66f2\u5168\u4f53\u3092\u30d5\u30eb\u518d\u751f\u3057\u307e\u3057\u3087\u3046\u3002'
+
+
+def ld(record):
+    return '<script type="application/ld+json">' + json.dumps(record, ensure_ascii=True) + '</script>'
+
+
+def hero(title='Orange', artist='Fixture Artist', apple=''):
+    # CSS hashes are intentionally different from the supplied pages.
+    return ('<div class="NewTrackPageHeader_trackContent__TEST">'
+            '<div class="NewTrackPageHeader_trackTitle__TEST">' + html.escape(title) + '</div>'
+            '<a data-test-id="track_userevent_artist_link" href="https://www.shazam.com/artist/a/123456789">'
+            + html.escape(artist) + '</a>' + (('<a data-test-id="track_userevent_redirect_apple_music" href="'
+            + html.escape(apple, quote=True) + '">Open in Apple Music</a>') if apple else '') + '</div>')
 
 
 def main():
@@ -21,97 +36,118 @@ def main():
     parser.add_argument('--chromium', default=None)
     args = parser.parse_args()
     helper = (SCRIPTS / 'metadata_fields.js').read_text(encoding='utf-8')
-    route_script = (SCRIPTS / 'route_evidence.js').read_text(encoding='utf-8').replace('__BASELINE_TRACK_IDS__', '[]')
-    extract = '(location) => {' + helper + '\nreturn ' + route_script + '}'
+    route_script = (SCRIPTS / 'route_evidence.js').read_text(encoding='utf-8')
     observer = (SCRIPTS / 'result_observer.js').read_text(encoding='utf-8')
-    fixture_location = {'href': URL, 'hostname': 'www.shazam.com', 'protocol': 'https:'}
+    extract = '(location) => {' + helper + '\nreturn (\n' + route_script.strip().rstrip(';') + '\n);}'
+    loc = {'href': URL, 'hostname': 'www.shazam.com', 'protocol': 'https:'}
     passed = []
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(executable_path=args.chromium, headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
+        browser = pw.chromium.launch(executable_path=args.chromium, headless=True,
+                                     args=['--no-sandbox', '--disable-dev-shm-usage'])
         context = browser.new_context()
-        context.route('**/*', lambda r: r.fulfill(status=200, content_type='text/html', body='<html><body></body></html>'))
+        context.route('**/*', lambda r: r.abort())
         page = context.new_page()
-        # No browser navigation. Use generated markup in about:blank with a
-        # lexical location fixture; only the DOM/layout APIs are real Chromium.
 
-        def check(name, body, artist, evidence=None, title=None):
-            page.set_content('<html><head><base href="' + URL + '"></head><body><main>' + body + '</main></body></html>')
-            value = page.evaluate(extract, fixture_location)
-            assert value is not None, name
-            assert value['artist'] == artist, (name, value)
-            if evidence is not None:
-                assert value['evidence'] == evidence, (name, value)
+        def check(name, body, artist='', evidence='route-only', title=None, canonical=URL):
+            page.set_content('<html><head><base href="' + URL + '"><link rel="canonical" href="'
+                             + canonical + '"></head><body><main>' + body + '</main></body></html>')
+            value = page.evaluate(extract, loc)
+            assert value and value['artist'] == artist and value['evidence'] == evidence, (name, value)
             if title is not None:
                 assert value['title'] == title, (name, value)
             passed.append(name)
             return value
 
-        for noise in (PROMO, KIT, 'An unrelated caption not in any blocklist'):
-            check('no position guessing: ' + noise, '<div><div>Orange</div><p>' + html.escape(noise) + '</p></div>', '', 'route-only')
-        check('semantic heading plus CTA is incomplete', '<section><h1>Orange</h1><p>' + PROMO + '</p></section>', '', 'track-heading', 'Orange')
-        check('wildcard connect-subtitle no longer accepted', '<section><h1>Orange</h1><div data-testid="connect-subtitle">A harmless-looking unrelated caption</div></section>', '')
-        check('exact artist field', '<section><h1>Orange</h1><span data-testid="artist-name">Fixture Artist</span></section>', 'Fixture Artist', 'track-heading')
-        check('exact track subtitle field beats closer CTA', '<section><h1>Orange</h1><p>' + PROMO + '</p><span data-testid="track-subtitle">Fixture Artist</span></section>', 'Fixture Artist')
-        check('explicit field also validates its contents', '<section><h1>Orange</h1><span data-testid="track-subtitle">' + PROMO + '</span></section>', '')
-        check('plain title plus explicit artist', '<section><div>Orange</div><span data-testid="track-subtitle">Fixture Artist</span></section>', 'Fixture Artist', 'route-slug-artist')
-        check('local Shazam artist link', '<section><h1>Orange</h1><a href="https://www.shazam.com/ja-jp/artist/fixture/123456789">Fixture Artist</a></section>', 'Fixture Artist')
-        check('Apple artist link only', '<section><h1>Orange</h1><a href="https://music.apple.com/jp/artist/fixture/123456789">Fixture Artist</a></section>', 'Fixture Artist')
-        check('foreign artist URL is not a Shazam field', '<section><h1>Orange</h1><a href="https://example.test/artist/fixture">Wrong Artist</a></section>', '')
-        check('query-string artist text is not an artist URL', '<section><h1>Orange</h1><a href="https://www.shazam.com/help?next=/artist/test">Wrong Artist</a></section>', '')
-        check('recommendation artist cannot fill missing artist', '<section><h1>Orange</h1></section><section><h2>Other Song</h2><a href="/artist/other/123456789">Wrong Artist</a></section>', '')
-        check('main is not a global fallback region', '<h1>Orange</h1><a href="/artist/other/123456789">Wrong Artist</a>', '')
-        check('footer ignored even with exact artist marker', '<section><h1>Orange</h1><footer><span data-testid="artist-name">Wrong Artist</span></footer></section>', '')
-        check('hidden artist ignored', '<section><h1>Orange</h1><span data-testid="artist-name" hidden>Wrong Artist</span></section>', '')
-        check('conflicting explicit fields are not guessed', '<section><h1>Orange</h1><span data-testid="artist-name">One</span><span data-testid="track-subtitle">Two</span></section>', '')
-        check('artist field preserves punctuation/numbers', '<section><h1>Orange</h1><span data-testid="artist-name">!!!</span></section>', '!!!')
-        check('multiple artists within one field', '<section><h1>Orange</h1><span data-testid="track-subtitle"><a href="/artist/a/123456789">Artist A</a> &amp; <a href="/artist/b/223456789">Artist B</a></span></section>', 'Artist A, Artist B')
+        primary = {'@type': 'MusicRecording', 'name': 'Orange', 'url': URL,
+                   'byArtist': {'name': 'Fixture Artist'}}
+        generic = '<section><h1>Orange</h1><span data-testid="artist-name">Fixture Artist</span></section>'
+        cases = [
+            ('generic h1 and artist marker', generic),
+            ('generic h2 and Shazam artist link', '<section><h2>Orange</h2><a href="/artist/a/123456789">A</a></section>'),
+            ('generic div and artist marker', '<section><div>Orange</div><span data-testid="track-subtitle">A</span></section>'),
+            ('arbitrary result dialog', '<dialog open><h1>Orange</h1><span data-testid="artist-name">A</span></dialog>'),
+            ('homepage-style unlisted caption', '<div><h2>Unlisted new promotion 123</h2><a href="/artist/a/123456789">A</a></div>'),
+            ('footer artist field', '<footer>' + generic + '</footer>'),
+            ('nearby CTA', '<div>Orange<p>' + PROMO + '</p></div>'),
+        ]
+        for name, body in cases:
+            check(name + ' cannot supply metadata', body, title='')
+        check('header without structured identity cannot supply metadata', hero(), title='')
+        check('exact primary JSON-LD fallback', ld(primary), 'Fixture Artist', 'jsonld', 'Orange')
+        check('title-only JSON-LD without identity rejected', ld({k: v for k, v in primary.items() if k != 'url'}))
+        check('different track ID rejected', ld(dict(primary, url='https://www.shazam.com/track/99999999/orange')))
+        check('different route kind rejected', ld(dict(primary, url='https://www.shazam.com/song/40820351/orange')))
+        check('canonical from previous SPA route rejected', ld(primary) + hero(), canonical='https://www.shazam.com/track/99999999/old')
+        check('ItemList recommendations not traversed', ld({'@type': 'ItemList', 'itemListElement': [primary]}))
+        check('citation recommendations not traversed', ld({'@type': 'WebPage', 'citation': [primary]}))
+        check('creator is not substituted for byArtist', ld(dict(primary, byArtist=None, creator={'name': 'Wrong'})), evidence='jsonld')
+        check('other artist region cannot fill byArtist', ld(dict(primary, byArtist=None)) + generic, evidence='jsonld')
+        check('conflicting primary records rejected', ld([primary, dict(primary, byArtist={'name': 'Wrong'})]))
+        check('JSON-LD array artists', ld(dict(primary, byArtist=['Artist A', {'name': 'Artist B'}])), 'Artist A, Artist B', 'jsonld')
+        check('WebPage mainEntity record', ld({'@type': 'WebPage', 'mainEntity': primary}), 'Fixture Artist', 'jsonld')
+        check('JSON-LD CTA artist still rejected', ld(dict(primary, byArtist={'name': PROMO})), evidence='jsonld')
+        check('bound header used', ld(primary) + hero(), 'Fixture Artist', 'track-primary-header', 'Orange')
+        check('header preserves coartist omitted by JSON-LD', ld(primary) + hero(artist='Fixture Artist & Another Artist'),
+              'Fixture Artist & Another Artist', 'track-primary-header')
+        check('hash suffix independent', ld(primary) + hero().replace('__TEST', '__DifferentHash99'),
+              'Fixture Artist', 'track-primary-header')
+        check('old title under new route fails closed', ld(primary) + hero(title='Previous song'))
+        check('different primary headers fail closed', ld(primary) + hero() + hero(artist='Wrong'))
+        check('punctuation artist preserved inside bound header', ld(primary) + hero(artist='!!!'), '!!!', 'track-primary-header')
+        check('unlisted title is not filtered by its words', ld(dict(primary, name='Unlisted new promotion 123')) + hero(title='Unlisted new promotion 123'),
+              'Fixture Artist', 'track-primary-header', 'Unlisted new promotion 123')
+        outside = '<a href="https://music.apple.com/jp/album/x/123456789?i=987654321">Unrelated Apple link</a>'
+        value = check('outside Apple ID not attached', ld(primary) + hero() + outside, 'Fixture Artist', 'track-primary-header')
+        assert value['appleTrackId'] == ''
+        value = check('dedicated Apple link attached', ld(primary) + hero(apple='https://music.apple.com/jp/album/x/123456789?i=876543210'),
+                      'Fixture Artist', 'track-primary-header')
+        assert value['appleTrackId'] == '876543210'
+        for metadata_path in sorted(FIXTURES.glob('*.json')):
+            meta = json.loads(metadata_path.read_text(encoding='utf-8'))
+            page.set_content(metadata_path.with_suffix('.html').read_text(encoding='utf-8'))
+            value = page.evaluate(extract, dict(loc, href=meta['url']))
+            assert value['title'] == meta['title'] and value['artist'] == meta['artist'], (meta, value)
+            assert value['evidence'] == 'track-primary-header', value
+            assert value['appleTrackId'], value
+            print('SAMPLE:', metadata_path.stem, json.dumps(value, ensure_ascii=False))
+            passed.append('saved sample ' + metadata_path.stem + ' exact title and full artist')
 
-        def ld(value):
-            return '<script type="application/ld+json">' + json.dumps(value, ensure_ascii=True) + '</script>'
-
-        primary = {'@type': 'MusicRecording', 'name': 'Orange', 'url': URL, 'byArtist': {'name': 'Fixture Artist'}}
-        check('exact JSON-LD', '<section><h1>Orange</h1><p>' + PROMO + '</p></section>' + ld(primary), 'Fixture Artist', 'jsonld')
-        check('title-matched primary JSON-LD without URL', ld({k: v for k, v in primary.items() if k != 'url'}), 'Fixture Artist', 'jsonld')
-        wrong = dict(primary, url='https://www.shazam.com/ja-jp/track/99999999/orange')
-        check('same title with different track ID is rejected', ld(wrong), '')
-        check('recommendation ItemList is not traversed', ld({'@type': 'ItemList', 'itemListElement': [primary]}), '')
-        check('JSON-LD artist never borrowed from another region', ld(dict(primary, byArtist=None)) + '<section><h2>Other</h2><a href="/artist/other/123456789">Wrong Artist</a></section>', '')
-        check('JSON-LD CTA artist is rejected', ld(dict(primary, byArtist={'name': PROMO})), '')
-        check('JSON-LD creator is not the performer', ld(dict(primary, byArtist=None, creator={'name': 'Wrong Artist'})), '')
-        check('conflicting structured records are rejected', ld([primary, dict(primary, byArtist={'name': 'Wrong Artist'})]), '')
-        check('string and array byArtist are supported', ld(dict(primary, byArtist=['Artist A', {'name': 'Artist B'}])), 'Artist A, Artist B')
-        check('WebPage mainEntity is supported', ld({'@type': 'WebPage', 'mainEntity': primary}), 'Fixture Artist')
-        check('Apple link outside track region is not attached', '<section><h1>Orange</h1><span data-testid="artist-name">Fixture Artist</span></section><section><a href="https://music.apple.com/jp/album/other/123456789?i=999999999">Other</a></section>', 'Fixture Artist')
-        value = page.evaluate(extract, fixture_location)
-        assert value['appleTrackId'] == '', value
-
-        # Exercise production result_observer.js with a real DOM and intercepted
-        # network. New dialogs and delayed artist rendering must still work.
-        page.set_content('<html><head><base href="' + URL + '"></head><body></body></html>')
-        page.evaluate("window.__messages=[];window.chrome=window.chrome||{};window.chrome.webview={postMessage:x=>window.__messages.push(x)}")
-        page.evaluate('(location) => {' + helper + '\n' + observer + '}', dict(fixture_location, href='https://www.shazam.com/ja-jp'))
-        page.evaluate("__vjResults.arm('a'.repeat(32))")
-        page.evaluate('(text)=>{document.body.innerHTML=`<section><h1>Orange</h1><span data-testid="connect-subtitle">${text}</span></section>`}', PROMO)
+        # Current recognition on the home page must NOT finish because a new DOM
+        # heading/artist list appeared. Keep the same armed cycle for real results.
+        page.close()
+        page = context.new_page()
+        page.set_content('<html><head><base href="https://www.shazam.com/ja-jp/"></head><body></body></html>')
+        page.evaluate('window.__messages=[];window.chrome=window.chrome||{};window.chrome.webview={postMessage:x=>__messages.push(x)}')
+        home = dict(loc, href='https://www.shazam.com/ja-jp')
+        page.evaluate('(location) => {' + helper + '\n' + observer + '}', home)
+        cycle = 'a' * 32
+        page.evaluate('(id)=>__vjResults.arm(id)', cycle)
+        for title in ['\u30c7\u30a3\u30b9\u30ab\u30d0\u30ea\u30fc \u65e5\u672c \u306e\u30c8\u30e9\u30c3\u30af',
+                      '\u6ce8\u76ee\u306e\u30c8\u30c3\u30d7\u30a2\u30fc\u30c6\u30a3\u30b9\u30c8', 'Never-seen-before homepage caption']:
+            markup = '<section><h2>' + html.escape(title) + '</h2><a href="https://www.shazam.com/artist/a/123456789">A</a>' + outside + '</section>'
+            page.evaluate('(x)=>document.body.insertAdjacentHTML("beforeend",x)', markup)
+            page.evaluate('__vjResults.scan()')
+            assert not page.evaluate('__messages.filter(m=>m.type==="candidate")')
+            passed.append('new home heading ignored regardless of wording: ' + title)
+        page.evaluate('(x)=>document.body.insertAdjacentHTML("beforeend",x)', '<dialog open>' + generic + '</dialog>')
         page.evaluate('__vjResults.scan()')
         assert not page.evaluate('__messages.filter(m=>m.type==="candidate")')
-        passed.append('result observer does not publish an advertisement')
-        page.evaluate("document.querySelector('section').insertAdjacentHTML('beforeend','<span data-testid=\"artist-name\">Fixture Artist</span>')")
-        page.evaluate('__vjResults.scan()')
-        assert page.evaluate('__messages.filter(m=>m.type==="candidate").at(-1).artist') == 'Fixture Artist'
-        passed.append('delayed explicit artist publishes a valid result')
-        page.evaluate("__vjResults.arm('b'.repeat(32));__messages=[]")
-        payload = {'matches': [{}], 'track': {'title': 'Orange', 'subtitle': PROMO, 'url': URL}}
-        page.evaluate('(p)=>__vjResults.inspectRecognition(p,"b".repeat(32))', payload)
-        assert not page.evaluate('__messages.filter(m=>m.type==="candidate")')
-        passed.append('recognition-response UI artist is rejected')
-        payload['track']['subtitle'] = 'Lefties Soul Connection'
-        page.evaluate('(p)=>__vjResults.inspectRecognition(p,"b".repeat(32))', payload)
-        assert page.evaluate('__messages.filter(m=>m.type==="candidate").at(-1).artist') == 'Lefties Soul Connection'
-        passed.append('valid artist containing Connection is preserved')
+        passed.append('new arbitrary dialog ignored after arm')
+        track = {'matches': [{}], 'track': {'title': 'Orange', 'subtitle': 'Fixture Artist', 'url': URL}}
+        page.evaluate('(p)=>__vjResults.inspectRecognition(p,"a".repeat(32))', track)
+        assert page.evaluate('__messages.filter(m=>m.type==="candidate").at(-1).title') == 'Orange'
+        passed.append('same cycle still accepts actual recognition response after homepage mutation')
+        page.evaluate('__messages=[];__vjResults.arm("b".repeat(32))')
+        page.evaluate('(p)=>__vjResults.inspectRecognition(p,"a".repeat(32))', track)
+        assert not page.evaluate('__messages')
+        passed.append('stale request response ignored')
+        page.evaluate('(p)=>__vjResults.inspectRecognition(p,"b".repeat(32))', {'track': track['track']})
+        assert not page.evaluate('__messages')
+        passed.append('catalog record without matches ignored')
         browser.close()
     for name in passed:
         print('PASS:', name)
-    print(f'{len(passed)} Chromium artist-metadata fixture checks passed.')
+    print(f'{len(passed)} Chromium structural/artist fixture checks passed.')
 
 
 if __name__ == '__main__':

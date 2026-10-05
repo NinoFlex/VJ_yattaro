@@ -94,11 +94,12 @@ def main():
         checks.append('late previous-cycle response ignored')
 
         page.evaluate('history.pushState({}, "", "/ja-jp/track/1234567/test")')
-        assert not page.evaluate('__messages.filter(m=>m.type==="candidate")')
+        msg = page.evaluate('__messages.filter(m=>m.type==="candidate").at(-1)')
+        assert msg['shazamTrackId'] == '1234567' and msg['appleTrackId'] == ''
         checks.append('legacy Shazam track ID is not an Apple ID')
         page.evaluate('history.pushState({}, "", "/ja-jp/song/1825279997/test")')
         msg = page.evaluate('__messages.filter(m=>m.type==="candidate").at(-1)')
-        assert msg['appleTrackId'] == '1825279997'
+        assert msg['shazamTrackId'] == '1825279997' and msg['appleTrackId'] == ''
         page.evaluate('''()=>{document.body.innerHTML='<h1>Page not found</h1>';__vjResults.scan()}''')
         assert all(not m.get('title') for m in page.evaluate('__messages.filter(m=>m.type==="candidate")'))
         checks.append('song route captured without publishing 404 title')
@@ -119,8 +120,9 @@ def main():
         page.evaluate('''()=>{const dialog=document.createElement('div');dialog.setAttribute('role','dialog');
           dialog.innerHTML='<h2>New result</h2><a href="/artist/1234567/a">Performer</a>';
           document.body.append(dialog)}''')
-        page.wait_for_function('__messages.some(m=>m.title==="New result")')
-        checks.append('scoped newly displayed result dialog is captured')
+        page.evaluate('__vjResults.scan()')
+        assert not page.evaluate('__messages.some(m=>m.title==="New result")')
+        checks.append('new arbitrary dialog is not a recognition result')
 
         page.goto('http://localhost:8765/ja-jp')
         result = page.evaluate('(args)=>__vjAudioBridge.startLive(args[0],args[1])', [16000, ID])

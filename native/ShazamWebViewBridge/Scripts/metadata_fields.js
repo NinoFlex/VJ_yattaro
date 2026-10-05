@@ -19,9 +19,6 @@
     return r.width > 1 && r.height > 1 && s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || 1) > 0.01;
   };
   const structural = e => !!e?.closest?.('footer,[role="contentinfo"],nav,[role="navigation"],header,aside,[role="complementary"],button,[role="button"]');
-  const TITLE_SELECTOR = 'h1,[data-testid="track-title"],[data-testid="song-title"]';
-  const HEADING_SELECTOR = 'h1,h2,h3,[data-testid="track-title"],[data-testid="song-title"]';
-  const ARTIST_SELECTOR = '[data-testid="artist-name"],[data-testid="track-artist"],[data-testid="song-artist"],[data-testid="track-subtitle"],[data-testid="song-subtitle"],[itemprop="byArtist"]';
   const route = value => {
     if (typeof value !== 'string' || !value.trim()) return null;
     try {
@@ -31,62 +28,14 @@
       return m ? {kind: m[1].toLowerCase(), id: m[2]} : null;
     } catch (_) { return null; }
   };
-  const artistLink = e => {
-    try {
-      if (!e?.href) return false;
-      const u = new URL(e.href, location.href);
-      if (u.protocol !== 'https:') return false;
-      if (['www.shazam.com', 'shazam.com'].includes(u.hostname))
-        return /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?artist\//i.test(u.pathname);
-      if (['music.apple.com', 'itunes.apple.com'].includes(u.hostname))
-        return /^\/(?:[a-z]{2}\/)?artist\//i.test(u.pathname);
-    } catch (_) {}
-    return false;
-  };
   const nodeText = e => clean(e?.innerText || e?.textContent);
   const unique = values => [...new Set(values.filter(Boolean))];
-  const fieldText = e => {
-    // A byArtist container may include artist URLs and other UI. Read only the
-    // artist names in it, not the concatenated parent text.
-    const names = [...e.querySelectorAll('[itemprop="name"],a[href]')]
-      .filter(n => visible(n) && !structural(n) && (n.getAttribute?.('itemprop') === 'name' || artistLink(n)))
-      .map(n => cleanArtist(nodeText(n)));
-    return unique(names).join(', ') || cleanArtist(nodeText(e));
-  };
-  const artistNearTitle = title => {
-    if (!visible(title) || structural(title)) return null;
-    const wanted = key(nodeText(title));
-    let root = title.parentElement;
-    for (let depth = 0; root && depth < 4; depth++, root = root.parentElement) {
-      // Never widen a failed lookup to the full page or its recommendation lists.
-      if (root === document.body || root === document.documentElement || root.matches?.('main,[role="main"]')) break;
-      if (structural(root) || !root.querySelectorAll) break;
-      const others = [...root.querySelectorAll(HEADING_SELECTOR)].filter(e => visible(e) && !structural(e) && e !== title && key(nodeText(e)) !== wanted);
-      if (others.length) break;
-      const belongs = e => {
-        if (!visible(e) || structural(e) || e === title || e.contains?.(title) || title.contains?.(e)) return false;
-        const section = e.closest?.('section,article,[role="dialog"]');
-        const titleSection = title.closest?.('section,article,[role="dialog"]');
-        return !section || section === titleSection || section.contains?.(title);
-      };
-      const fields = [...root.querySelectorAll(ARTIST_SELECTOR)].filter(belongs);
-      const topFields = fields.filter(e => !fields.some(other => other !== e && other.contains?.(e)));
-      const names = unique(topFields.map(fieldText));
-      if (names.length === 1) return {artist: names[0], region: root};
-      if (names.length > 1) return null; // Conflicting metadata is not a guess.
-      const links = [...root.querySelectorAll('a[href]')].filter(e => belongs(e) && artistLink(e));
-      const linkedNames = unique(links.map(e => cleanArtist(nodeText(e))));
-      if (linkedNames.length) return {artist: linkedNames.join(', '), region: root};
-      if (root.matches?.('article,section,[role="dialog"]')) break;
-    }
-    return null;
-  };
   const byArtist = item => {
     const names = [].concat(item.byArtist || []).map(value =>
       cleanArtist(typeof value === 'string' ? value : value?.name));
     return unique(names).join(', ');
   };
-  const readRecording = (routeUrl, titleHint = '') => {
+  const readRecording = (routeUrl) => {
     const current = route(routeUrl);
     if (!current) return null;
     const results = [];
@@ -99,9 +48,9 @@
         const identities = [node.url, node['@id'], node.mainEntityOfPage].flatMap(x =>
           typeof x === 'string' ? [route(x)] : x && typeof x === 'object' ? [route(x['@id'] || x.url || '')] : []).filter(Boolean);
         const exact = identities.length && identities.every(x => x.kind === current.kind && x.id === current.id);
-        // An explicit different ID is never repaired with text similarity. Without
-        // an ID, require the primary record's title to match the actual title/slug.
-        if (title && (identities.length ? exact : key(titleHint) && key(title) === key(titleHint)))
+        // Identity is mandatory: neither a matching heading nor a URL slug can
+        // promote an unbound record into the current recognition result.
+        if (title && exact)
           results.push({title, artist: byArtist(node), exact: !!exact});
       }
       // Only primary structured records; do not recurse through recommendations,
@@ -119,5 +68,66 @@
     const distinct = new Map(choices.map(x => [JSON.stringify([x.title, x.artist]), x]));
     return distinct.size === 1 ? [...distinct.values()][0] : null;
   };
-  window.__vjTrackMetadata = {cleanArtist, visible, structural, key, route, artistNearTitle, readRecording, TITLE_SELECTOR, HEADING_SELECTOR};
+  const appleId = value => {
+    try {
+      const u = new URL(value, location.href);
+      if (u.protocol !== 'https:' || !['music.apple.com', 'itunes.apple.com'].includes(u.hostname)) return '';
+      const id = u.searchParams.get('i') || '';
+      if (/^\d{6,20}$/.test(id)) return id;
+      const m = u.pathname.match(/\/song\/[^/]+\/(?:id)?(\d{6,20})\/?$/i);
+      return m ? m[1] : '';
+    } catch (_) { return ''; }
+  };
+  // These component prefixes and data-test-id attributes come from the two
+  // supplied saved track pages. Do not depend on the generated CSS hash suffix.
+  const ROOT_SELECTOR = '[class*="NewTrackPageHeader_trackContent__"]';
+  const PRIMARY_TITLE_SELECTOR = '[class*="NewTrackPageHeader_trackTitle__"]';
+  const PRIMARY_ARTIST_SELECTOR = 'a[data-test-id="track_userevent_artist_link"]';
+  const PRIMARY_APPLE_SELECTOR = 'a[data-test-id="track_userevent_redirect_apple_music"]';
+  const readPrimaryTrack = routeUrl => {
+    const current = route(routeUrl);
+    if (!current) return null;
+    const identityOnly = {title: '', artist: '', shazamTrackId: current.id,
+      appleTrackId: '', appleMusicUrl: '', url: routeUrl, evidence: 'route-only'};
+    // During SPA navigation the URL may already be new while the DOM is old.
+    const canonicals = [...document.querySelectorAll('link[rel="canonical"]')];
+    if (canonicals.some(e => {
+      const r = route(e.href);
+      return !r || r.kind !== current.kind || r.id !== current.id;
+    })) return identityOnly;
+    const recording = readRecording(routeUrl);
+    if (!recording) return identityOnly;
+    const roots = [...document.querySelectorAll(ROOT_SELECTOR)].filter(e =>
+      !e.closest('footer,nav,aside,dialog,[role="dialog"],[role="navigation"],[role="contentinfo"]') && visible(e));
+    const valid = [];
+    let conflictingHeader = false;
+    for (const root of roots) {
+      const titles = unique([...root.querySelectorAll(PRIMARY_TITLE_SELECTOR)].filter(visible).map(nodeText));
+      if (titles.length !== 1 || fold(titles[0]) !== fold(recording.title)) {
+        conflictingHeader = true;
+        continue;
+      }
+      const names = unique([...root.querySelectorAll(PRIMARY_ARTIST_SELECTOR)]
+        .filter(e => visible(e) && (() => {
+          try {
+            const u = new URL(e.href, routeUrl);
+            return u.protocol === 'https:' && ['www.shazam.com','shazam.com'].includes(u.hostname)
+              && /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?artist\//i.test(u.pathname);
+          } catch (_) { return false; }
+        })()).map(e => cleanArtist(nodeText(e))));
+      if (!names.length) continue;
+      const links = [...root.querySelectorAll(PRIMARY_APPLE_SELECTOR)].filter(e => visible(e) && appleId(e.href));
+      const ids = unique(links.map(e => appleId(e.href)));
+      const appleMusicUrl = ids.length === 1 ? links[0].href : '';
+      valid.push({...identityOnly, title: titles[0], artist: names.join(', '),
+        appleMusicUrl, appleTrackId: appleId(appleMusicUrl), evidence: 'track-primary-header'});
+    }
+    if (conflictingHeader) return identityOnly;
+    const distinct = new Map(valid.map(x => [JSON.stringify([x.title,x.artist,x.appleTrackId]),x]));
+    if (distinct.size > 1) return identityOnly;
+    if (distinct.size === 1) return [...distinct.values()][0];
+    // Only the exact primary MusicRecording; never citation/recommendation items.
+    return {...identityOnly, title: recording.title, artist: recording.artist, evidence: 'jsonld'};
+  };
+  window.__vjTrackMetadata = {cleanArtist, visible, structural, key, route, readRecording, readPrimaryTrack};
 })();

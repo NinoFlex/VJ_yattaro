@@ -120,8 +120,8 @@ internal sealed class BridgeHost : Form
                 Script("metadata_fields.js") + "\n" + Script("result_observer.js"));
             await NavigateHomeAsync(_lifetime.Token);
             _ready = true;
-            Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-live-pcm");
-            Program.Send(new { type = "ready", protocol = 2, version = "1.4.2-live-fresh-track" });
+            Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-live-pcm; extraction=primary-structure-v1");
+            Program.Send(new { type = "ready", protocol = 2, version = "1.4.3-structural-track" });
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -795,17 +795,26 @@ internal sealed class BridgeHost : Form
         return match.Success ? match.Groups[1].Value : "";
     }
 
+    private static string EvidenceSource(Candidate c) =>
+        (c.Evidence ?? "").Split('+', 2)[0].ToLowerInvariant();
+
+    private static bool IsRecognitionResponse(Candidate c) =>
+        EvidenceSource(c) is "recognition-network" or "recognition-response";
+
+    private static bool TrustedEvidence(Candidate c) =>
+        EvidenceSource(c) is "track-primary-header" or "jsonld" or
+            "recognition-network" or "recognition-response" or "shazam-route" or "route-only";
+
     private static int Rank(Candidate c)
     {
-        var evidence = c.Evidence ?? "";
-        int rank = evidence.StartsWith("track-heading", StringComparison.OrdinalIgnoreCase) ? 180
-            : evidence.StartsWith("dialog-heading", StringComparison.OrdinalIgnoreCase) ? 170
-            : evidence.StartsWith("recognition-network", StringComparison.OrdinalIgnoreCase) ? 190
-            : evidence.StartsWith("recognition-response", StringComparison.OrdinalIgnoreCase) ? 160
-            : evidence.StartsWith("new-result-heading", StringComparison.OrdinalIgnoreCase) ? 150
-            : evidence.StartsWith("result-region", StringComparison.OrdinalIgnoreCase) ? 140
-            : evidence.StartsWith("jsonld", StringComparison.OrdinalIgnoreCase) ? 130
-            : 60;
+        int rank = EvidenceSource(c) switch
+        {
+            "track-primary-header" => 220,
+            "recognition-network" => 190,
+            "recognition-response" => 160,
+            "jsonld" => 130,
+            _ => 60
+        };
         if (!string.IsNullOrWhiteSpace(c.AppleTrackId)) rank += 25;
         if (!string.IsNullOrWhiteSpace(c.Title)) rank += 10;
         if (!string.IsNullOrWhiteSpace(c.Artist)) rank += 10;
@@ -826,6 +835,11 @@ internal sealed class BridgeHost : Form
 
     private void Accept(Candidate value)
     {
+        if (!TrustedEvidence(value))
+        {
+            Program.Log($"Rejected non-structural candidate source={value.Evidence}");
+            return;
+        }
         bool validAppleId = Regex.IsMatch(value.AppleTrackId ?? "", @"\A[0-9]{6,20}\z");
         bool validShazamId = Regex.IsMatch(value.ShazamTrackId ?? "", @"\A[0-9]{6,20}\z");
         var title = ValidText(value.Title) ? value.Title : "";
@@ -851,7 +865,7 @@ internal sealed class BridgeHost : Form
             if (!string.IsNullOrWhiteSpace(value.ShazamTrackId) &&
                 string.IsNullOrWhiteSpace(current.ShazamTrackId) &&
                 !string.IsNullOrWhiteSpace(current.Title) && !string.IsNullOrWhiteSpace(current.Artist) &&
-                Rank(current) >= 140)
+                IsRecognitionResponse(current))
             {
                 current = current with
                 {
