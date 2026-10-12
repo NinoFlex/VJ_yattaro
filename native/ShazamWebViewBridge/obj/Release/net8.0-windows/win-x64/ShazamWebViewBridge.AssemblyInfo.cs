@@ -12,11 +12,11 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("ShazamWebViewBridge")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.2.7.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.2.7+8c2d8edeecc56c9a8f0b25b98a114e7ca9508c7f")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("1.5.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.5.0+d7b57246e9833b0585fc7c0ce783c92a736b559d")]
 [assembly: System.Reflection.AssemblyProductAttribute("ShazamWebViewBridge")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ShazamWebViewBridge")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.2.7.0")]
+[assembly: System.Reflection.AssemblyVersionAttribute("1.5.0.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
 

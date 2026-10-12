@@ -1,0 +1,63 @@
+{
+  "source_file": "vj_yattaro(20261006-115113).log",
+  "scope": "Recognition result receipt order only; audio capture and HTTP are not replayed.",
+  "title": "Q極進化論",
+  "events": [
+    {
+      "sequence": 71,
+      "time": "20:48:22.937",
+      "raw": {
+        "source": "track-primary-header",
+        "shazamTrackId": "1528253694",
+        "appleTrackId": "1528253694",
+        "title": "Q極進化論",
+        "artist": "れるりり"
+      },
+      "elapsed_seconds": 0.0
+    },
+    {
+      "sequence": 73,
+      "time": "20:48:30.382",
+      "raw": {
+        "source": "no-match",
+        "title": "",
+        "artist": ""
+      },
+      "elapsed_seconds": 7.445
+    },
+    {
+      "sequence": 72,
+      "time": "20:48:32.630",
+      "raw": {
+        "source": "no-match",
+        "title": "",
+        "artist": ""
+      },
+      "elapsed_seconds": 9.693
+    },
+    {
+      "sequence": 74,
+      "time": "20:48:34.899",
+      "raw": {
+        "source": "track-primary-header",
+        "shazamTrackId": "1528253694",
+        "appleTrackId": "1528253694",
+        "title": "Q極進化論",
+        "artist": "れるりり"
+      },
+      "elapsed_seconds": 11.962
+    },
+    {
+      "sequence": 75,
+      "time": "20:48:39.180",
+      "raw": {
+        "source": "track-primary-header",
+        "shazamTrackId": "1528253694",
+        "appleTrackId": "1528253694",
+        "title": "Q極進化論",
+        "artist": "れるりり"
+      },
+      "elapsed_seconds": 16.243
+    }
+  ]
+}

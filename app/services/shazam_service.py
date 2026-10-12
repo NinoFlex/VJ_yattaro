@@ -12,6 +12,9 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.services.track_matching import deduplicate_history, is_same_track
 from app.services.itunes_metadata import clean_artist
+from app.services.shazam_metadata_prefetch import (
+    MetadataPrefetcher, IdentityConflict, complete_metadata, track_identity,
+)
 
 
 class ShazamService(QObject):
@@ -22,8 +25,14 @@ class ShazamService(QObject):
     by at least three seconds. If all workers are busy, the due slot is held instead of
     discarded and starts as soon as one worker becomes free. Each WebView therefore receives
     fresh microphone PCM continuously after its own start time instead of a looping WAV
-    snapshot. A track is published only after two consecutive time-separated recognition
-    results match using the existing title-prefix rule. No ShazamIO library or private
+    snapshot. A track needs two independent, time-separated recognitions. Matching
+    Shazam IDs may bridge at most two completed neutral gaps within 15 seconds.
+    A neutral gap is either a soft no-match or, at most once, the specific WebView audio
+    transport failure where the Shazam button did not request the supplied audio. Other
+    errors, rejected evidence, other songs and unknown intervening results break the chain.
+    ID-less/Apple-only observations keep the consecutive-results rule. The
+    existing title-prefix rule is retained only when neither observation has an ID.
+    No ShazamIO library or private
     Shazam API is used.
     """
 
@@ -33,6 +42,7 @@ class ShazamService(QObject):
     error_occurred = Signal(str)
     _recognition_finished = Signal(int, int, int, str, str, str)
     _metadata_finished = Signal(int, int, int, str, str, str)
+    _prefetch_finished = Signal(int, object, object, str)
 
     SAMPLE_RATE = 16000
     CHANNELS = 1  # preferred minimum; stereo-capable endpoints are captured as 2ch and downmixed
@@ -49,6 +59,19 @@ class ShazamService(QObject):
     GROUP_STAGGER_SECONDS = 3.0
     LANE_STAGGER_SECONDS = 0.0
     HISTORY_LIMIT = 50
+    # Measured using local monotonic result-receipt times, never DB completion
+    # or queue-drain time. No-match events do not renew this window.
+    SHAZAM_NO_MATCH_WINDOW_SECONDS = 15.0
+    SHAZAM_NO_MATCH_MAX_GAPS = 2
+    # Conservative extension: one known WebView audio-supply failure may be neutral,
+    # but the total number of bridged gaps remains bounded by SHAZAM_NO_MATCH_MAX_GAPS.
+    SHAZAM_TRANSPORT_ERROR_MAX_GAPS = 1
+    SHAZAM_AUDIO_REQUEST_ERROR_MARKER = "the shazam button did not request the supplied audio"
+    # A single audio-supply miss may be transient. Two consecutive misses on the same
+    # worker are treated as a lane-health problem: quarantine only that lane, replace its
+    # WebView2 helper, and prewarm the replacement while the other three lanes keep running.
+    LANE_RECYCLE_AUDIO_ERROR_THRESHOLD = 2
+    LANE_RECYCLE_RETRY_DELAYS_SECONDS = (0.0, 1.0, 2.0, 5.0)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,13 +96,18 @@ class ShazamService(QObject):
         self._web_recognizers = [
             WebViewRecognizer(f"lane-{index + 1}") for index in range(self.PARALLEL_RECOGNITION_LANES)
         ]
-        # Metadata localization is deferred until one lane has produced a usable
-        # recognition result. The lock protects the shared resolver cache when staggered
-        # lanes finish close together.
+        # Legacy ID-less results retain their original resolver path. ID-bearing
+        # observations use bounded per-ID prefetch, independent of confirmation.
         self._metadata_resolver = ITunesMetadataResolver()
         self._metadata_lock = threading.Lock()
+        self._metadata_prefetch = MetadataPrefetcher()
+        self._pending_identity_confirmation = None
+        self._newest_temporal_observation = None
         self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
         self._lane_ready = [threading.Event() for _ in range(self.PARALLEL_RECOGNITION_LANES)]
+        self._lane_audio_request_failure_streak = [0] * self.PARALLEL_RECOGNITION_LANES
+        self._lane_recycling = [False] * self.PARALLEL_RECOGNITION_LANES
+        self._lane_recycle_count = [0] * self.PARALLEL_RECOGNITION_LANES
         self._group_busy = [False] * self.RECOGNITION_GROUPS
         # _next_group_index is the round-robin search start for the shared worker pool.
         # _next_group_slot_at is the earliest time at which another recognition may start.
@@ -103,6 +131,7 @@ class ShazamService(QObject):
         self._recognize_timer.timeout.connect(self._recognize_tick)
         self._recognition_finished.connect(self._handle_recognition_finished)
         self._metadata_finished.connect(self._handle_metadata_finished)
+        self._prefetch_finished.connect(self._handle_prefetch_finished)
 
         self._history_path = self._get_history_path()
         self._ensure_history_file()
@@ -267,6 +296,9 @@ class ShazamService(QObject):
             self._cancel_current = threading.Event()
             self._recognition_busy = False
             self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
+            self._lane_audio_request_failure_streak = [0] * self.PARALLEL_RECOGNITION_LANES
+            self._lane_recycling = [False] * self.PARALLEL_RECOGNITION_LANES
+            self._lane_recycle_count = [0] * self.PARALLEL_RECOGNITION_LANES
             self._group_busy = [False] * self.RECOGNITION_GROUPS
             self._next_group_index = 0
             self._next_group_slot_at = 0.0
@@ -280,6 +312,9 @@ class ShazamService(QObject):
             self._next_temporal_sequence = 0
             self._last_temporal_observation = None
             self._metadata_raw_results.clear()
+            self._pending_identity_confirmation = None
+            self._newest_temporal_observation = None
+            self._metadata_prefetch.discard_cancelled()
             for ready in self._lane_ready:
                 ready.clear()
             self._stream = sd.InputStream(
@@ -316,7 +351,13 @@ class ShazamService(QObject):
             print(
                 f"ShazamService: Started (device={device}, name={device_name!r}, hostapi={hostapi_name!r}, "
                 f"capture={capture_rate}Hz/{capture_channels}ch/int16->mono, input=live-stream-agc, "
-                f"laneInterval={self.GROUP_STAGGER_SECONDS:.1f}s)"
+                f"laneInterval={self.GROUP_STAGGER_SECONDS:.1f}s, metadata=identity-prefetch-v1, "
+                f"confirmation=shazam-neutral-gap-v2 window={self.SHAZAM_NO_MATCH_WINDOW_SECONDS:.1f}s "
+                f"maxNeutral={self.SHAZAM_NO_MATCH_MAX_GAPS} "
+                f"maxTransportError={self.SHAZAM_TRANSPORT_ERROR_MAX_GAPS}, "
+                f"publication=confirmed-neutral-v1, "
+                f"laneRecycle=audio-failure-v1 "
+                f"threshold={self.LANE_RECYCLE_AUDIO_ERROR_THRESHOLD})"
             )
             return True
         except Exception as e:
@@ -344,6 +385,8 @@ class ShazamService(QObject):
         self._close_stream()
         self._recognition_busy = False
         self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
+        self._lane_audio_request_failure_streak = [0] * self.PARALLEL_RECOGNITION_LANES
+        self._lane_recycling = [False] * self.PARALLEL_RECOGNITION_LANES
         self._group_busy = [False] * self.RECOGNITION_GROUPS
         self._slot_wait_started_at = None
         self._slot_wait_logged = False
@@ -352,6 +395,9 @@ class ShazamService(QObject):
         self._temporal_results.clear()
         self._last_temporal_observation = None
         self._metadata_raw_results.clear()
+        self._pending_identity_confirmation = None
+        self._newest_temporal_observation = None
+        self._metadata_prefetch.discard_cancelled()
         for ready in self._lane_ready:
             ready.clear()
         self.status_changed.emit("Shazam: stopped")
@@ -367,6 +413,7 @@ class ShazamService(QObject):
     def shutdown(self):
         self._shutting_down = True
         self.stop()
+        self._metadata_prefetch.close()
         # Drop queued (not yet started) recordings and wake both idle workers.
         for work_queue in self._work_queues:
             try:
@@ -396,6 +443,104 @@ class ShazamService(QObject):
             )
             self._worker_threads[lane_index] = thread
             thread.start()
+
+    @classmethod
+    def _is_lane_audio_request_failure(cls, error_text):
+        return cls.SHAZAM_AUDIO_REQUEST_ERROR_MARKER in str(error_text or "").casefold()
+
+    def _record_lane_health(self, lane_index, error_text):
+        """Update one lane's failure streak and return True when it must be rebuilt.
+
+        Only the known WebView audio-supply failure participates in the streak. A usable
+        result, no-match, or a different error breaks the streak. This keeps the repair
+        policy separate from temporal track confirmation: rebuilding a helper never turns
+        an unrelated recognition error into a neutral gap.
+        """
+        if not 0 <= lane_index < self.PARALLEL_RECOGNITION_LANES:
+            return False
+        if self._is_lane_audio_request_failure(error_text):
+            streak = self._lane_audio_request_failure_streak[lane_index] + 1
+            self._lane_audio_request_failure_streak[lane_index] = streak
+            if streak >= self.LANE_RECYCLE_AUDIO_ERROR_THRESHOLD:
+                # Quarantine before the Qt callback releases _lane_busy. The scheduler
+                # then sees ready=False and cannot hand new work to this lane mid-rebuild.
+                self._lane_ready[lane_index].clear()
+                self._lane_recycling[lane_index] = True
+                print(
+                    f"ShazamService: Recycling WebView2 lane {lane_index + 1} after "
+                    f"{streak} consecutive audio-supply failures"
+                )
+                return True
+            return False
+
+        self._lane_audio_request_failure_streak[lane_index] = 0
+        return False
+
+    def _recycle_lane_recognizer(
+        self, lane_index, recognizer, generation, language, cancelled
+    ):
+        """Replace and prewarm one bad WebView2 helper without stopping other lanes.
+
+        The worker owning this lane calls the method after it has emitted the failed
+        recognition result. While this method retries, _lane_ready remains clear, so the
+        shared scheduler simply uses the other ready lanes. Stop/reload cancels the loop.
+        """
+        from app.services.shazam_webview_client import WebViewRecognizer, RecognitionCancelled
+
+        started = time.monotonic()
+        try:
+            recognizer.close()
+        except Exception:
+            pass
+
+        attempt = 0
+        current = recognizer
+        while not self._shutting_down:
+            if cancelled.is_set() or generation != self._generation or not self._active:
+                break
+
+            current = WebViewRecognizer(f"lane-{lane_index + 1}")
+            # Publish the replacement immediately so stop() can close it even if a reload
+            # races with prewarm. The lane is still quarantined until ready is set below.
+            self._web_recognizers[lane_index] = current
+            attempt += 1
+            try:
+                current.prewarm(language, cancelled)
+                if cancelled.is_set() or generation != self._generation or not self._active:
+                    current.close()
+                    break
+                self._lane_audio_request_failure_streak[lane_index] = 0
+                self._lane_recycling[lane_index] = False
+                self._lane_recycle_count[lane_index] += 1
+                self._lane_ready[lane_index].set()
+                elapsed = max(0.0, time.monotonic() - started)
+                print(
+                    f"ShazamService: WebView2 lane {lane_index + 1} recycle ready "
+                    f"attempt={attempt} elapsed={elapsed:.2f}s "
+                    f"count={self._lane_recycle_count[lane_index]}"
+                )
+                return current
+            except RecognitionCancelled:
+                current.close()
+                break
+            except Exception as exc:
+                current.close()
+                if cancelled.is_set() or generation != self._generation or not self._active:
+                    break
+                delays = self.LANE_RECYCLE_RETRY_DELAYS_SECONDS
+                delay = delays[min(attempt - 1, len(delays) - 1)] if delays else 1.0
+                print(
+                    f"ShazamService: WebView2 lane {lane_index + 1} recycle prewarm failed "
+                    f"attempt={attempt}: {exc}; retryIn={delay:.1f}s"
+                )
+                if delay > 0 and cancelled.wait(delay):
+                    break
+
+        # stop()/reload_settings() resets these arrays for the next generation. Keep a
+        # cancelled lane non-ready in the current generation; it must not accept work.
+        if generation == self._generation:
+            self._lane_recycling[lane_index] = False
+        return current
 
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
@@ -661,6 +806,7 @@ class ShazamService(QObject):
                     continue
                 title, artist, error_text = "", "", ""
                 raw_result = None
+                recycle_lane = False
                 try:
                     if lane_start_delay > 0 and cancelled.wait(lane_start_delay):
                         continue
@@ -674,6 +820,9 @@ class ShazamService(QObject):
                     # out of the lane worker releases this WebView immediately for the
                     # shared pool; localization happens after recognition returns.
                     raw_result = dict(result or {})
+                    # Local-only timestamp: overwrite any remote field of this name.
+                    # A delayed Qt callback must not make an old recognition fresh.
+                    raw_result["_received_monotonic"] = time.monotonic()
                     title = str(raw_result.get("title") or "").strip()
                     artist = str(raw_result.get("artist") or "").strip()
                     self._raw_lane_results[(generation, item_lane, request_sequence)] = raw_result
@@ -685,10 +834,12 @@ class ShazamService(QObject):
                         f"appleTrackId={raw_result.get('appleTrackId', '')} "
                         f"title={title!r} artist={artist!r}"
                     )
+                    self._record_lane_health(lane_index, "")
                 except RecognitionCancelled:
                     continue
                 except Exception as exc:
                     error_text = str(exc)
+                    recycle_lane = self._record_lane_health(lane_index, error_text)
                 if not cancelled.is_set() and not self._shutting_down:
                     try:
                         self._recognition_finished.emit(
@@ -697,6 +848,10 @@ class ShazamService(QObject):
                     except RuntimeError:
                         # The QObject may have been destroyed during application shutdown.
                         break
+                if recycle_lane and not cancelled.is_set() and not self._shutting_down:
+                    recognizer = self._recycle_lane_recognizer(
+                        lane_index, recognizer, generation, language, cancelled
+                    )
         finally:
             recognizer.close()
 
@@ -794,51 +949,267 @@ class ShazamService(QObject):
 
     @staticmethod
     def _temporal_observations_match(previous, current):
-        if not previous or not current:
+        if (not previous or not current or previous.get("kind") or current.get("kind")):
             return False
-        # Keep the existing title-prefix same-track rule unchanged. Two independent,
-        # time-separated observations are the only confirmation guard used here.
+        previous_id, current_id = previous.get("identity"), current.get("identity")
+        if previous_id is not None or current_id is not None:
+            # No cross-provider numeric-ID equality, and no name-based fallback
+            # around two different known IDs. An ID-less result cannot certify an ID.
+            return previous_id is not None and previous_id == current_id
         return is_same_track(previous["track"], current["track"])
 
+    @staticmethod
+    def _is_completed_no_match(observation):
+        return isinstance(observation, dict) and observation.get("kind") == "no-match"
+
+    @staticmethod
+    def _is_transport_error_gap(observation):
+        return isinstance(observation, dict) and observation.get("kind") == "transport-error"
+
+    @classmethod
+    def _is_neutral_gap(cls, observation):
+        return cls._is_completed_no_match(observation) or cls._is_transport_error_gap(observation)
+
+    @staticmethod
+    def _shazam_gap_identity(raw_result, identity):
+        """Keep Shazam evidence, even when metadata uses an explicit Apple ID.
+
+        Route namespaces stay separate. No alias between /song, /track and an
+        untyped ID is inferred. track_identity() must have checked conflicts first.
+        """
+        if identity is not None and identity[0] in (
+                "shazam-song", "shazam-track", "shazam-untyped"):
+            return identity
+        if isinstance(raw_result, dict):
+            value = str(raw_result.get("shazamTrackId") or "").strip()
+            if re.fullmatch(r"[0-9]{6,20}", value):
+                return ("shazam-untyped", value)
+        return None
+
+    @staticmethod
+    def _received_time(raw_result, now):
+        """Worker receipt time when present; direct/local calls use their arrival time."""
+        if not isinstance(raw_result, dict) or "_received_monotonic" not in raw_result:
+            return now
+        value = raw_result["_received_monotonic"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        value = float(value)
+        return value if math.isfinite(value) and 0 <= value <= now else None
+
+    def _gap_candidate_fresh(self, observation, now=None):
+        if not observation or not observation.get("shazam_identity"):
+            return False
+        received = observation.get("received_at")
+        if received is None:
+            return False
+        age = (time.monotonic() if now is None else now) - received
+        return 0 <= age <= self.SHAZAM_NO_MATCH_WINDOW_SECONDS
+
+    def _gap_pair_matches(self, previous, current, gap_observations=None):
+        """Match two Shazam observations across a bounded set of neutral gaps.
+
+        Normal in-order draining records gap counters on the first observation. Look-ahead
+        bypass passes the actual intervening observations explicitly. In both cases the
+        total gap budget is two and the audio-transport subtype may occur at most once.
+        """
+        if not self._temporal_observations_match(previous, current):
+            return False
+        if (not previous.get("shazam_identity") or
+                previous["shazam_identity"] != current.get("shazam_identity")):
+            return False
+        gaps = current["sequence"] - previous["sequence"] - 1
+        if not 1 <= gaps <= self.SHAZAM_NO_MATCH_MAX_GAPS:
+            return False
+
+        if gap_observations is None:
+            if previous.get("_neutral_gap_total", 0) != gaps:
+                return False
+            transport_errors = previous.get("_neutral_transport_errors", 0)
+            no_matches = previous.get("_neutral_no_matches", 0)
+        else:
+            gap_observations = list(gap_observations)
+            if len(gap_observations) != gaps or not all(
+                    self._is_neutral_gap(item) for item in gap_observations):
+                return False
+            transport_errors = sum(self._is_transport_error_gap(item) for item in gap_observations)
+            no_matches = sum(self._is_completed_no_match(item) for item in gap_observations)
+
+        if transport_errors > self.SHAZAM_TRANSPORT_ERROR_MAX_GAPS:
+            return False
+        if no_matches > self.SHAZAM_NO_MATCH_MAX_GAPS:
+            return False
+        if transport_errors + no_matches != gaps:
+            return False
+
+        now = time.monotonic()
+        # Check BOTH receipts against now: reordering/backlog cannot refresh them.
+        return (self._gap_candidate_fresh(previous, now) and
+                self._gap_candidate_fresh(current, now))
+
+    @staticmethod
+    def _plain_no_match_result(result, raw_result):
+        """Only a completed empty recognition is soft; all failures are barriers."""
+        title, artist, error = result
+        if title or artist or error:
+            return False
+        if raw_result is None:
+            return True
+        if not isinstance(raw_result, dict):
+            return False
+        source = str(raw_result.get("source") or "").casefold()
+        return (source in ("", "no-match") and not any(
+            raw_result.get(field) for field in (
+                "title", "artist", "shazamTrackId", "appleTrackId", "error")))
+
+    @classmethod
+    def _neutral_audio_request_error(cls, result, raw_result):
+        """Recognize only the known WebView audio-supply failure as a neutral gap.
+
+        Do not hide track evidence behind an error: if the same callback carries a title,
+        artist or track ID it remains a hard barrier and is handled by the normal safety path.
+        """
+        title, artist, error = result
+        normalized = str(error or "").casefold()
+        if (title or artist or
+                cls.SHAZAM_AUDIO_REQUEST_ERROR_MARKER not in normalized):
+            return False
+        if raw_result is None:
+            return True
+        if not isinstance(raw_result, dict):
+            return False
+        return not any(raw_result.get(field) for field in (
+            "title", "artist", "shazamTrackId", "appleTrackId", "url"))
+
+    def _metadata_key(self, identity):
+        language = str(self.config.get("shazam_language", "ja-JP") or "ja-JP")
+        country = str(self.config.get("shazam_endpoint_country", "JP") or "JP")
+        return (language.casefold(), country.upper(), *identity)
+
+    def _pending_publication_safe(self, pending, extra=None):
+        """Check *observed* later outcomes before publishing a confirmed ID.
+
+        A confirmed pair already supplied both independent votes. A later, completed
+        no-match or the narrowly recognized audio-supply error does not retract those
+        votes. Preserve the existing conservative limits (two neutral outcomes, at
+        most one transport error, and 15 seconds from the confirmed result).
+
+        A different song, an invalid result, or an unrelated failure remains a hard
+        barrier. Include buffered out-of-order observations as well as neutrals that
+        were already consumed by the in-order drain while metadata was in flight.
+        """
+        newer = dict(pending.get("_publication_neutrals", {}))
+        newer.update((seq, observation)
+                     for seq, observation in self._temporal_results.items()
+                     if seq > pending["sequence"])
+        newest = self._newest_temporal_observation
+        if newest is not None and newest[0] > pending["sequence"]:
+            newer[newest[0]] = newest[1]
+        if extra is not None and extra[0] > pending["sequence"]:
+            newer[extra[0]] = extra[1]
+
+        neutral_count = 0
+        transport_count = 0
+        for sequence, observation in sorted(newer.items()):
+            if self._temporal_observations_match(pending, observation):
+                continue
+            if not self._is_neutral_gap(observation):
+                return False, f"different-or-invalid-result seq={sequence}"
+            neutral_count += 1
+            transport_count += int(self._is_transport_error_gap(observation))
+            if (neutral_count > self.SHAZAM_NO_MATCH_MAX_GAPS or
+                    transport_count > self.SHAZAM_TRANSPORT_ERROR_MAX_GAPS):
+                return False, "neutral-gap-limit"
+
+        if neutral_count and not self._gap_candidate_fresh(pending):
+            return False, "neutral-gap-expired"
+        return True, ""
+
     def _stage_temporal_result(
-        self, group_index, request_sequence, title="", artist="", raw_result=None
+        self, group_index, request_sequence, title="", artist="", raw_result=None,
+        *, identity_pending=False, no_match=False, transport_error=False,
     ):
-        if request_sequence < self._next_temporal_sequence:
+        if (request_sequence < self._next_temporal_sequence or
+                request_sequence in self._temporal_results):
             return
         title = str(title or "").strip()
         artist = clean_artist(artist)
         observation = None
-        if title:
+        now = time.monotonic()
+        received_at = self._received_time(raw_result, now)
+        try:
+            identity = track_identity(raw_result)
+        except IdentityConflict:
+            identity, title, no_match, transport_error = None, "", False, False
+        if title or (identity_pending and identity is not None):
             observation = {
                 "group_index": group_index,
                 "sequence": request_sequence,
                 "track": (title, artist),
+                "identity": identity,
+                "metadata_key": self._metadata_key(identity) if identity else None,
+                "shazam_identity": self._shazam_gap_identity(raw_result, identity),
+                "received_at": received_at,
             }
+        elif no_match:
+            observation = {"kind": "no-match", "sequence": request_sequence,
+                           "received_at": received_at}
+        elif transport_error:
+            observation = {"kind": "transport-error", "sequence": request_sequence,
+                           "received_at": received_at}
+        newest = self._newest_temporal_observation
+        if newest is None or request_sequence > newest[0]:
+            self._newest_temporal_observation = (request_sequence, observation)
+        pending = self._pending_identity_confirmation
+        if pending and request_sequence > pending["sequence"]:
+            # Do not confuse a later *neutral* outcome with a different song.
+            # Remember it even after the temporal queue drains so that a late
+            # metadata callback still observes the bounded safety budget.
+            if self._is_neutral_gap(observation):
+                pending.setdefault("_publication_neutrals", {})[request_sequence] = observation
+            safe, reason = self._pending_publication_safe(
+                pending, (request_sequence, observation)
+            )
+            if not safe:
+                print(f"ShazamService: Metadata candidate superseded seq={pending['sequence']} "
+                      f"by seq={request_sequence} reason={reason}")
+                self._pending_identity_confirmation = None
         self._temporal_results[request_sequence] = observation
         self._drain_temporal_results()
 
     def _find_temporal_bypass_pair(self):
-        """Return the earliest newer matching pair that can safely bypass a stuck head.
+        """Skip a stuck older head only for an independently confirmed newer pair.
 
-        Normal processing remains request-sequence ordered. The only exception is when the
-        current head has not finished yet but two *later, consecutive* request sequences have
-        both finished with the same track. One result alone can never bypass the head, so the
-        existing two-observation false-positive guard is preserved.
+        A non-consecutive Shazam pair is allowed only when EVERY intervening request
+        has completed with an allowed neutral gap: a soft no-match, or at most one
+        known WebView audio-supply failure. Missing/pending results, other errors and
+        rejected metadata never count as neutral.
         """
         head = self._next_temporal_sequence
         if head in self._temporal_results:
             return None
-
         for sequence in sorted(key for key in self._temporal_results if key > head):
-            next_sequence = sequence + 1
-            if next_sequence not in self._temporal_results:
+            first = self._temporal_results[sequence]
+            if not first or self._is_neutral_gap(first):
                 continue
-            first = self._temporal_results.get(sequence)
-            second = self._temporal_results.get(next_sequence)
-            if not first or not second:
-                continue
-            if self._temporal_observations_match(first, second):
-                return sequence, next_sequence
+            neutral = []
+            for distance in range(1, self.SHAZAM_NO_MATCH_MAX_GAPS + 2):
+                next_sequence = sequence + distance
+                if next_sequence not in self._temporal_results:
+                    break  # Do not guess the outcome of a running request.
+                second = self._temporal_results[next_sequence]
+                if self._is_neutral_gap(second):
+                    neutral.append(second)
+                    if (sum(self._is_transport_error_gap(item) for item in neutral) >
+                            self.SHAZAM_TRANSPORT_ERROR_MAX_GAPS):
+                        break
+                    continue
+                if second and (
+                    distance == 1 and self._temporal_observations_match(first, second)
+                    or distance > 1 and self._gap_pair_matches(first, second, neutral)
+                ):
+                    return sequence, next_sequence
+                break  # A different song or a hard failure is a barrier.
         return None
 
     def _bypass_stuck_temporal_head(self):
@@ -865,37 +1236,144 @@ class ShazamService(QObject):
         # Do not compare the first look-ahead result with an observation from before the gap.
         # The pair itself supplies the required two independent observations.
         self._last_temporal_observation = None
+        self._pending_identity_confirmation = None
         return True
 
     def _process_temporal_observation(self, sequence, observation):
         if observation is None:
             self._last_temporal_observation = None
+            self._pending_identity_confirmation = None
+            return
+        if self._is_neutral_gap(observation):
+            previous = self._last_temporal_observation
+            pending = self._pending_identity_confirmation
+            if pending and sequence > pending["sequence"]:
+                pending.setdefault("_publication_neutrals", {})[sequence] = observation
+            gaps = sequence - previous["sequence"] if previous else 0
+            no_matches = (previous.get("_neutral_no_matches", 0) if previous else 0)
+            transport_errors = (previous.get("_neutral_transport_errors", 0) if previous else 0)
+            no_matches += int(self._is_completed_no_match(observation))
+            transport_errors += int(self._is_transport_error_gap(observation))
+            if (previous and 1 <= gaps <= self.SHAZAM_NO_MATCH_MAX_GAPS and
+                    transport_errors <= self.SHAZAM_TRANSPORT_ERROR_MAX_GAPS and
+                    no_matches <= self.SHAZAM_NO_MATCH_MAX_GAPS and
+                    no_matches + transport_errors == gaps and
+                    self._gap_candidate_fresh(previous)):
+                previous["_neutral_gap_total"] = gaps
+                previous["_neutral_no_matches"] = no_matches
+                previous["_neutral_transport_errors"] = transport_errors
+                if pending:
+                    safe, reason = self._pending_publication_safe(pending)
+                    if previous is not pending or not safe:
+                        print(f"ShazamService: Metadata candidate superseded seq={pending['sequence']} "
+                              f"by neutral seq={sequence} reason={reason or 'changed-candidate'}")
+                        self._pending_identity_confirmation = None
+                age = time.monotonic() - previous["received_at"]
+                print(f"ShazamService: Candidate held across neutral gap seq={sequence} "
+                      f"kind={observation['kind']} prevSeq={previous['sequence']} "
+                      f"identity={previous['shazam_identity']} gapCount={gaps} "
+                      f"noMatches={no_matches} transportErrors={transport_errors} age={age:.3f}s")
+            else:
+                if previous:
+                    print(f"ShazamService: Candidate gap reset seq={sequence} "
+                          f"kind={observation['kind']} prevSeq={previous['sequence']} "
+                          f"gapCount={gaps} noMatches={no_matches} "
+                          f"transportErrors={transport_errors} "
+                          "reason=expired-or-limit-or-no-shazam-id")
+                self._last_temporal_observation = None
+                self._pending_identity_confirmation = None
             return
 
         previous = self._last_temporal_observation
         self._last_temporal_observation = observation
         title, artist = observation["track"]
         if previous is None:
+            self._pending_identity_confirmation = None
             print(
                 f"ShazamService: Candidate pending seq={sequence} "
                 f"title={title!r} artist={artist!r}"
             )
             return
 
-        if not self._temporal_observations_match(previous, observation):
+        adjacent_match = (sequence == previous["sequence"] + 1 and
+                          self._temporal_observations_match(previous, observation))
+        gap_match = self._gap_pair_matches(previous, observation)
+        if not adjacent_match and not gap_match:
+            self._pending_identity_confirmation = None
             print(
                 f"ShazamService: Candidate changed/rejected prevSeq={previous['sequence']} "
                 f"seq={sequence} title={title!r}"
             )
             return
 
-        print(
-            f"ShazamService: Temporal confirmation prevSeq={previous['sequence']} "
-            f"seq={sequence} {artist} - {title}"
-        )
+        if gap_match:
+            observation["gap_confirmed"] = True
+            elapsed = abs(observation["received_at"] - previous["received_at"])
+            print(f"ShazamService: Temporal neutral-gap confirmation prevSeq={previous['sequence']} "
+                  f"seq={sequence} identity={observation['shazam_identity']} "
+                  f"gapCount={sequence - previous['sequence'] - 1} "
+                  f"noMatches={previous.get('_neutral_no_matches', 0)} "
+                  f"transportErrors={previous.get('_neutral_transport_errors', 0)} "
+                  f"elapsed={elapsed:.3f}s window={self.SHAZAM_NO_MATCH_WINDOW_SECONDS:.1f}s "
+                  f"{artist} - {title}")
+        else:
+            print(
+                f"ShazamService: Temporal confirmation prevSeq={previous['sequence']} "
+                f"seq={sequence} {artist} - {title}"
+            )
+        if observation.get("identity") is not None:
+            # A buffered future result may already have arrived before this pair
+            # completed. _try_publish_identity_confirmation validates those too.
+            observation["_publication_neutrals"] = {}
+            self._pending_identity_confirmation = observation
+            print(f"ShazamService: Identity confirmed seq={sequence} "
+                  f"identity={observation['identity']}; awaiting shared metadata only")
+            self._try_publish_identity_confirmation()
+        else:
+            self._pending_identity_confirmation = None
+            self._publish_confirmed_track(
+                observation["group_index"], sequence, title, artist
+            )
+
+    def _try_publish_identity_confirmation(self):
+        pending = self._pending_identity_confirmation
+        if not pending or not self._active:
+            return
+        if pending.get("gap_confirmed") and not self._gap_candidate_fresh(pending):
+            print(f"ShazamService: Gap-confirmed metadata expired seq={pending['sequence']}")
+            self._pending_identity_confirmation = None
+            return
+        # Out-of-order callbacks may reveal a genuine different song before the
+        # queue drains. Keep that barrier, but do not treat a bounded neutral
+        # outcome as contradicting two already confirmed Shazam ID observations.
+        safe, reason = self._pending_publication_safe(pending)
+        if not safe:
+            print(f"ShazamService: Metadata publication blocked seq={pending['sequence']} "
+                  f"reason={reason}")
+            self._pending_identity_confirmation = None
+            return
+        if not self._temporal_observations_match(pending, self._last_temporal_observation):
+            self._pending_identity_confirmation = None
+            return
+        metadata = self._metadata_prefetch.get(pending["metadata_key"])
+        if metadata is None:
+            return
+        self._pending_identity_confirmation = None
+        print(f"ShazamService: Publishing prefetched metadata seq={pending['sequence']} "
+              f"identity={pending['identity']}")
         self._publish_confirmed_track(
-            observation["group_index"], sequence, title, artist
+            pending["group_index"], pending["sequence"], metadata[0], metadata[1]
         )
+
+    def _handle_prefetch_finished(self, generation, key, metadata, error_text):
+        # This slot is invoked by a Qt signal; workers never touch history or UI.
+        if generation != self._generation or not self._active or self._shutting_down:
+            return
+        print(f"ShazamService: Metadata prefetch completed identity={key[2:]} "
+              f"usable={metadata is not None} error={error_text!r}")
+        pending = self._pending_identity_confirmation
+        if pending and pending["metadata_key"] == key:
+            self._try_publish_identity_confirmation()
 
     def _drain_temporal_results(self):
         while True:
@@ -907,8 +1385,8 @@ class ShazamService(QObject):
                 self._process_temporal_observation(sequence, observation)
                 made_progress = True
 
-            # Head-of-line blocking is relaxed only when two later consecutive requests
-            # independently agree. This keeps single false recognitions from being promoted.
+            # A newer pair may bypass an older stuck head, but any gap INSIDE
+            # that pair must consist entirely of completed allowed neutral results.
             if self._bypass_stuck_temporal_head():
                 made_progress = True
                 continue
@@ -921,6 +1399,9 @@ class ShazamService(QObject):
     def _resolve_or_publish_confirmed_track(
         self, group_index, request_sequence, raw_result, fallback_title, fallback_artist
     ):
+        if (request_sequence < self._next_temporal_sequence or
+                request_sequence in self._temporal_results):
+            return  # Old/duplicate callbacks must not fetch or revise metadata.
         fallback_title = str(fallback_title or "").strip()
         source = str(raw_result.get("source") or "") if isinstance(raw_result, dict) else ""
         fallback_artist = clean_artist(fallback_artist, source)
@@ -970,20 +1451,46 @@ class ShazamService(QObject):
             "jsonld", "recognition-response", "recognition-network",
             "track-primary-header",
         }
-        if (
-            raw_title and raw_artist
-            and not is_generic_ui_title(raw_title)
-            and source in trusted_complete_sources
-        ):
-            title = fallback_title or raw_title
-            artist = fallback_artist or raw_artist
-            print(
-                f"ShazamService: Using complete live Shazam metadata without Apple lookup "
-                f"group={group_index + 1} seq={request_sequence} "
-                f"source={source} title={title!r} artist={artist!r}"
-            )
+        try:
+            identity = track_identity(raw_result)
+        except IdentityConflict as exc:
+            print(f"ShazamService: Rejected conflicting identity seq={request_sequence}: {exc}")
+            self._stage_temporal_result(group_index, request_sequence)
+            return
+        live_complete = (
+            complete_metadata(raw_title, raw_artist)
+            if source in trusted_complete_sources else None
+        )
+        if identity is not None:
+            key = self._metadata_key(identity)
+            if live_complete:
+                self._metadata_prefetch.seed(key, *live_complete)
+                print(f"ShazamService: Using complete live Shazam metadata without Apple lookup "
+                      f"group={group_index + 1} seq={request_sequence} source={source} "
+                      f"title={raw_title!r} artist={raw_artist!r}")
+            else:
+                state = self._metadata_prefetch.request(
+                    self._generation, key, raw_result,
+                    str(self.config.get("shazam_language", "ja-JP") or "ja-JP"),
+                    str(self.config.get("shazam_endpoint_country", "JP") or "JP"),
+                    self._cancel_current, self._prefetch_finished.emit,
+                )
+                print(f"ShazamService: Metadata prefetch {state} seq={request_sequence} "
+                      f"identity={identity}")
+            metadata = self._metadata_prefetch.get(key) or ("", "")
+            # This stages the identity immediately, even while its HTTP is pending.
+            # Only a matching second observation plus usable metadata may publish.
             self._stage_temporal_result(
-                group_index, request_sequence, title, artist, raw_result
+                group_index, request_sequence, metadata[0], metadata[1], raw_result,
+                identity_pending=True,
+            )
+            return
+        if live_complete:
+            print(f"ShazamService: Using complete live Shazam metadata without Apple lookup "
+                  f"group={group_index + 1} seq={request_sequence} source={source} "
+                  f"title={raw_title!r} artist={raw_artist!r}")
+            self._stage_temporal_result(
+                group_index, request_sequence, raw_title, raw_artist, raw_result
             )
             return
 
@@ -1057,8 +1564,8 @@ class ShazamService(QObject):
         if len(raw_results) < len(results):
             raw_results.extend([None] * (len(results) - len(raw_results)))
 
-        # New architecture: one independently timed recognition per slot. Accuracy is
-        # obtained from two consecutive slots, not by replaying one snapshot to a peer.
+        # Each slot listens independently. Confirmation still requires two real
+        # recognitions; only bounded, completed neutral gaps may be bridged.
         result = results[0] if results else ("", "", "")
         raw_result = raw_results[0] if raw_results else None
         if not self._lane_result_is_usable(result, raw_result):
@@ -1070,7 +1577,11 @@ class ShazamService(QObject):
                 )
             else:
                 print(f"ShazamService: No match seq={request_sequence}")
-            self._stage_temporal_result(group_index, request_sequence, raw_result=raw_result)
+            self._stage_temporal_result(
+                group_index, request_sequence, raw_result=raw_result,
+                no_match=self._plain_no_match_result(result, raw_result),
+                transport_error=self._neutral_audio_request_error(result, raw_result),
+            )
             return
 
         title, artist, _error = result

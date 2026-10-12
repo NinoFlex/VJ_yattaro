@@ -1,0 +1,17 @@
+{
+  "source_file": "vj_yattaro.log(2).1",
+  "scope": "Observed recognition event receipt order and metadata completion only; offline deterministic replay.",
+  "title": "超次元エンカウント",
+  "artist": "にじさんじ",
+  "shazam_track_id": "6818212029",
+  "expected_confirm_sequence": 286,
+  "actual_log_confirm_sequence": 289,
+  "events": [
+    {"type": "song", "sequence": 285, "time": "22:17:11.050", "elapsed_seconds": 0.0},
+    {"type": "metadata", "time": "22:17:11.709", "elapsed_seconds": 0.659},
+    {"type": "transport_error", "sequence": 288, "time": "22:17:12.205", "elapsed_seconds": 1.155},
+    {"type": "song", "sequence": 286, "time": "22:17:13.179", "elapsed_seconds": 2.129},
+    {"type": "song", "sequence": 287, "time": "22:17:16.026", "elapsed_seconds": 4.976},
+    {"type": "song", "sequence": 289, "time": "22:17:29.830", "elapsed_seconds": 18.780}
+  ]
+}

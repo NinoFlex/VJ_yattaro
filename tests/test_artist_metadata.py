@@ -128,7 +128,20 @@ class ServiceArtistTests(unittest.TestCase):
 
     def resolve(self, raw=None, artist=None, seq=0):
         raw = dict(self.raw if raw is None else raw)
-        with patch.object(service_module.threading, 'Thread', ImmediateThread):
+        def immediate_request(generation, key, value, language, country, cancelled, callback):
+            from app.services.shazam_metadata_prefetch import usable_metadata
+            try:
+                result = self.svc._metadata_resolver.resolve(value, language, country, cancelled)
+                metadata = usable_metadata(result[0] or value.get('title'),
+                                           clean_artist(result[1]) or value.get('artist'))
+            except Exception:
+                metadata = usable_metadata(value.get('title'), value.get('artist'))
+            if metadata:
+                with self.svc._metadata_prefetch._lock:
+                    self.svc._metadata_prefetch._put_locked(key, metadata)
+            return 'started'
+        with patch.object(self.svc._metadata_prefetch, 'request', side_effect=immediate_request), \
+             patch.object(service_module.threading, 'Thread', ImmediateThread):
             self.svc._resolve_or_publish_confirmed_track(
                 0, seq, raw, 'Orange', raw['artist'] if artist is None else artist)
 

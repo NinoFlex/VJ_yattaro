@@ -22,7 +22,12 @@ internal sealed class BridgeHost : Form
     // route-only candidate to be returned with an empty artist. Keep polling the exact
     // recognized route for a few seconds, but still return immediately once strong
     // metadata appears.
+    // The old four-second window remains the fallback for unverified/unsettled routes.
+    // On a live recognition, the current Shazam /song or /track URL is already an
+    // identity proof; Python prefetches title/artist separately from that exact ID.
+    // Allow a brief rendering grace for metadata before returning an ID-only result.
     private static readonly TimeSpan RouteEvidenceWindow = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan VerifiedRouteIdentityGrace = TimeSpan.FromMilliseconds(900);
 
     private readonly string _language;
     private readonly bool _debug;
@@ -31,6 +36,9 @@ internal sealed class BridgeHost : Form
     private readonly CancellationTokenSource _lifetime = new();
     private bool _ready;
     private bool _busy;
+    // All access stays on the WebView2 UI thread. A new recognition JOINs this
+    // task rather than starting a competing navigation or moving WebView2 to Task.Run.
+    private Task? _idleHomePreparation;
     private string? _cycle;
     private Candidate? _best;
     private long _candidateTime;
@@ -118,10 +126,10 @@ internal sealed class BridgeHost : Form
             await core.AddScriptToExecuteOnDocumentCreatedAsync(Script("audio_bridge.js"));
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
                 Script("metadata_fields.js") + "\n" + Script("result_observer.js"));
-            await NavigateHomeAsync(_lifetime.Token);
+            await PrepareHomeAsync(_lifetime.Token);
             _ready = true;
-            Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-live-pcm; extraction=primary-structure-v1");
-            Program.Send(new { type = "ready", protocol = 2, version = "1.4.3-structural-track" });
+            Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-live-pcm; extraction=primary-structure-v1; latency=idle-home-prefetch-v1");
+            Program.Send(new { type = "ready", protocol = 2, version = "1.5.0-idle-home-prefetch" });
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -265,6 +273,64 @@ internal sealed class BridgeHost : Form
             shazamTrackId = result?.ShazamTrackId ?? "",
             appleTrackId = result?.AppleTrackId ?? "", appleMusicUrl = result?.AppleMusicUrl ?? "",
             url = result?.Url ?? "", source = result?.Evidence ?? "no-match", error });
+        // Reply first. Preparation is not charged to the completed recognition,
+        // and does not start/arm another microphone request.
+        if (ownsCycle) StartIdleHomePreparation();
+    }
+
+    private void StartIdleHomePreparation()
+    {
+        if (_busy || !_ready || IsDisposed || _lifetime.IsCancellationRequested ||
+            _webView.CoreWebView2 is null ||
+            (_idleHomePreparation is not null && !_idleHomePreparation.IsCompleted)) return;
+        _idleHomePreparation = PrepareIdleHomeAsync();
+    }
+
+    private async Task PrepareIdleHomeAsync()
+    {
+        var watch = Stopwatch.StartNew();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(40));
+        Program.Log("Idle home preparation started");
+        try
+        {
+            // _cycle was cleared, and both JS bridges were stopped BEFORE the
+            // previous result was sent. Old routes/responses cannot become results.
+            await PrepareHomeAsync(deadline.Token);
+            Program.Log($"Idle home preparation ready elapsedMs={watch.ElapsedMilliseconds}");
+        }
+        catch (OperationCanceledException)
+        {
+            if (!_lifetime.IsCancellationRequested)
+                Program.Log("Idle home preparation timed out; next request will retry");
+        }
+        catch (Exception ex)
+        {
+            // Optional optimization only: recognition still validates/retries the
+            // normal preparation path. Never report this as an extra recognition.
+            Program.Log("Idle home preparation unavailable; next request will retry: " + ex.Message);
+        }
+    }
+
+    private async Task JoinIdleHomePreparationAsync(CancellationToken token)
+    {
+        var preparation = _idleHomePreparation;
+        if (preparation is null) return;
+        var watch = Stopwatch.StartNew();
+        bool wasReady = preparation.IsCompleted;
+        try
+        {
+            // Cancellation stops THIS request's wait, not the shared preparation.
+            // A subsequent request must still join it before touching the page.
+            await preparation.WaitAsync(token);
+            Program.Log($"Idle home preparation joined alreadyCompleted={wasReady} " +
+                $"waitMs={watch.ElapsedMilliseconds}");
+        }
+        finally
+        {
+            if (preparation.IsCompleted && ReferenceEquals(preparation, _idleHomePreparation))
+                _idleHomePreparation = null;
+        }
     }
 
     private async Task<Candidate?> RecognizeAsync(string id, int sampleRate, CancellationToken token)
@@ -273,7 +339,13 @@ internal sealed class BridgeHost : Form
         // Python remains the only physical microphone owner. The selected input is forwarded
         // continuously as live PCM; WebView2 never opens a native microphone itself.
         _cycle = null;
+        var preparationWatch = Stopwatch.StartNew();
+        await JoinIdleHomePreparationAsync(token);
+        token.ThrowIfCancellationRequested();
+        // Never reuse old button coordinates or assume a completed warm-up is
+        // still valid: recheck the exact home URL, JS bridges and live button.
         var button = await PrepareHomeAsync(token);
+        Program.Log($"Recognition page ready id={id} prepareWaitMs={preparationWatch.ElapsedMilliseconds}");
         var baselineTrackIds = await GetAppleTrackIdsAsync(token);
         _best = null;
         _audioError = null;
@@ -439,6 +511,30 @@ internal sealed class BridgeHost : Form
                 // During SPA/document navigation ExecuteScriptAsync can briefly fail.
                 Program.Log("Route evidence poll unavailable: " + ex.Message);
             }
+
+            // Fast ID-only path: this request has started receiving official-page audio
+            // AND WebView2 is now on the exact Shazam song/track route for this ID.
+            // Do not use an uncommitted NavigationStarting URL, an Apple ID, text from
+            // neighboring cards, a stale/changed candidate or a no-match response.
+            // A missing/changed route keeps the original four-second fallback.
+            var liveRouteBest = _best;
+            if (_audioStarted && !_definiteNoMatch &&
+                deadline.Elapsed >= VerifiedRouteIdentityGrace &&
+                TryParseShazamRoute(_webView.CoreWebView2.Source, out var liveRouteId) &&
+                string.Equals(liveRouteId, routeCandidate.ShazamTrackId, StringComparison.Ordinal) &&
+                // A /song ID and a /track ID have different identities even when
+                // the digits match. Do not treat a changed route kind as confirmed.
+                SameShazamRouteKind(_webView.CoreWebView2.Source, routeCandidate.Url) &&
+                liveRouteBest is not null &&
+                string.Equals(liveRouteBest.ShazamTrackId, liveRouteId, StringComparison.Ordinal))
+            {
+                var result = Better(best, liveRouteBest);
+                Program.Log($"Verified route ID-only early return id={liveRouteId} " +
+                    $"elapsedMs={deadline.ElapsedMilliseconds} source={result.Evidence} " +
+                    $"titlePresent={!string.IsNullOrWhiteSpace(result.Title)} " +
+                    $"artistPresent={!string.IsNullOrWhiteSpace(result.Artist)}");
+                return result;
+            }
             await Task.Delay(75, token);
         }
         return best;
@@ -458,8 +554,18 @@ internal sealed class BridgeHost : Form
         token.ThrowIfCancellationRequested();
         try
         {
-            var json = await _webView.CoreWebView2.ExecuteScriptAsync(Script("find_button.js"));
-            if (json == "null" || string.IsNullOrWhiteSpace(json)) return null;
+            if (!IsHomeUrl(_webView.CoreWebView2.Source)) return null;
+            var script = "(()=>{if(document.readyState==='loading'||!document.body||" +
+                "typeof window.__vjAudioBridge?.startLive!=='function'||" +
+                "typeof window.__vjAudioBridge?.stop!=='function'||" +
+                "typeof window.__vjResults?.arm!=='function'||" +
+                "typeof window.__vjResults?.stop!=='function'||" +
+                "typeof window.__vjTrackMetadata?.readPrimaryTrack!=='function')return null;return " +
+                Script("find_button.js") + ";})()";
+            var json = await _webView.CoreWebView2.ExecuteScriptAsync(script)
+                .WaitAsync(TimeSpan.FromSeconds(5), token);
+            if (!IsHomeUrl(_webView.CoreWebView2.Source) ||
+                json == "null" || string.IsNullOrWhiteSpace(json)) return null;
             using var doc = JsonDocument.Parse(json);
             var r = doc.RootElement;
             if (r.ValueKind == JsonValueKind.Object && r.TryGetProperty("x", out var x))
@@ -512,6 +618,13 @@ internal sealed class BridgeHost : Form
             if (!await done.Task.WaitAsync(TimeSpan.FromSeconds(25), token))
                 throw new InvalidOperationException("Shazam homepage failed to load");
         }
+        catch
+        {
+            // Do not leave a timed-out warm-up navigation running underneath the
+            // next recognition's retry. NavigationId above still filters late events.
+            if (!IsDisposed && !_lifetime.IsCancellationRequested) core.Stop();
+            throw;
+        }
         finally
         {
             core.NavigationStarting -= OnStarting;
@@ -526,14 +639,8 @@ internal sealed class BridgeHost : Form
         while (deadline.Elapsed < TimeSpan.FromSeconds(12))
         {
             token.ThrowIfCancellationRequested();
-            var json = await _webView.CoreWebView2.ExecuteScriptAsync(Script("find_button.js"));
-            if (json != "null" && !string.IsNullOrWhiteSpace(json))
-            {
-                using var doc = JsonDocument.Parse(json);
-                var r = doc.RootElement;
-                if (r.ValueKind == JsonValueKind.Object && r.TryGetProperty("x", out var x))
-                    return new Button(x.GetDouble(), r.GetProperty("y").GetDouble(), ReadString(r, "label"));
-            }
+            var button = await FindButtonOnceAsync(token);
+            if (button is not null) return button.Value;
             await Task.Delay(300, token);
         }
         // No automatic acceptance of site terms/cookies on the user's behalf.
@@ -592,6 +699,22 @@ internal sealed class BridgeHost : Form
         if (!m.Success) return false;
         id = m.Groups[1].Value;
         return true;
+    }
+
+    private static bool SameShazamRouteKind(string? currentUrl, string? candidateUrl)
+    {
+        static string Kind(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url) || !IsShazam(url)) return "";
+            var path = new Uri(url).AbsolutePath;
+            var match = Regex.Match(path,
+                @"\A/(?:[a-z]{2}(?:-[a-z]{2})?/)?(song|track)/\d{6,20}(?:/|$)",
+                RegexOptions.IgnoreCase);
+            return match.Success ? match.Groups[1].Value.ToLowerInvariant() : "";
+        }
+        var candidateKind = Kind(candidateUrl);
+        return candidateKind.Length > 0 &&
+            string.Equals(Kind(currentUrl), candidateKind, StringComparison.Ordinal);
     }
 
     private void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
