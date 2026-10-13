@@ -4,6 +4,10 @@ RekordboxまたはShazamの検出結果からYouTube動画を検索・再生す�
 このリポジトリにはソース、必要な画像、ビルド手順、回帰テストのみを収録しています。
 ビルド済みEXE/DLL、個人設定、認識履歴、ログは含みません。
 
+Shazam旧形式の曲ページからアーティスト名を取得する汎用処理は
+[PRIMROSE_CEUI_RECOVERY.md](docs/PRIMROSE_CEUI_RECOVERY.md)を参照してください。
+曲IDとアーティスト名の個別固定マッピングは使用しません。
+
 ## ビルドと起動
 
 Windows / Python 3.12（64-bit）/ Microsoft Edge WebView2 Runtimeを使用します。

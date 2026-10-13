@@ -19,16 +19,26 @@ class RouteIdentityFastReturnContractTests(unittest.TestCase):
             'private bool IsHomeUrl(', 1)[0]
         cls.fast_path = cls.capture.split('// Fast ID-only path:', 1)[1].split('await Task.Delay(75, token);', 1)[0]
 
-    def test_grace_is_900ms_while_original_fallback_stays_4s(self):
+    def test_song_grace_900ms_legacy_track_grace_3s_with_4s_fallback(self):
         self.assertIn('RouteEvidenceWindow = TimeSpan.FromSeconds(4)', self.source)
         self.assertIn('VerifiedRouteIdentityGrace = TimeSpan.FromMilliseconds(900)', self.source)
+        self.assertIn('VerifiedLegacyTrackIdentityGrace = TimeSpan.FromMilliseconds(3000)', self.source)
         self.assertIn('while (deadline.Elapsed < RouteEvidenceWindow)', self.capture)
 
     def test_fast_return_needs_this_requests_live_audio(self):
         self.assertIn('_audioStarted && !_definiteNoMatch', self.fast_path)
 
-    def test_fast_return_needs_full_grace(self):
-        self.assertIn('deadline.Elapsed >= VerifiedRouteIdentityGrace', self.fast_path)
+    def test_fast_return_needs_route_specific_full_grace(self):
+        self.assertIn('IsLegacyTrackRoute(routeCandidate.Url)', self.fast_path)
+        self.assertIn('VerifiedLegacyTrackIdentityGrace : VerifiedRouteIdentityGrace', self.fast_path)
+        self.assertIn('deadline.Elapsed >= identityGrace', self.fast_path)
+
+    def test_extra_legacy_delay_applies_to_id_only_not_complete_metadata(self):
+        self.assertIn('string.IsNullOrWhiteSpace(liveRouteBest?.Artist)', self.fast_path)
+        self.assertIn('string.IsNullOrWhiteSpace(liveRouteBest?.Title)', self.fast_path)
+        self.assertIn('(!string.IsNullOrWhiteSpace(candidate.Title)', self.capture)
+        self.assertLess(self.capture.index('if (!string.IsNullOrWhiteSpace(candidate.AppleTrackId)'),
+                        self.capture.index('var identityGrace'))
 
     def test_fast_return_reads_committed_live_url_not_navigation_event(self):
         self.assertIn('TryParseShazamRoute(_webView.CoreWebView2.Source, out var liveRouteId)', self.fast_path)

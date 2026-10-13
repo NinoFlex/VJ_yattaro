@@ -21,7 +21,7 @@ PythonのテストはQtと通信をモック化しています。実機の認識
 
 | 確認対象 | 結果 |
 |---|---|
-| Pythonの回帰テスト | 496件成功 |
+| Pythonの回帰テスト | 505件成功 |
 | Shazam向けJavaScriptモック試験 | 29件成功 |
 | YouTube PRELOAD復旧JavaScriptモック試験 | 5件成功 |
 | YouTubeプレイヤー競合JavaScriptモック試験 | 8件成功 |
@@ -49,6 +49,15 @@ ID-onlyで2回一致がメタデータより先行する経路、同じ曲の時
 二重ヘッダー、古い曲名、canonicalとog:urlの矛盾、UI宣伝の除外を確認します。
 曲の2回一致・検索・PRELOAD制御には変更していません。
 詳細: [SHAZAM_TRACK_ARTIST_RECOVERY.md](SHAZAM_TRACK_ARTIST_RECOVERY.md)
+
+### Shazam旧 `/track/` 形式・アーティスト補完回帰（汎用）
+
+`tests/test_shazam_primrose_recovery.py` で、Shazam一次ページヘッダーからの取得、
+任意の別ID・アーティストへの同一処理、別曲へのHTTPリダイレクト時の空欄維持、
+同じIDとタイトルの照合、別ID・`/song`の除外、ライブ情報の優先、
+canonical URL再試行を検証します。曲ID→アーティストの個別固定テーブルは廃止。
+C#のWebView2描画待ちは `tests/test_route_id_fast_return.py` のソース契約テストで確認。
+詳細: [PRIMROSE_CEUI_RECOVERY.md](PRIMROSE_CEUI_RECOVERY.md)
 
 ### Shazam 4レーン共有プール・時系列確認の追加確認
 

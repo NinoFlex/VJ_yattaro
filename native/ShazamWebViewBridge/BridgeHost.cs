@@ -28,6 +28,10 @@ internal sealed class BridgeHost : Form
     // Allow a brief rendering grace for metadata before returning an ID-only result.
     private static readonly TimeSpan RouteEvidenceWindow = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan VerifiedRouteIdentityGrace = TimeSpan.FromMilliseconds(900);
+    // Legacy /track pages often need additional time to paint their exact
+    // title/artist header. /song (Apple-backed) fast recognition is unchanged.
+    // Only an ID-only result waits; complete metadata still returns immediately.
+    private static readonly TimeSpan VerifiedLegacyTrackIdentityGrace = TimeSpan.FromMilliseconds(3000);
 
     private readonly string _language;
     private readonly bool _debug;
@@ -574,8 +578,12 @@ internal sealed class BridgeHost : Form
             // neighboring cards, a stale/changed candidate or a no-match response.
             // A missing/changed route keeps the original four-second fallback.
             var liveRouteBest = _best;
+            var identityGrace = IsLegacyTrackRoute(routeCandidate.Url) &&
+                (string.IsNullOrWhiteSpace(liveRouteBest?.Title) ||
+                 string.IsNullOrWhiteSpace(liveRouteBest?.Artist))
+                ? VerifiedLegacyTrackIdentityGrace : VerifiedRouteIdentityGrace;
             if (_audioStarted && !_definiteNoMatch &&
-                deadline.Elapsed >= VerifiedRouteIdentityGrace &&
+                deadline.Elapsed >= identityGrace &&
                 TryParseShazamRoute(_webView.CoreWebView2.Source, out var liveRouteId) &&
                 string.Equals(liveRouteId, routeCandidate.ShazamTrackId, StringComparison.Ordinal) &&
                 // A /song ID and a /track ID have different identities even when
@@ -755,6 +763,15 @@ internal sealed class BridgeHost : Form
         if (!m.Success) return false;
         id = m.Groups[1].Value;
         return true;
+    }
+
+    private static bool IsLegacyTrackRoute(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !IsShazam(url)) return false;
+        var path = new Uri(url).AbsolutePath;
+        return Regex.IsMatch(path,
+            @"\A/(?:[a-z]{2}(?:-[a-z]{2})?/)?track/\d{6,20}(?:/|$)",
+            RegexOptions.IgnoreCase);
     }
 
     private static bool SameShazamRouteKind(string? currentUrl, string? candidateUrl)

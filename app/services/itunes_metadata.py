@@ -17,6 +17,7 @@ import time
 import unicodedata
 from urllib.parse import parse_qs, unquote, urlparse
 
+
 _REJECT = (
     "page not found", "page was not found", "requested page", "music discovery",
     "要求されたページは見つかりませんでした",
@@ -712,12 +713,13 @@ class ITunesMetadataResolver:
         route_id, _ = _shazam_route_identity(url)
         candidates = [url]
         if _shazam_route_kind(url) == 'track' and route_id:
-            track_page = f'https://www.shazam.com/ja-jp/track/{route_id}/unavailable'
-            if track_page != url:
-                # The exact-ID track page is usually more useful than a legacy
-                # slug URL that has been observed redirecting to an unrelated
-                # /song ID. Prefer it to avoid delaying the first Shazam search.
-                candidates = [track_page, url]
+            localized = f'https://www.shazam.com/ja-jp/track/{route_id}/unavailable'
+            canonical = f'https://www.shazam.com/track/{route_id}/unavailable'
+            # Saved browser pages declare the non-localized route as canonical.
+            # Some HTTP clients are redirected to an unrelated /song page on
+            # the localized and original slug routes; try *both* exact-ID paths,
+            # always verifying canonical / og:url after each response.
+            candidates = list(dict.fromkeys((localized, url, canonical)))
 
         resolved = ('', '', '', False)
         for index, candidate in enumerate(candidates):
