@@ -506,6 +506,7 @@ class SearchFallbackWiringTests(unittest.TestCase):
             source_mode=source_mode, youtube_search_thread=None,
             _set_searching_state=Mock(), _set_youtube_search_error=Mock(),
             _refresh_connection_statuses=Mock(),
+            _cancel_autoplay_recovery=Mock(),
             on_youtube_search_completed=Mock(), on_youtube_search_error=Mock(),
             _on_search_finished=Mock(),
         )
@@ -538,12 +539,12 @@ class SearchFallbackWiringTests(unittest.TestCase):
         self.assertFalse(hasattr(window, '_current_track_info'))
         thread.start.assert_called_once()
 
-    def test_shazam_title_only_history_search_never_auto_plays(self):
+    def test_shazam_title_only_history_search_remains_auto_play_eligible(self):
         window, service, thread = self._run_main('たくさん', '', True)
         self.assertEqual(window._current_track_info, {
             'title': 'たくさん', 'artist': '', 'comment': ''
         })
-        self.assertFalse(window._active_search_allow_auto_play)
+        self.assertTrue(window._active_search_allow_auto_play)
         service.search_videos.assert_called_once()
         thread.start.assert_called_once()
 

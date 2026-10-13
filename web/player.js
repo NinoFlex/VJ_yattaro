@@ -8,6 +8,13 @@ class VJPlayer {
         this.currentVideoId = null;
         this.nextVideoId = null;
         this.isReady = { A: false, B: false };
+        // Invalidate stale one-shot CUED fallbacks when PRELOAD is retried.
+        this._preloadRequestSerial = 0;
+        this._preloadRequestByPlayer = { A: null, B: null };
+        this._verifiedCueSerial = { A: null, B: null };
+        this._playRequestSerial = 0;
+        this._playPending = null;
+        this._playRequestByPlayer = { A: null, B: null };
         this.pollingInterval = null;
         // 接続先ポートは、読み込んでいるページ（player.html）のポートに追従
         // 例: http://localhost:8080/player.html → 8080
@@ -343,8 +350,31 @@ class VJPlayer {
 
     onPlayerStateChange(playerId, event) {
         const state = event.data;
+        const cue = (this._preloadRequestByPlayer || {})[playerId];
+        const pendingPlay = this._playPending;
+        // getVideoIdForPlayer() deliberately prefers the REQUESTED video for UI
+        // rendering. That ID must never be used to validate an iframe CUED event:
+        // the iframe may still be reporting an older video after a slow load.
+        const actualVideoId = this.getActualVideoIdForPlayer(playerId);
+        const isCueResult = state === YT.PlayerState.CUED ||
+            state === YT.PlayerState.PLAYING || state === YT.PlayerState.PAUSED;
+        if (cue && playerId === this.nextPlayer && isCueResult &&
+                actualVideoId !== cue.videoId) {
+            console.warn(`Ignoring stale YouTube ${state} on ${playerId}: actual=${actualVideoId || '-'} expected=${cue.videoId}`);
+            return;
+        }
+        if (pendingPlay && pendingPlay.playerId === playerId && isCueResult &&
+                actualVideoId !== pendingPlay.videoId) {
+            console.warn(`Ignoring stale PLAY ${state} on ${playerId}: actual=${actualVideoId || '-'} expected=${pendingPlay.videoId}`);
+            return;
+        }
         this._lastPlayerState[playerId] = state;
         const stateVideoId = this.getVideoIdForPlayer(playerId);
+        if (cue && actualVideoId === cue.videoId &&
+                (state === YT.PlayerState.CUED || state === YT.PlayerState.PLAYING ||
+                 state === YT.PlayerState.PAUSED)) {
+            this._verifiedCueSerial[playerId] = cue.serial;
+        }
         if (this.failedVideoIds[playerId] && stateVideoId === this.failedVideoIds[playerId]) {
             // stopVideo() after an error may emit ENDED/UNSTARTED. Do not let those states
             // overwrite the ERROR panel or restart the failed loop.
@@ -373,9 +403,24 @@ class VJPlayer {
         stateNames[YT.PlayerState.PAUSED] = 'paused';
         stateNames[YT.PlayerState.BUFFERING] = 'buffering';
         stateNames[YT.PlayerState.CUED] = 'ready';
-        const feedbackState = stateNames[state];
+        let feedbackState = stateNames[state];
+        if (state === YT.PlayerState.PLAYING && cue &&
+                playerId === this.nextPlayer && !pendingPlay &&
+                !(this._playRequestByPlayer || {})[playerId]) {
+            // PRELOAD should never announce that it switched output. Some
+            // browsers go straight to PLAYING without a separate CUED event.
+            feedbackState = 'ready';
+        }
         if (feedbackState) {
             this.sendFeedback(feedbackState, this.getVideoIdForPlayer(playerId), playerId);
+        }
+        if (state === YT.PlayerState.PLAYING && pendingPlay &&
+                pendingPlay.playerId === playerId && actualVideoId === pendingPlay.videoId) {
+            // Only an actual YT PLAYING event (not the fade animation or a
+            // snapshot) satisfies the PLAY-start watchdog.
+            this._playPending = null;
+            clearTimeout(pendingPlay.timer);
+            console.log(`PLAY verified by YouTube on ${playerId}: ${actualVideoId}`);
         }
 
         // Loop only the player currently visible on the output.
@@ -422,6 +467,11 @@ class VJPlayer {
 
     markPlaybackFailed(playerId, videoId, errorCode) {
         const targetPlayer = this.normalizePlayerId(playerId);
+        if (this._playPending && this._playPending.playerId === targetPlayer &&
+                this._playPending.videoId === videoId) {
+            clearTimeout(this._playPending.timer);
+            this._playPending = null;
+        }
         this.isReady[targetPlayer] = false;
         this.failedVideoIds[targetPlayer] = videoId || this.playerVideoIds[targetPlayer] || null;
 
@@ -740,10 +790,11 @@ class VJPlayer {
 
         switch (cmd) {
             case 'PRELOAD':
-                this.handlePreload(videoId, trackInfo, mediaInfo);
+                this.handlePreload(videoId, trackInfo, mediaInfo, command.forceReload === true,
+                                   command.commandId || null);
                 break;
             case 'PLAY':
-                this.handlePlay(videoId, trackInfo, mediaInfo);
+                this.handlePlay(videoId, trackInfo, mediaInfo, command.commandId || null);
                 break;
             case 'REWIND':
                 this.handleRewind(parseFloat(videoId) || 10, playerId);
@@ -773,16 +824,39 @@ class VJPlayer {
 
     // PRELOAD always targets the player currently reserved as nextPlayer.
 
-    handlePreload(videoId, trackInfo, mediaInfo) {
+    handlePreload(videoId, trackInfo, mediaInfo, forceReload = false, requestId = null) {
         const targetPlayer = this.nextPlayer;
         if (!videoId) {
             return;
         }
-        if (videoId === this.nextVideoId && this.playerVideoIds[targetPlayer] === videoId) {
+        if (!forceReload && videoId === this.nextVideoId && this.playerVideoIds[targetPlayer] === videoId) {
             this.sendPlayerSnapshot(targetPlayer);
             return;
         }
 
+        // A retry must actually re-cue the stalled video.  The old same-ID
+        // fast path only echoed a state and could never unblock a stuck cue.
+        if (forceReload) {
+            console.warn(`Forced PRELOAD retry for ${videoId} on player ${targetPlayer}`);
+            const player = this.players[targetPlayer];
+            if (player && typeof player.stopVideo === 'function') {
+                try { player.stopVideo(); } catch (e) {
+                    console.warn('Failed to stop stalled PRELOAD before retry:', e);
+                }
+            }
+            this._lastPlayerState[targetPlayer] = null;
+        }
+        const requestSerial = ++this._preloadRequestSerial;
+        this._preloadRequestByPlayer = this._preloadRequestByPlayer || { A: null, B: null };
+        this._verifiedCueSerial = this._verifiedCueSerial || { A: null, B: null };
+        this._preloadRequestByPlayer[targetPlayer] = {
+            serial: requestSerial, videoId, requestId: requestId || `local-cue-${requestSerial}`
+        };
+        this._verifiedCueSerial[targetPlayer] = null;
+        this._lastPlayerState[targetPlayer] = null;
+        this.isReady[targetPlayer] = false;
+        // The former PLAY request for this physical side is no longer relevant.
+        if (this._playRequestByPlayer) this._playRequestByPlayer[targetPlayer] = null;
         console.log(`Preloading video ${videoId} into player ${targetPlayer}`);
         this.clearPlaybackError(targetPlayer);
         this.nextVideoId = videoId;
@@ -810,37 +884,86 @@ class VJPlayer {
 
                 // Some browsers delay or omit CUED; keep a one-shot fallback notification.
                 setTimeout(() => {
-                    if (this.nextVideoId === videoId && this.nextPlayer === targetPlayer) {
-                        this.sendFeedback('ready', videoId, targetPlayer);
-                        console.log(`Video ready: ${videoId} on player ${targetPlayer}`);
+                    if (this._preloadRequestSerial === requestSerial &&
+                            this.nextVideoId === videoId && this.nextPlayer === targetPlayer &&
+                            !this.failedVideoIds[targetPlayer]) {
+                        // Do not claim ready merely because a second has elapsed.
+                        // False ready feedback would disarm the desktop 15s watchdog
+                        // even when YouTube never accepted this cue request.
+                        let playerState = null;
+                        try {
+                            if (typeof nextPlayerObj.getPlayerState === 'function') {
+                                playerState = nextPlayerObj.getPlayerState();
+                            }
+                        } catch (e) {
+                            // A reloading iframe may briefly reject getPlayerState.
+                        }
+                        const ytStates = typeof YT !== 'undefined' ? YT.PlayerState : null;
+                        const confirmedReady = this.getActualVideoIdForPlayer(targetPlayer) === videoId &&
+                            ytStates && [ytStates.CUED, ytStates.PAUSED, ytStates.PLAYING].includes(playerState);
+                        if (confirmedReady) {
+                            this._verifiedCueSerial[targetPlayer] = requestSerial;
+                            this.isReady[targetPlayer] = true;
+                            this.sendFeedback('ready', videoId, targetPlayer);
+                            console.log(`Video ready: ${videoId} on player ${targetPlayer}`);
+                        } else {
+                            console.warn(`PRELOAD still awaiting YouTube readiness: ${videoId} on ${targetPlayer}`);
+                        }
                     }
                 }, 1000);
             } catch (e) {
                 console.warn('cueVideoById failed, falling back to iframe:', e);
                 if (this.ensureIframeFor(targetPlayer, videoId, false)) {
-                    this.sendFeedback('ready', videoId, targetPlayer, { includeTiming: false });
+                    this.watchFallbackIframeLoad(targetPlayer, videoId, requestSerial);
                 } else {
                     this.showManualPlayback();
                 }
             }
         } else {
             if (this.ensureIframeFor(targetPlayer, videoId, false)) {
-                this.sendFeedback('ready', videoId, targetPlayer, { includeTiming: false });
+                this.watchFallbackIframeLoad(targetPlayer, videoId, requestSerial);
             } else {
                 this.showManualPlayback();
             }
         }
     }
 
+    watchFallbackIframeLoad(playerId, videoId, serial) {
+        // DOM insertion is NOT readiness. Wait for the iframe's load event and
+        // make sure that the same PRELOAD request is still active.
+        const container = document.getElementById(`player${playerId}Container`);
+        const iframe = container && container.querySelector ? container.querySelector('iframe') : null;
+        if (!iframe || typeof iframe.addEventListener !== 'function') return;
+        iframe.addEventListener('load', () => {
+            const cue = (this._preloadRequestByPlayer || {})[playerId];
+            if (!cue || cue.serial !== serial || cue.videoId !== videoId ||
+                    this.nextPlayer !== playerId || this.nextVideoId !== videoId) return;
+            if (!container.dataset || container.dataset.embedVideoId !== videoId) return;
+            this._verifiedCueSerial[playerId] = serial;
+            this.isReady[playerId] = true;
+            this.sendFeedback('ready', videoId, playerId, { includeTiming: false });
+        }, { once: true });
+    }
+
     // PLAY switches the prepared physical player to the output.
 
-    handlePlay(videoId, trackInfo, mediaInfo) {
+    handlePlay(videoId, trackInfo, mediaInfo, requestId = null) {
         if (!videoId) {
             return;
         }
 
         const targetPlayer = this.nextPlayer;
         console.log(`Playing video ${videoId} on target player ${targetPlayer}`);
+        this._playRequestSerial = (this._playRequestSerial || 0) + 1;
+        const playSerial = this._playRequestSerial;
+        this._playRequestByPlayer = this._playRequestByPlayer || { A: null, B: null };
+        this._playRequestByPlayer[targetPlayer] = {
+            videoId, requestId: requestId || `local-play-${playSerial}`
+        };
+        if (this._playPending) {
+            clearTimeout(this._playPending.timer);
+            this._playPending = null;
+        }
         this.clearPlaybackError(targetPlayer);
         this.playerVideoIds[targetPlayer] = videoId;
         if (trackInfo) {
@@ -852,13 +975,21 @@ class VJPlayer {
             this.playerMediaInfo[targetPlayer] = mediaInfo;
         }
 
-        if (this.isReady[targetPlayer] && this.nextVideoId === videoId) {
+        if (this.isReady[targetPlayer] && this.nextVideoId === videoId &&
+                this.preloadIsVerified(targetPlayer, videoId)) {
             this.switchAndPlay(videoId, targetPlayer);
             return;
         }
 
         this.nextVideoId = videoId;
         this.isReady[targetPlayer] = false;
+        this._lastPlayerState[targetPlayer] = null;
+        // A direct PLAY load supersedes the old PRELOAD cue on this side.
+        if (this._preloadRequestByPlayer &&
+                this._preloadRequestByPlayer[targetPlayer] &&
+                this._preloadRequestByPlayer[targetPlayer].videoId !== videoId) {
+            this._preloadRequestByPlayer[targetPlayer] = null;
+        }
         const nextPlayerObj = this.players[targetPlayer];
         if (nextPlayerObj && typeof nextPlayerObj.loadVideoById === 'function') {
             try {
@@ -883,23 +1014,54 @@ class VJPlayer {
     // Wait for the same physical target captured when PLAY was received.
 
     waitForReadyAndSwitch(videoId, targetPlayer) {
+        const serial = this._playRequestSerial || 0;
+        let checks = 0;
+        const maxChecks = 120; // 12 seconds, including slow/no YouTube callbacks.
         const checkReady = () => {
-            // A newer PRELOAD/PLAY replaced this request; do not switch the stale video.
-            if (this.nextPlayer !== targetPlayer || this.nextVideoId !== videoId) {
-                return;
-            }
+            if (this._playRequestSerial !== serial ||
+                    this.nextPlayer !== targetPlayer || this.nextVideoId !== videoId) return;
             const nextContainer = document.getElementById(`player${targetPlayer}Container`);
             const iframePresent = nextContainer && nextContainer.dataset &&
                 nextContainer.dataset.embedFallback === '1' &&
-                nextContainer.dataset.embedVideoId === videoId;
-
-            if (this.isReady[targetPlayer] || iframePresent) {
+                nextContainer.dataset.embedVideoId === videoId &&
+                this.preloadIsVerified(targetPlayer, videoId);
+            if ((this.isReady[targetPlayer] && this.actualMatchesRequest(targetPlayer, videoId)) ||
+                    iframePresent) {
                 this.switchAndPlay(videoId, targetPlayer);
+            } else if (++checks >= maxChecks) {
+                console.error(`PLAY ready timeout after 12s: ${videoId} on ${targetPlayer}`);
+                this.markPlaybackFailed(targetPlayer, videoId, 'play-ready-timeout');
             } else {
                 setTimeout(checkReady, 100);
             }
         };
         checkReady();
+    }
+
+    getActualVideoIdForPlayer(playerId) {
+        const player = this.players[this.normalizePlayerId(playerId)];
+        try {
+            if (player && typeof player.getVideoData === 'function') {
+                const data = player.getVideoData();
+                if (data && data.video_id) return String(data.video_id);
+            }
+            if (player && typeof player.getVideoUrl === 'function') {
+                const url = player.getVideoUrl();
+                const match = /[?&]v=([A-Za-z0-9_-]{6,})/.exec(String(url || ''));
+                if (match) return match[1];
+            }
+        } catch (e) { /* YouTube data is temporarily unavailable. */ }
+        return '';
+    }
+
+    actualMatchesRequest(playerId, videoId) {
+        return this.getActualVideoIdForPlayer(playerId) === videoId;
+    }
+
+    preloadIsVerified(playerId, videoId) {
+        const cue = (this._preloadRequestByPlayer || {})[playerId];
+        return !!cue && cue.videoId === videoId &&
+            (this._verifiedCueSerial || {})[playerId] === cue.serial;
     }
 
     normalizePlayerId(playerId) {
@@ -961,14 +1123,26 @@ class VJPlayer {
         const normalized = this.normalizePlayerId(playerId);
         const state = this._lastPlayerState[normalized];
         if (typeof YT !== 'undefined' && YT.PlayerState) {
-            if (state === YT.PlayerState.PLAYING) return 'playing';
+            if (state === YT.PlayerState.PLAYING) {
+                const cue = (this._preloadRequestByPlayer || {})[normalized];
+                if (normalized === this.nextPlayer && cue &&
+                        !(this._playRequestByPlayer || {})[normalized] &&
+                        this.preloadIsVerified(normalized, cue.videoId)) return 'ready';
+                return 'playing';
+            }
             if (state === YT.PlayerState.PAUSED) return 'paused';
             if (state === YT.PlayerState.BUFFERING) return 'buffering';
-            if (state === YT.PlayerState.CUED) return 'ready';
+            if (state === YT.PlayerState.CUED) {
+                const cue = (this._preloadRequestByPlayer || {})[normalized];
+                if (cue && !this.preloadIsVerified(normalized, cue.videoId)) return 'preloading';
+                if (cue && !this.actualMatchesRequest(normalized, cue.videoId)) return 'preloading';
+                return 'ready';
+            }
             if (state === YT.PlayerState.ENDED) return 'ended';
             if (state === YT.PlayerState.UNSTARTED) return 'unstarted';
         }
-        return this.playerVideoIds[normalized] ? 'ready' : 'idle';
+        // playerVideoIds is only the requested ID; it is not proof of cue success.
+        return this.playerVideoIds[normalized] ? 'preloading' : 'idle';
     }
 
     handleSelectPlayer(playerId) {
@@ -1103,6 +1277,28 @@ class VJPlayer {
         const selectedPlayer = targetPlayer || this.nextPlayer;
         this.clearPlaybackError(selectedPlayer);
         console.log(`Switching to player ${selectedPlayer} with video: ${videoId}`);
+        // The fade does not prove playback. A real YT PLAYING event is required
+        // within 12 seconds, otherwise signal an error for rank-two recovery.
+        const serial = this._playRequestSerial || 0;
+        const pending = {serial, videoId, playerId: selectedPlayer, timer: null};
+        pending.timer = setTimeout(() => {
+            if (this._playPending !== pending) return;
+            console.error(`PLAY start timeout after 12s: ${videoId} on ${selectedPlayer}`);
+            this.markPlaybackFailed(selectedPlayer, videoId, 'play-start-timeout');
+        }, 12000);
+        this._playPending = pending;
+        setTimeout(() => {
+            if (this._playPending !== pending || !this.actualMatchesRequest(selectedPlayer, videoId)) return;
+            const player = this.players[selectedPlayer];
+            try {
+                if (player && typeof player.getPlayerState === 'function' &&
+                        player.getPlayerState() === YT.PlayerState.PLAYING) {
+                    clearTimeout(pending.timer);
+                    this._playPending = null;
+                    this.sendFeedback('playing', videoId, selectedPlayer);
+                }
+            } catch (e) { /* not yet ready */ }
+        }, 100);
 
         const oldPlayer = this.currentPlayer;
         const oldPlayerObj = this.players[oldPlayer];
@@ -1160,7 +1356,7 @@ class VJPlayer {
                     currentContainer.classList.remove('crossfade-out');
                     nextContainer.classList.remove('crossfade-in');
                     this.sendPlayerSnapshot(oldPlayer);
-                    this.sendPlayerSnapshot(selectedPlayer, 'playing');
+                    this.sendPlayerSnapshot(selectedPlayer);
                 }, 500);
             };
 
@@ -1199,8 +1395,9 @@ class VJPlayer {
         this.nextTrackInfo = null;
         this.nextMediaInfo = null;
         this.updateTrackInfoOverlay();
-        this.sendFeedback('playing', videoId, selectedPlayer);
-        console.log(`Switch complete. Current player: ${this.currentPlayer}`);
+        // Do not optimistically report PLAYING. Only onPlayerStateChange
+        // confirms real video startup and disarms the watchdog.
+        console.log(`Switch requested. Awaiting actual PLAYING on ${selectedPlayer}`);
     }
 
     setPollingPort(port) {
@@ -1255,6 +1452,13 @@ class VJPlayer {
                 }
                 if (options.includeTiming !== false) {
                     Object.assign(feedbackData, this.readPlayerTiming(normalizedPlayer));
+                }
+                const cue = (this._preloadRequestByPlayer || {})[normalizedPlayer];
+                const play = (this._playRequestByPlayer || {})[normalizedPlayer];
+                if ((state === 'playing' || state === 'error') && play && play.videoId === videoId) {
+                    feedbackData.requestId = play.requestId;
+                } else if (cue && cue.videoId === videoId) {
+                    feedbackData.requestId = cue.requestId;
                 }
             }
             if (options.errorCode !== undefined) {

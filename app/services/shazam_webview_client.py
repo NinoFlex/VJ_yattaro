@@ -156,6 +156,8 @@ class WebViewRecognizer:
                 )
                 destination = queue.Queue()
                 self._process, self._queue = process, destination
+                print(f"ShazamWebView: helper spawn instance={self._instance_id} "
+                      f"pid={process.pid} locale={language}")
                 self._language, self._ready = language, False
                 threading.Thread(target=self._read_stdout, args=(process, destination),
                                  name="ShazamWebViewStdout", daemon=True).start()
@@ -323,7 +325,15 @@ class WebViewRecognizer:
                     return message
         except (RecognitionCancelled, RecognitionAborted):
             raise
-        except Exception:
+        except Exception as exc:
+            # A generic error already closes the helper on the FIRST failure.
+            # Record this explicitly so the independent two-failure lane health
+            # counter is not mistaken for the helper process restart policy.
+            with self._lock:
+                pid = self._process.pid if self._process is not None else None
+            print(f"ShazamWebView: helper close after error instance={self._instance_id} "
+                  f"id={request_id or '-'} pid={pid} "
+                  f"exception={type(exc).__name__}")
             self.close()
             raise
         finally:

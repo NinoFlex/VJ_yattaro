@@ -1,0 +1,63 @@
+# VJ_yattaro - generated files and local-only data
+
+# Python virtual environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+
+# .NET / WebView2 helper build output
+**/bin/
+**/obj/
+**/publish/
+**/TestResults/
+
+# PyInstaller artifacts
+/build/
+/dist/
+
+# Optional Node.js dependencies
+node_modules/
+coverage/
+
+# Personal settings, secrets, recognition history
+/config.json
+/shazam_history.json
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pfx
+*.p12
+*.pem
+PAT.txt
+
+# Logs, temporary data, user data
+*.log
+*.log.*
+logs/
+*.tmp
+*.bak
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE and OS-specific files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+Thumbs.db
+Desktop.ini
+.DS_Store

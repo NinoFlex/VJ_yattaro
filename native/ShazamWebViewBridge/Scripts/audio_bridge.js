@@ -23,6 +23,15 @@
   let totalConsumed = 0;
   let underflowSamples = 0;
   let firstDataReported = false;
+  // Diagnostics only: reset on startLive, retain after stop until next attempt.
+  let pcmChunksReceived = 0;
+  let getUserMediaCalls = 0;
+  let getUserMediaSuccesses = 0;
+  let getUserMediaFailures = 0;
+  let lastGetUserMediaError = '';
+  let clickEvents = 0;
+  let lastClickTag = '';
+  let lastClickAria = '';
 
   const MAX_QUEUE_SECONDS = 1.5;
   const PREBUFFER_SECONDS = 0.12;
@@ -179,6 +188,14 @@
       inputSampleRate = Math.round(sampleRate);
       outputSampleRate = context.sampleRate;
       resetQueue();
+      pcmChunksReceived = 0;
+      getUserMediaCalls = 0;
+      getUserMediaSuccesses = 0;
+      getUserMediaFailures = 0;
+      lastGetUserMediaError = '';
+      clickEvents = 0;
+      lastClickTag = '';
+      lastClickAria = '';
       armed = true;
       report('audio-live-armed', {sampleRate: inputSampleRate, contextSampleRate: outputSampleRate});
       return {ok: true, sampleRate: inputSampleRate, contextSampleRate: outputSampleRate};
@@ -197,6 +214,7 @@
         const rms = decoded.length ? Math.sqrt(sumSquares / decoded.length) : 0;
         const converted = resample(decoded);
         enqueue(converted);
+        pcmChunksReceived++;
         if (!firstDataReported) {
           firstDataReported = true;
           report('audio-live-data', {
@@ -213,11 +231,25 @@
       }
     },
     stop,
+    // Compact, read-only health snapshot. It never exposes raw audio or site HTML.
+    getDiagnostics() {
+      return {
+        armed, cycle, contextState: context ? context.state : 'none',
+        mediaHookInstalled: media.getUserMedia === getAudio,
+        getUserMediaCalls, getUserMediaSuccesses, getUserMediaFailures,
+        lastGetUserMediaError, pcmChunksReceived, firstDataReported,
+        queuedMs: outputSampleRate ? Math.round(queuedSamples * 1000 / outputSampleRate) : 0,
+        pushedMs: outputSampleRate ? Math.round(totalPushed * 1000 / outputSampleRate) : 0,
+        clickEvents, lastClickTag, lastClickAria
+      };
+    },
     get cycle() { return cycle; },
     get armed() { return armed; }
   };
 
   const getAudio = async constraints => {
+    getUserMediaCalls++;
+    try {
     // Never silently fall back to the OS default microphone. Python owns the selected input.
     if (!constraints || !constraints.audio || constraints.video)
       throw new DOMException('Only app-supplied audio is supported', 'NotSupportedError');
@@ -253,8 +285,27 @@
         underflowMs: Math.round(underflowSamples * 1000 / outputSampleRate)
       });
     }, 3000);
+    getUserMediaSuccesses++;
     return mediaDestination.stream;
+    } catch (error) {
+      getUserMediaFailures++;
+      lastGetUserMediaError = String(error && (error.name || error.message) || error).slice(0, 120);
+      throw error;
+    }
   };
+
+  // Observe whether the CDP-dispatched click reaches this document. No event is
+  // cancelled, and no page element is changed.
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('click', event => {
+      if (!armed) return;
+      clickEvents++;
+      const target = event && event.target;
+      lastClickTag = String(target && target.tagName || '').slice(0, 32);
+      lastClickAria = String(target && target.getAttribute &&
+        target.getAttribute('aria-label') || '').slice(0, 90);
+    }, true);
+  }
 
   webview.addEventListener('message', event => {
     const message = event && event.data;

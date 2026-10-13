@@ -12,7 +12,11 @@ function fixture(host = 'www.shazam.com') {
   const messages = [];
   const location = {href: `https://${host}/ja-jp`, hostname: host, protocol: 'https:'};
   const body = {querySelector: () => null, querySelectorAll: () => []};
-  const document = {body, querySelectorAll: () => [], querySelector: () => null};
+  const clickHandlers = [];
+  const document = {body, querySelectorAll: () => [], querySelector: () => null,
+    readyState: 'complete', visibilityState: 'visible', hasFocus: () => true,
+    elementFromPoint: () => ({tagName:'BUTTON', id:'shazam-button',getAttribute:()=>'Shazamの音楽認識ボタン'}),
+    addEventListener: (name, fn) => {if (name === 'click') clickHandlers.push(fn);}};
   let nativeCalls = 0;
   const connections = [];
   const webviewHandlers = [];
@@ -47,6 +51,7 @@ function fixture(host = 'www.shazam.com') {
   for(const file of ['audio_bridge.js','metadata_fields.js','result_observer.js'])
     vm.runInContext(fs.readFileSync(path.join(scripts,file),'utf8'),ctx,{filename:file});
   return {ctx,world,messages,connections,nativeCalls:()=>nativeCalls,processor:()=>processorRef,
+    click:() => clickHandlers.forEach(fn=>fn({target:document.elementFromPoint(0,0)})),
     hostMessage:data=>webviewHandlers.forEach(fn=>fn({data}))};
 }
 
@@ -195,6 +200,14 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
   assert.equal(f.messages.at(-1).evidence,'recognition-response');ok('fetch observer receives response clone');
   const armed=await f.world.__vjAudioBridge.startLive(48000,a);
   assert.equal(armed.ok,true);
+  const initialHealth = f.world.__vjAudioBridge.getDiagnostics();
+  assert.equal(initialHealth.mediaHookInstalled, true);
+  assert.equal(initialHealth.getUserMediaCalls, 0);
+  assert.equal(initialHealth.pcmChunksReceived, 0);
+  assert.equal(initialHealth.armed, true);
+  f.click();
+  assert.equal(f.world.__vjAudioBridge.getDiagnostics().clickEvents, 1);
+  ok('audio bridge has read-only per-request click and microphone diagnostics');
   const probeStream=await f.world.navigator.mediaDevices.getUserMedia({audio:true});
   const probeTrack=probeStream.getAudioTracks()[0];
   assert.equal(probeTrack.readyState,'live');
@@ -205,11 +218,18 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
   assert.notEqual(stream,probeStream);
   assert.notEqual(recognitionTrack,probeTrack);
   assert.equal(recognitionTrack.readyState,'live');
+  const healthAfterGetUserMedia = f.world.__vjAudioBridge.getDiagnostics();
+  assert.equal(healthAfterGetUserMedia.getUserMediaCalls, 2);
+  assert.equal(healthAfterGetUserMedia.getUserMediaSuccesses, 2);
+  assert.equal(healthAfterGetUserMedia.getUserMediaFailures, 0);
+  ok('audio bridge counts getUserMedia calls without altering fresh-track behavior');
   ok('each getUserMedia call gets a fresh live MediaStreamTrack after the prior track is stopped');
   const pcmSamples=new Int16Array(7000);
   for(let i=0;i<pcmSamples.length;i++) pcmSamples[i]=(i&1)?-12000:12000;
   const pcm=Buffer.from(pcmSamples.buffer).toString('base64');
   f.hostMessage({source:'VJHost',type:'audio-chunk',id:a,pcm16Base64:pcm});
+  assert.equal(f.world.__vjAudioBridge.getDiagnostics().pcmChunksReceived, 1);
+  ok('per-request diagnostics prove that live PCM reached the browser');
   const rendered=new Float32Array(2048);
   f.processor().onaudioprocess({outputBuffer:{getChannelData:()=>rendered}});
   assert(rendered.some(x=>Math.abs(x)>0.1));
@@ -218,7 +238,19 @@ function routeSlugDomFixture({semanticHeading = false} = {}) {
   f.world.__vjAudioBridge.stop();
   assert.equal(recognitionTrack.readyState,'ended');
   await assert.rejects(()=>f.world.navigator.mediaDevices.getUserMedia({audio:true}),{name:'NotReadableError'});
+  assert.equal(f.world.__vjAudioBridge.getDiagnostics().getUserMediaFailures, 1);
   assert.equal(f.nativeCalls(),0);ok('stop closes live supplied audio with no OS microphone fallback');
+  const diagScript = fs.readFileSync(path.join(scripts,'audio_failure_snapshot.js'),'utf8')
+    .replace('__VJ_CLICK_X__', '100').replace('__VJ_CLICK_Y__', '100');
+  const snap = vm.runInContext(diagScript, f.ctx);
+  assert.equal(snap.bridgeAvailable, true);
+  assert.equal(snap.bridge.getUserMediaCalls, 3);
+  assert.equal(snap.clickPointTarget.id, 'shazam-button');
+  ok('read-only failure snapshot includes bridge and clicked element state');
+  const replacedHook = fixture();
+  replacedHook.world.navigator.mediaDevices.getUserMedia = async()=>({});
+  assert.equal(replacedHook.world.__vjAudioBridge.getDiagnostics().mediaHookInstalled, false);
+  ok('failure snapshot can detect Shazam replacing the microphone hook');
   const audioBridgeSource=fs.readFileSync(path.join(scripts,'audio_bridge.js'),'utf8');
   assert.doesNotMatch(audioBridgeSource,/source\.loop\s*=\s*true/);ok('live bridge never loops a bounded WAV snapshot');
   const other=fixture('example.test');

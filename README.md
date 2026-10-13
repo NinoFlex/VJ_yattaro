@@ -49,14 +49,14 @@ Shazamモードは**4本の独立WebView2レーンを共有ワーカープール
 
 誤検出対策は、同じ録音を複数回投げるのではなく、**時間の異なる2回の認識結果**で行います。
 
-- 1回目の新しい曲は`Candidate pending`として内部保留し、履歴追加・YouTube検索・動画切替を行いません。
-- 次の有効な認識でも同一曲と判定された場合だけ`Temporal confirmation`となり、初めて確定します。
-- `no-match`が通常の時系列処理に入った場合は連続確認をリセットします。
+- 1回目の新しい曲は`Candidate pending`として内部では未確定ですが、**画面に `(仮)` で追加しYouTube検索・PRELOADを先行**させます。正式履歴にはまだ保存しません。
+- 次の有効な認識でも同一曲と判定された場合だけ`Temporal confirmation`となり、自動再生ONなら準備済みの動画へ`PLAY`します。
+- `no-match`は一定の条件下で最大2回まで中立ギャップとして許容し、それを超えれば仮登録を削除します。15秒経過も取り消し対象です。
 - 原則として認識完了順ではなく要求連番`seq`順に処理します。
 - ただし古い`seq`が未応答のままでも、**後続の連続した2つの`seq`が同一曲で一致した場合だけ**、その一致ペアで古いheadを追い越して確定できます。
 - 後続が1件だけ、または2件が不一致なら追い越しません。追い越された古い結果が後から返っても無視します。
 
-同一曲判定は従来どおり`track_matching.py`の`is_same_track()`を使います。
+**Shazam IDが両方取得できた場合は同じIDを優先して照合**します。曲名が似ていても別IDなら別曲です。IDが使えない場合は従来どおり`track_matching.py`の`is_same_track()`を使います。
 
 - **曲名の先頭4文字が一致すれば、アーティスト名が異なっても同じ曲**として扱います。両方の曲名が4文字以上であることが条件です。
 - 前後の空白と英字の大文字・小文字は無視します。途中の空白や記号はそのまま比較します。
@@ -113,6 +113,43 @@ Shazamのoffsetは今回の確定判定には使用しません。実機ログ�
 自動再生をOFFにすると、モードの保存値もOFFに戻します。
 自動再生をONに戻しただけではモードは復活しません。
 
+## 自動再生エラーとプリロード停滞の復旧
+
+- YouTube検索結果1位を自動再生中にブラウザから再生エラーが通知された場合、2位へ自動で切り替えます。自動フォールバックは**1回まで**です。アニメOPモードでは優先選択された順位の次へ切り替えます。
+- Shazamで曲名だけが確定した場合も、**自動再生ONであれば自動再生**します。手動検索には適用しません。
+- `PRELOAD`が15秒間`ready`にならない場合は同じ動画を強制再プリロードします。15秒間隔で最大2回再送し、計45秒進展がなければ諦めます。自動再生なら次候補を試し、手動再生なら勝手に次動画へ切り替えません。
+- 前版のShazam音声要求失敗診断は、そのまま維持しています。
+
+詳しいログ文言とWindowsでの確認手順は [再生復旧の仕様](docs/PLAYBACK_RECOVERY.md)、Shazamの調査は [診断手順](docs/SHAZAM_AUDIO_DIAGNOSTICS.md) を参照してください。
+
+## Shazam 1回目認識からの先行PRELOAD
+
+- A曲からB曲へ切り替わると、B曲の**1回目認識で仮登録・YouTube検索・PRELOAD**を開始します。2回目一致まで`PLAY`しません。
+- B曲が誤認識なら、仮登録とその検索結果を取り消します。正式履歴ファイルへは記録しません。
+- 2回目一致で自動再生ONなら`PLAY`します。検索・PRELOADが未完了なら`ready`を待ちます。
+- アーティスト名が空欄でも先行検索・再生の対象です。ShazamがIDしか返さない場合は曲名取得完了後に先行処理を開始します。
+
+詳しくは [Shazam仮登録・先行PRELOADの仕様と検証手順](docs/SHAZAM_SPECULATIVE_PRELOAD.md) を参照してください。
+
+## Shazam先行検索の型付き状態管理
+
+B曲の確定済み再生待機と、C曲の1回目認識を独立して保持します。
+`TrackCandidate`、`SearchRequest`、`PlaybackAttempt` および
+`ShazamPlaybackState` に所有権・要求ID・再生段階を保存し、C曲の仮登録／取消が
+B曲のPRELOAD・PLAYを破棄しないようにしました。
+C曲が2回一致した場合だけB曲の未完了再生を上書きできます。
+
+詳しくは [状態管理の設計・確認手順](docs/STATE_MANAGEMENT_REFACTOR.md) を参照してください。
+
+### 確定済み楽曲の検索待ちを保護
+
+A曲のYouTube検索が長引き、B曲の確定済み検索が保留になっていても、
+C曲の**1回目認識だけではB曲の検索を取り消しません**。C曲は別枠で保留し、
+B曲の検索開始後に順次検索します。C曲が2回一致した場合のみ、未完了の
+B曲検索を置き換えます。古い検索スレッドから遅れて届く結果も無視します。
+
+詳しくは [検索キュー優先度の仕様と実機確認](docs/SEARCH_QUEUE_PRIORITY.md) を参照してください。
+
 ## Gitへの配置
 
 ZIPの直下がリポジトリのルートです。余分な親フォルダーはありません。
@@ -133,6 +170,7 @@ APIキーは個人用の`config.json`で管理し、ソースへ書き込まな�
 |---|---|
 | `main.py`, `ui/` | デスクトップ画面と操作 |
 | `app/services/` | 認識、履歴、YouTube検索、設定、外部連携 |
+| `app/models/` | Shazam候補・検索要求・再生要求の型付き状態管理 |
 | `app/services/track_matching.py` | Qtや通信に依存しない同曲判定 |
 | `app/services/autoplay_selection.py` | 長さと順位による自動選曲（Qt・通信不要） |
 | `web/` | 動画プレイヤー |
@@ -140,11 +178,10 @@ APIキーは個人用の`config.json`で管理し、ソースへ書き込まな�
 | `tools/`, `VJ_yattaro.spec` | ビルドと配布物の検査 |
 | `tests/` | オフライン回帰テスト |
 
-前回の同曲判定・検索フォールバック・ファイル整理を維持しています。
-アニメOPモードの実装変更は`main.py`と設定の初期値、新規の選曲関数です。
-タイトルバーは`main.py`内にあります。`ui/`と`web/`のファイルは変更していません。
-今回の4レーン化は`app/services/shazam_service.py`が中心で、ネイティブヘルパーの通信方式、
-ビルド手順、依存関係、履歴JSONの形式は変更していません。
+同曲判定、YouTube検索フォールバック、アニメOPモード、Shazam 4レーン認識および前回のShazam診断を維持しています。
+今回の再生復旧は`main.py`、`app/services/player_http_server.py`、`web/player.js`が変更対象です。
+タイトルバーと動画一覧など`ui/`の表示部品、`app/services/shazam_service.py`とネイティブWebView2ヘルパー、
+ビルド手順、依存関係、履歴JSON形式は変更していません。
 
 ## テストと調査用起動
 
@@ -171,3 +208,7 @@ $env:VJ_SHAZAM_DEBUG = "1"
 ## Live microphone AGC
 Live PCM capture supports up to stereo input, downmixes to mono, and applies conservative software AGC before Shazam recognition.
 Each Shazam `getUserMedia()` request receives a fresh `MediaStreamTrack`; stopping an earlier probe track cannot terminate the subsequent recognition stream.
+
+## 最新の競合対策
+
+Shazam先行検索における古いPRELOAD完了通知、PLAY開始タイムアウト、確定曲Bと仮認識Cの競合対策については [`docs/PRELOAD_PLAY_RACE_FIXES.md`](docs/PRELOAD_PLAY_RACE_FIXES.md) を参照してください。

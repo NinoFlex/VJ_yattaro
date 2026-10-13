@@ -460,6 +460,7 @@ class PlayerHttpServer:
         player_id=None,
         media_info=None,
         value=None,
+        force_reload=False,
     ):
         try:
             command = {
@@ -476,6 +477,8 @@ class PlayerHttpServer:
                 command["playerId"] = normalized_player
             if value is not None:
                 command["value"] = value
+            if force_reload and str(cmd).upper() == "PRELOAD":
+                command["forceReload"] = True
 
             command_id = PlayerCommandHandler.enqueue_command(command)
             target = f" player={normalized_player}" if normalized_player else ""

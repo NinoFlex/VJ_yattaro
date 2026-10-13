@@ -38,6 +38,11 @@ class ShazamService(QObject):
 
     history_updated = Signal(list)
     new_track_detected = Signal(tuple)
+    # A candidate is a UI-only preview until two independent observations agree.
+    # The first observation's request sequence is the stable preview token.
+    candidate_started = Signal(int, tuple)
+    candidate_rejected = Signal(int, str)
+    candidate_confirmed = Signal(int, tuple)
     status_changed = Signal(str)
     error_occurred = Signal(str)
     _recognition_finished = Signal(int, int, int, str, str, str)
@@ -88,6 +93,7 @@ class ShazamService(QObject):
         self._recognition_busy = False
         self._generation = 0
         self._last_track = None
+        self._last_published_identity = None
 
         from app.services.shazam_webview_client import WebViewRecognizer
         from app.services.itunes_metadata import ITunesMetadataResolver
@@ -122,6 +128,7 @@ class ShazamService(QObject):
         self._temporal_results = {}
         self._next_temporal_sequence = 0
         self._last_temporal_observation = None
+        self._tentative_candidate = None
         self._metadata_raw_results = {}
         self._cancel_current = threading.Event()
         self._shutting_down = False
@@ -132,6 +139,9 @@ class ShazamService(QObject):
         self._recognition_finished.connect(self._handle_recognition_finished)
         self._metadata_finished.connect(self._handle_metadata_finished)
         self._prefetch_finished.connect(self._handle_prefetch_finished)
+        self._tentative_timer = QTimer(self)
+        self._tentative_timer.setSingleShot(True)
+        self._tentative_timer.timeout.connect(self._expire_tentative_candidate)
 
         self._history_path = self._get_history_path()
         self._ensure_history_file()
@@ -309,6 +319,7 @@ class ShazamService(QObject):
             self._raw_lane_results.clear()
             self._latest_published_sequence = -1
             self._temporal_results.clear()
+            self._reject_tentative_candidate("shazam-restarted")
             self._next_temporal_sequence = 0
             self._last_temporal_observation = None
             self._metadata_raw_results.clear()
@@ -393,6 +404,7 @@ class ShazamService(QObject):
         self._pending_group_results.clear()
         self._raw_lane_results.clear()
         self._temporal_results.clear()
+        self._reject_tentative_candidate("shazam-stopped")
         self._last_temporal_observation = None
         self._metadata_raw_results.clear()
         self._pending_identity_confirmation = None
@@ -1235,12 +1247,93 @@ class ShazamService(QObject):
         self._next_temporal_sequence = first_sequence
         # Do not compare the first look-ahead result with an observation from before the gap.
         # The pair itself supplies the required two independent observations.
+        self._reject_tentative_candidate("older-observation-bypassed")
         self._last_temporal_observation = None
         self._pending_identity_confirmation = None
         return True
 
+    def _reject_tentative_candidate(self, reason):
+        """Discard a first-vote UI preview; never touch committed history.json."""
+        candidate = self._tentative_candidate
+        self._tentative_candidate = None
+        self._tentative_timer.stop()
+        if candidate is None:
+            return
+        print(f"ShazamService: Tentative rejected firstSeq={candidate['sequence']} reason={reason}")
+        if candidate["emitted"]:
+            self.candidate_rejected.emit(candidate["sequence"], str(reason))
+
+    def _emit_tentative_if_ready(self):
+        """Preview an ID-only first vote when its asynchronous metadata arrives."""
+        candidate = self._tentative_candidate
+        if not candidate or candidate["emitted"] or candidate["confirmed"]:
+            return
+        observation = candidate["observation"]
+        title, artist = observation["track"]
+        if not title and observation.get("metadata_key"):
+            metadata = self._metadata_prefetch.get(observation["metadata_key"])
+            if metadata:
+                title, artist = metadata
+        title = str(title or "").strip()
+        artist = clean_artist(artist)
+        last_identity = self._last_published_identity
+        this_identity = observation.get("identity")
+        same_as_published = (
+            this_identity == last_identity
+            if this_identity is not None and last_identity is not None
+            else is_same_track(self._last_track, (title, artist))
+        )
+        if not title or same_as_published:
+            return
+        entry = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), title, artist)
+        candidate["entry"] = entry
+        candidate["emitted"] = True
+        print(f"ShazamService: Tentative first vote seq={candidate['sequence']} "
+              f"title={title!r} artist={artist!r}; start YouTube preload, no PLAY")
+        self.candidate_started.emit(candidate["sequence"], entry)
+
+    def _start_tentative_candidate(self, observation):
+        self._reject_tentative_candidate("new-candidate")
+        if not observation or observation.get("kind"):
+            return
+        self._tentative_candidate = {
+            "sequence": observation["sequence"], "observation": observation,
+            "emitted": False, "confirmed": False, "entry": None,
+        }
+        received_at = observation.get("received_at")
+        age = max(0.0, time.monotonic() - received_at) if received_at is not None else 0.0
+        remaining_ms = max(1, int((self.SHAZAM_NO_MATCH_WINDOW_SECONDS - age) * 1000) + 100)
+        self._tentative_timer.setInterval(remaining_ms)
+        self._tentative_timer.start()
+        self._emit_tentative_if_ready()
+
+    def _expire_tentative_candidate(self):
+        candidate = self._tentative_candidate
+        if not candidate or candidate["confirmed"]:
+            return
+        received_at = candidate["observation"].get("received_at")
+        if received_at is not None:
+            remaining = self.SHAZAM_NO_MATCH_WINDOW_SECONDS - (time.monotonic() - received_at)
+            if remaining > 0:
+                self._tentative_timer.setInterval(max(1, int(remaining * 1000) + 100))
+                self._tentative_timer.start()
+                return
+        self._reject_tentative_candidate("first-vote-expired")
+
+    def _confirm_tentative_candidate(self, first, second):
+        candidate = self._tentative_candidate
+        if not candidate or candidate["sequence"] != first["sequence"]:
+            return
+        candidate["confirmed"] = True
+        self._tentative_timer.stop()
+        if candidate["emitted"]:
+            print(f"ShazamService: Tentative confirmed firstSeq={first['sequence']} "
+                  f"secondSeq={second['sequence']}; playback now permitted")
+            self.candidate_confirmed.emit(candidate["sequence"], candidate["entry"])
+
     def _process_temporal_observation(self, sequence, observation):
         if observation is None:
+            self._reject_tentative_candidate("invalid-or-transport-error")
             self._last_temporal_observation = None
             self._pending_identity_confirmation = None
             return
@@ -1280,6 +1373,7 @@ class ShazamService(QObject):
                           f"gapCount={gaps} noMatches={no_matches} "
                           f"transportErrors={transport_errors} "
                           "reason=expired-or-limit-or-no-shazam-id")
+                self._reject_tentative_candidate("neutral-gap-expired-or-limit")
                 self._last_temporal_observation = None
                 self._pending_identity_confirmation = None
             return
@@ -1289,6 +1383,7 @@ class ShazamService(QObject):
         title, artist = observation["track"]
         if previous is None:
             self._pending_identity_confirmation = None
+            self._start_tentative_candidate(observation)
             print(
                 f"ShazamService: Candidate pending seq={sequence} "
                 f"title={title!r} artist={artist!r}"
@@ -1300,6 +1395,7 @@ class ShazamService(QObject):
         gap_match = self._gap_pair_matches(previous, observation)
         if not adjacent_match and not gap_match:
             self._pending_identity_confirmation = None
+            self._start_tentative_candidate(observation)
             print(
                 f"ShazamService: Candidate changed/rejected prevSeq={previous['sequence']} "
                 f"seq={sequence} title={title!r}"
@@ -1321,6 +1417,7 @@ class ShazamService(QObject):
                 f"ShazamService: Temporal confirmation prevSeq={previous['sequence']} "
                 f"seq={sequence} {artist} - {title}"
             )
+        self._confirm_tentative_candidate(previous, observation)
         if observation.get("identity") is not None:
             # A buffered future result may already have arrived before this pair
             # completed. _try_publish_identity_confirmation validates those too.
@@ -1362,7 +1459,8 @@ class ShazamService(QObject):
         print(f"ShazamService: Publishing prefetched metadata seq={pending['sequence']} "
               f"identity={pending['identity']}")
         self._publish_confirmed_track(
-            pending["group_index"], pending["sequence"], metadata[0], metadata[1]
+            pending["group_index"], pending["sequence"], metadata[0], metadata[1],
+            identity=pending.get("identity"),
         )
 
     def _handle_prefetch_finished(self, generation, key, metadata, error_text):
@@ -1371,6 +1469,9 @@ class ShazamService(QObject):
             return
         print(f"ShazamService: Metadata prefetch completed identity={key[2:]} "
               f"usable={metadata is not None} error={error_text!r}")
+        preview = self._tentative_candidate
+        if preview and preview["observation"].get("metadata_key") == key:
+            self._emit_tentative_if_ready()
         pending = self._pending_identity_confirmation
         if pending and pending["metadata_key"] == key:
             self._try_publish_identity_confirmation()
@@ -1481,7 +1582,10 @@ class ShazamService(QObject):
             # This stages the identity immediately, even while its HTTP is pending.
             # Only a matching second observation plus usable metadata may publish.
             self._stage_temporal_result(
-                group_index, request_sequence, metadata[0], metadata[1], raw_result,
+                group_index, request_sequence,
+                metadata[0] or (raw_title if source in trusted_complete_sources else ""),
+                metadata[1] or (raw_artist if source in trusted_complete_sources else ""),
+                raw_result,
                 identity_pending=True,
             )
             return
@@ -1589,7 +1693,8 @@ class ShazamService(QObject):
             group_index, request_sequence, raw_result, title, artist
         )
 
-    def _publish_confirmed_track(self, group_index, request_sequence, title, artist):
+    def _publish_confirmed_track(self, group_index, request_sequence, title, artist,
+                                 *, identity=None):
         # Groups can finish out of order. Never allow an older listening window to
         # overwrite a newer confirmed track that has already been published.
         if request_sequence < self._latest_published_sequence:
@@ -1605,9 +1710,16 @@ class ShazamService(QObject):
         title = str(title or "").strip()
         track_key = (title, artist)
         previous_track = self._last_track
+        previous_identity = self._last_published_identity
         # Compare successive confirmed results, including suppressed variants.
         self._last_track = track_key
-        if is_same_track(previous_track, track_key):
+        self._last_published_identity = identity
+        same_track = (
+            identity == previous_identity
+            if identity is not None and previous_identity is not None
+            else is_same_track(previous_track, track_key)
+        )
+        if same_track:
             self.status_changed.emit(f"Shazam: {artist} - {title}")
             return
 
@@ -1628,6 +1740,10 @@ class ShazamService(QObject):
 
         self.history_updated.emit(list(self._history))
         self.new_track_detected.emit(entry)
+        candidate = self._tentative_candidate
+        if candidate and candidate.get("confirmed") and candidate["sequence"] <= request_sequence:
+            self._tentative_timer.stop()
+            self._tentative_candidate = None
         self.status_changed.emit(f"Shazam: {artist} - {title}")
         lane_text = "+".join(str(lane + 1) for lane in self._group_lanes(group_index))
         print(

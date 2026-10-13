@@ -562,7 +562,7 @@ class ClientTests(unittest.TestCase):
 class PreservationTests(unittest.TestCase):
     def test_unrelated_visible_ui_files_are_byte_identical(self):
         hashes = json.loads((ROOT / 'tests/original_ui.sha256.json').read_text())
-        intentionally_changed = {"main.py", "ui/dialogs/settings_dialog.py"}
+        intentionally_changed = {"main.py", "ui/dialogs/settings_dialog.py", "web/player.js"}
         for relative, expected in hashes.items():
             if relative in intentionally_changed:
                 continue

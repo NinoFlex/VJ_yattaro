@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QFrame, QPushButton, QLabel, QLineEdit, QAbstractButton
 )
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen
+from app.models.search_request import SearchPhase
+from app.models.shazam_state import ShazamStateMixin
 
 
 class ImeAwareLineEdit(QLineEdit):
@@ -315,7 +317,7 @@ class TitleBar(QWidget):
         if event.button() == Qt.LeftButton:
             self.window().windowHandle().startSystemMove()
 
-class MainWindow(QMainWindow):
+class MainWindow(ShazamStateMixin, QMainWindow):
     def _configure_logging(self):
         """ログレベルを設定"""
         from app.utils.logger import configure_logging, LogLevel
@@ -522,6 +524,9 @@ class MainWindow(QMainWindow):
         self.watcher.status_changed.connect(self._on_db_status_changed)
         self.shazam_service.history_updated.connect(self.on_shazam_history_updated)
         self.shazam_service.new_track_detected.connect(self.on_shazam_new_track_detected)
+        self.shazam_service.candidate_started.connect(self.on_shazam_candidate_started)
+        self.shazam_service.candidate_rejected.connect(self.on_shazam_candidate_rejected)
+        self.shazam_service.candidate_confirmed.connect(self.on_shazam_candidate_confirmed)
         self.shazam_service.status_changed.connect(self.on_shazam_status_changed)
         self.shazam_service.error_occurred.connect(lambda message: print(f"UI: {message}"))
         self.watcher.start()
@@ -589,8 +594,20 @@ class MainWindow(QMainWindow):
         
         # YouTube検索スレッドの管理
         self.youtube_search_thread = None
-        # 検索中に追加された「最新の保留検索」（1件のみ保持、古いものは上書き）
+        # Compatibility mirror of shazam_flow.queued_search.  The typed model
+        # also holds a separate speculative C while confirmed B is waiting.
         self._pending_search_args = None
+        # Typed owner state separates confirmed PLAY (B) from new tentative C.
+        _ = self.shazam_flow
+        # A first Shazam vote is visible but is NOT committed to history.json.
+        # Only the matching second vote permits PLAY. Each search keeps its token.
+        self._shazam_preview = None
+        # A confirmed B must finish its PLAY even while a later C is only a first vote.
+        self._confirmed_shazam_pending = None
+        self._active_search_candidate_id = None
+        self._youtube_results_owner_candidate_id = None
+        self._youtube_list_generation = 0
+        self._abandoned_preview_video_ids = set()
         # 保留検索の実行タイマー
         self._pending_search_timer = QTimer(self)
         self._pending_search_timer.setSingleShot(True)
@@ -644,6 +661,16 @@ class MainWindow(QMainWindow):
         self._player_browser_opened = False
         self._open_player_in_browser()
         
+        # PRELOADが15秒間readyにならない場合に再送する。Qtメインスレッドでのみ操作する。
+        self._preload_retry_timer = QTimer(self)
+        self._preload_retry_timer.setSingleShot(True)
+        self._preload_retry_timer.timeout.connect(self._on_preload_retry_timeout)
+        # A separate watchdog starts when the PLAY command is queued: an accepted
+        # command or crossfade is not proof that YouTube actually started playback.
+        self._play_start_timer = QTimer(self)
+        self._play_start_timer.setSingleShot(True)
+        self._play_start_timer.timeout.connect(self._on_play_start_timeout)
+
         # YouTube動画の状態管理（初期化は_reset_youtube_stateで実施）
         self._reset_youtube_state()
         
@@ -718,6 +745,20 @@ class MainWindow(QMainWindow):
         self.pending_play_video_id = None
         # 自動検索→自動再生時だけ、playing到達後に指定秒数早送りする対象。
         self.pending_auto_seek_video_id = None
+        # 自動再生エラー時は検索順位の次候補へ1回だけ切り替える。
+        self._autoplay_active_video_id = None
+        self._autoplay_fallback_video = None
+        # 新たなPRELOADで監視対象を入れ替え、15秒ごとに最大2回再送する。
+        self._preload_watch_video_id = None
+        self._preload_watch_video_data = None
+        self._preload_watch_request_id = None
+        self._preload_watch_retries = 0
+        self._play_watch_video_id = None
+        self._play_watch_request_id = None
+        if hasattr(self, "_play_start_timer"):
+            self._play_start_timer.stop()
+        if hasattr(self, "_preload_retry_timer"):
+            self._preload_retry_timer.stop()
         # 楽曲情報の保持（右カラムから検索した場合のみ設定される）
         self._current_track_info = {"title": "", "artist": "", "comment": ""}
         self._update_youtube_border_color_safe(None)  # テーマ標準の枠線色へ戻す
@@ -925,16 +966,190 @@ class MainWindow(QMainWindow):
             "durationText": str(video_data.get("duration", "") or ""),
         }
 
-    def _send_video_command(self, command, video_id, video_data=None):
+    def _send_video_command(self, command, video_id, video_data=None, *, force_reload=False,
+                            track_info_override=None):
+        """Queue a player command; PRELOAD starts the independent 15-second watchdog."""
         if not hasattr(self, "player_server") or not self.player_server:
             return False
-        self.player_server.send_command(
+        if command in ("PRELOAD", "PLAY"):
+            getattr(self, "_abandoned_preview_video_ids", set()).discard(video_id)
+        command_id = self.player_server.send_command(
             command,
             video_id,
-            track_info=dict(self._current_track_info),
+            track_info=dict(track_info_override if track_info_override is not None
+                            else self._current_track_info),
             media_info=self._build_player_media_info(video_data, video_id),
+            force_reload=bool(force_reload),
         )
+        if not command_id:
+            print(f"UI: Player command enqueue failed: {command} video={video_id}")
+            return False
+        if command == "PRELOAD":
+            self._preload_watch_request_id = command_id
+            if not force_reload:
+                self._preload_watch_video_id = video_id
+                self._preload_watch_video_data = video_data
+                self._preload_watch_retries = 0
+                if hasattr(self, "_preload_retry_timer"):
+                    self._preload_retry_timer.start(15000)
+            # Record the command against the *owner* candidate, not every
+            # candidate with a matching YouTube ID (B and C can share one).
+            self.shazam_flow.register_cue_request(video_id, command_id)
+        elif command == "PLAY":
+            self.shazam_flow.register_play_request(video_id, command_id)
+            if video_id == getattr(self, "_preload_watch_video_id", None):
+                self._clear_preload_watch()
+            if video_id == getattr(self, "_autoplay_active_video_id", None):
+                self._play_watch_video_id = video_id
+                self._play_watch_request_id = command_id
+                if hasattr(self, "_play_start_timer"):
+                    self._play_start_timer.start(30000)
+                print(f"UI: PLAY start watchdog armed video={video_id} request={command_id[:8]}")
         return True
+
+    def _clear_preload_watch(self):
+        """Stop pending retries, without affecting an already-playing video."""
+        if hasattr(self, "_preload_retry_timer"):
+            self._preload_retry_timer.stop()
+        self._preload_watch_video_id = None
+        self._preload_watch_video_data = None
+        self._preload_watch_request_id = None
+        self._preload_watch_retries = 0
+
+    def _clear_play_start_watch(self):
+        if hasattr(self, "_play_start_timer"):
+            self._play_start_timer.stop()
+        self._play_watch_video_id = None
+        self._play_watch_request_id = None
+
+    def _on_play_start_timeout(self):
+        video_id = getattr(self, "_play_watch_video_id", None)
+        if not video_id:
+            return
+        print(f"UI: PLAY did not reach browser PLAYING within 30s; video={video_id}")
+        self._clear_play_start_watch()
+        if self.pending_auto_seek_video_id == video_id:
+            self.pending_auto_seek_video_id = None
+        self._handle_autoplay_failure(video_id, "play-start-timeout")
+
+    def _cancel_autoplay_recovery(self, reason=""):
+        """Prevent old auto-search errors from hijacking manual/new playback."""
+        if reason in ("manual preload", "manual play", "manual double-click"):
+            preview = getattr(self, "_shazam_preview", None)
+            if preview:
+                preview.manual_override = True
+                print(f"UI: Shazam tentative auto-PLAY disabled by {reason}")
+        if reason in ("manual preload", "manual play", "manual double-click",
+                      "new YouTube search", "new confirmed Shazam track",
+                      "source-mode-changed", "auto-play disabled"):
+            self._confirmed_shazam_pending = None
+        active_video_id = getattr(self, "_autoplay_active_video_id", None)
+        self._clear_play_start_watch()
+        self._autoplay_active_video_id = None
+        self._autoplay_fallback_video = None
+        if active_video_id:
+            if self.pending_play_video_id == active_video_id:
+                self.pending_play_video_id = None
+            if self.pending_auto_seek_video_id == active_video_id:
+                self.pending_auto_seek_video_id = None
+            if getattr(self, "_preload_watch_video_id", None) == active_video_id:
+                self._clear_preload_watch()
+            if reason:
+                print(f"UI: Auto-play recovery cancelled: {reason} video={active_video_id}")
+
+    def _start_autoplay_recovery(self, videos, selected_index):
+        """Only the next ranked result may replace a failed automatic choice."""
+        selected = videos[selected_index]
+        selected_id = str(selected.get("video_id", "") or "")
+        self._autoplay_active_video_id = selected_id or None
+        self._autoplay_fallback_video = None
+        for video in videos[selected_index + 1:]:
+            next_id = str(video.get("video_id", "") or "")
+            if next_id and next_id != selected_id:
+                self._autoplay_fallback_video = video
+                break
+        fallback = self._autoplay_fallback_video
+        print(
+            f"UI: Auto-play recovery armed video={selected_id} "
+            f"fallback={fallback.get('video_id') if fallback else '-'}"
+        )
+
+    def _handle_autoplay_failure(self, video_id, reason):
+        """Try the second-ranked video once; never loop across the whole list."""
+        if video_id != getattr(self, "_autoplay_active_video_id", None):
+            return
+        if video_id == getattr(self, "_play_watch_video_id", None):
+            self._clear_play_start_watch()
+        fallback = getattr(self, "_autoplay_fallback_video", None)
+        self._autoplay_fallback_video = None
+        self._autoplay_active_video_id = None
+        preview = getattr(self, "_shazam_preview", None)
+        protected = self._confirmed_shazam_awaiting_play()
+        target = (preview if preview and preview.video_id == video_id else
+                  protected if protected and protected.video_id == video_id else None)
+        if target:
+            if not fallback:
+                print(f"UI: Shazam cue failed without fallback: {video_id} ({reason})")
+                target.update(video_id=None, ready=False)
+                if target is protected:
+                    self._confirmed_shazam_pending = None
+                    self._release_deferred_shazam_cue()
+                return
+            next_id = str(fallback.get("video_id", "") or "")
+            print(f"UI: Shazam preload fallback after {reason}: {video_id} -> {next_id}")
+            self._autoplay_active_video_id = next_id
+            self._cue_shazam_preview_video(fallback, preview=target)
+            self._select_search_video(next_id)
+            return
+        if not fallback or not getattr(self, "auto_play_top_result", False):
+            print(f"UI: Auto-play failed with no further fallback: {video_id} ({reason})")
+            return
+        next_id = str(fallback.get("video_id", "") or "")
+        print(f"UI: Auto-play fallback after {reason}: {video_id} -> {next_id}")
+        self._autoplay_active_video_id = next_id
+        self._auto_play_video(fallback)
+        self._select_search_video(next_id)
+
+    def _on_preload_retry_timeout(self):
+        """Resend a genuinely new cue request after 15s; cap recovery traffic."""
+        video_id = getattr(self, "_preload_watch_video_id", None)
+        if not video_id:
+            return
+        retries = getattr(self, "_preload_watch_retries", 0)
+        if retries >= 2:
+            print(f"UI: PRELOAD timed out after 2 retries (45s): {video_id}")
+            self._clear_preload_watch()
+            if self.pending_play_video_id == video_id:
+                self.pending_play_video_id = None
+            if self.pending_auto_seek_video_id == video_id:
+                self.pending_auto_seek_video_id = None
+            if self.preloaded_video_id == video_id:
+                self.preloaded_video_id = None
+                self.youtube_video_state = 'error'
+            self._update_youtube_border_color('error', video_id)
+            self._handle_autoplay_failure(video_id, "preload-timeout")
+            return
+        self._preload_watch_retries = retries + 1
+        attempt = self.shazam_flow.active_attempt
+        if attempt is not None and attempt.video_id == video_id:
+            attempt.preload_retries = self._preload_watch_retries
+        print(
+            f"UI: PRELOAD still pending after 15s; retry="
+            f"{self._preload_watch_retries}/2 video={video_id} forceReload=true"
+        )
+        if self._send_video_command(
+            "PRELOAD", video_id, self._preload_watch_video_data, force_reload=True
+        ):
+            # The browser must handle forceReload; merely echoing a cached state
+            # for the same ID would not recover a stalled cue.
+            if hasattr(self, "_preload_retry_timer"):
+                self._preload_retry_timer.start(15000)
+        else:
+            print(f"UI: PRELOAD retry could not be queued: {video_id}")
+            self._clear_preload_watch()
+            if self.pending_play_video_id == video_id:
+                self.pending_play_video_id = None
+            self._handle_autoplay_failure(video_id, "preload-retry-enqueue-failed")
 
     def _request_player_state(self):
         if hasattr(self, "player_server") and self.player_server:
@@ -1095,6 +1310,25 @@ class MainWindow(QMainWindow):
         if not self.auto_play_top_result:
             self.anime_op_mode = False
             self.pending_auto_seek_video_id = None
+            preview = getattr(self, "_shazam_preview", None)
+            if preview:
+                # Once disabled, a subsequent ON must not retroactively PLAY a
+                # song whose second vote arrived while auto-play was OFF.
+                preview.play_authorized = False
+                self.pending_play_video_id = None
+            protected = self._confirmed_shazam_awaiting_play()
+            if protected:
+                protected.play_authorized = False
+                self._confirmed_shazam_pending = None
+                self.pending_play_video_id = None
+                self._cancel_autoplay_recovery("auto-play disabled")
+                self._release_deferred_shazam_cue()
+            if (not preview or not preview.video_id) and not protected:
+                self._cancel_autoplay_recovery("auto-play disabled")
+            else:
+                # The user requested early PRELOAD even with automatic PLAY OFF.
+                # Keep its 15-second retry watchdog and ranking fallback alive.
+                print("UI: Shazam tentative PRELOAD kept while auto-play is OFF")
         self.title_bar.set_auto_play_checked(self.auto_play_top_result)
         self.title_bar.set_anime_op_checked(self.anime_op_mode)
         self.config_service.save_config({
@@ -1141,6 +1375,9 @@ class MainWindow(QMainWindow):
                 self.shazam_service.start()
             print("UI: Source mode -> Shazam")
         else:
+            preview = getattr(self, "_shazam_preview", None)
+            if preview:
+                self.on_shazam_candidate_rejected(preview.id, "source-mode-changed")
             if hasattr(self, "shazam_service"):
                 self.shazam_service.stop()
             if hasattr(self, "rekordbox_table_model"):
@@ -1284,9 +1521,216 @@ class MainWindow(QMainWindow):
 
     def on_shazam_history_updated(self, new_history):
         """Shazam履歴を最大50件で右カラムへ反映する。"""
-        self.shazam_table_model.update_data(new_history)
+        preview = getattr(self, "_shazam_preview", None)
+        protected = self._confirmed_shazam_awaiting_play()
+        if preview and preview.confirmed:
+            # history_updated is only emitted by the service for a committed result.
+            # Do not show the same song twice as preview + confirmed history.
+            preview.committed = True
+        elif protected:
+            protected.committed = True
+        self._refresh_shazam_history_view(new_history)
+
+    def _refresh_shazam_history_view(self, new_history):
+        preview = getattr(self, "_shazam_preview", None)
+        rows = list(new_history)
+        if preview and not preview.committed:
+            entry = preview.entry
+            label = "確定・情報補完中" if preview.confirmed else "仮"
+            rows.insert(0, (f"{entry[0]} ({label})", entry[1], entry[2]))
+        self.shazam_table_model.update_data(rows[:50])
         if self.source_mode == "shazam" and self.shazam_table_model.rowCount() > 0:
             self.right_table.selectRow(0)
+
+    def _confirmed_shazam_awaiting_play(self):
+        """A two-vote confirmed song which has not actually started in the browser."""
+        return self.shazam_flow.confirmed_awaiting_play()
+
+    def _release_deferred_shazam_cue(self):
+        """Cue a newer one-vote song only AFTER the preceding confirmed song starts."""
+        preview = getattr(self, "_shazam_preview", None)
+        if not preview:
+            return
+        videos = preview.pop("deferred_videos", None)
+        selected_index = preview.pop("deferred_index", None)
+        if videos is None or selected_index is None:
+            return
+        if not 0 <= selected_index < len(videos):
+            return
+        print(f"UI: Releasing deferred Shazam PRELOAD firstSeq={preview.id} "
+              f"after confirmed playback has resolved")
+        self._start_autoplay_recovery(videos, selected_index)
+        self._cue_shazam_preview_video(videos[selected_index])
+
+    def on_shazam_candidate_started(self, candidate_id, entry):
+        """First vote: show an unsaved row, search YouTube, cue but NEVER play."""
+        if self.source_mode != "shazam" or len(entry) < 3:
+            return
+        previous = getattr(self, "_shazam_preview", None)
+        if previous:
+            self.on_shazam_candidate_rejected(previous.id, "replaced-by-new-vote")
+        # New one-vote C is *separate* from B's confirmed PLAY transaction.
+        self.shazam_flow.begin_vote(int(candidate_id), tuple(entry[:3]))
+        self._refresh_shazam_history_view(self.shazam_service.get_history())
+        if self.youtube_search_box.text().strip():
+            self.youtube_search_box.clear()
+        print(f"UI: Shazam tentative row added firstSeq={candidate_id} "
+              f"title={entry[1]!r} artist={entry[2]!r}; search/preload only")
+        self.search_youtube(entry[1], entry[2], "", from_list=True,
+                            allow_auto_play=False, source_mode="shazam",
+                            shazam_candidate_id=int(candidate_id))
+
+    def on_shazam_candidate_rejected(self, candidate_id, reason):
+        """Remove only this uncommitted preview and suppress its late callbacks."""
+        preview = getattr(self, "_shazam_preview", None)
+        if not preview or preview.id != int(candidate_id):
+            return
+        if preview.confirmed:
+            self._shazam_preview = None
+            if (not preview.playing_ack and reason != "source-mode-changed" and
+                    preview.play_authorized and not preview.manual_override and
+                    getattr(self, "auto_play_top_result", False)):
+                # The first C vote must not revoke B's two-vote authorization.
+                self.shazam_flow.preserve_confirmed(preview)
+                self._refresh_shazam_history_view(self.shazam_service.get_history())
+                print(f"UI: Preserving confirmed Shazam PLAY firstSeq={candidate_id} "
+                      f"video={preview.video_id or '-'} while next vote is tentative")
+            else:
+                if reason == "source-mode-changed":
+                    self._cancel_autoplay_recovery(reason)
+                self._refresh_shazam_history_view(self.shazam_service.get_history())
+                print(f"UI: Retired confirmed Shazam candidate firstSeq={candidate_id} "
+                      f"reason={reason}; playing playback left intact")
+            return
+        # Rejecting C must not alter any B-owned PRELOAD, pending PLAY, seek
+        # or watchdog, even when C happens to select the *same video ID*.
+        owns_attempt = (preview.attempt is not None and
+                        self.shazam_flow.active_attempt is preview.attempt)
+        self.shazam_flow.reject_vote(int(candidate_id))
+        self._sync_pending_search_args()
+        video_id = preview.video_id if owns_attempt else None
+        if video_id:
+            self._abandoned_preview_video_ids.add(video_id)
+            if len(self._abandoned_preview_video_ids) > 16:
+                self._abandoned_preview_video_ids = {video_id}
+            if self.pending_play_video_id == video_id:
+                self.pending_play_video_id = None
+            if self.pending_auto_seek_video_id == video_id:
+                self.pending_auto_seek_video_id = None
+            if self.preloaded_video_id == video_id:
+                self.preloaded_video_id = None
+            if getattr(self, "_preload_watch_video_id", None) == video_id:
+                self._clear_preload_watch()
+        if not self._confirmed_shazam_awaiting_play():
+            self._cancel_autoplay_recovery("tentative Shazam candidate rejected")
+        if getattr(self, "_youtube_results_owner_candidate_id", None) == int(candidate_id):
+            self._youtube_results_owner_candidate_id = None
+            self._youtube_list_generation += 1
+            if hasattr(self, "_thumbnail_manager") and self._thumbnail_manager:
+                self._thumbnail_manager.reset()
+            self.left_pane.clear_results()
+        self.shazam_table_model.update_data(self.shazam_service.get_history())
+        print(f"UI: Shazam tentative removed firstSeq={candidate_id} reason={reason}; "
+              "no history.json change and no PLAY")
+
+    def on_shazam_candidate_confirmed(self, candidate_id, entry):
+        """Second matching vote: PLAY if enabled, including an already-ready cue."""
+        preview = getattr(self, "_shazam_preview", None)
+        if not preview or preview.id != int(candidate_id):
+            return
+        # Unlike a first vote, a NEW two-vote confirmation may supersede a
+        # previous confirmed song that never reached browser PLAYING.
+        old = self._confirmed_shazam_awaiting_play()
+        if old and old.id != int(candidate_id):
+            print(f"UI: New two-vote confirmation supersedes pending "
+                  f"firstSeq={old.id} with firstSeq={candidate_id}")
+        # Transfer ownership as one state-machine transition *before* clearing
+        # the legacy watchdogs. A stale B callback cannot win in between.
+        self.shazam_flow.supersede_with_confirmation(int(candidate_id))
+        self._sync_pending_search_args()
+        if old and old.id != int(candidate_id):
+            self._cancel_autoplay_recovery("new confirmed Shazam track")
+        preview.play_authorized = bool(
+            self.auto_play_top_result and not preview.manual_override
+        )
+        self._refresh_shazam_history_view(self.shazam_service.get_history())
+        # The early search may have completed while the preceding B was still
+        # waiting: a genuine C confirmation now has priority and can be cued.
+        self._release_deferred_shazam_cue()
+        print(f"UI: Shazam second vote confirmed firstSeq={candidate_id} "
+              f"video={preview.video_id or '-'} ready={preview.ready} "
+              f"autoPlay={self.auto_play_top_result}")
+        self._play_confirmed_shazam_preview_if_ready()
+
+    def _play_confirmed_shazam_preview_if_ready(self, preview=None):
+        """Arm PLAY only AFTER the second vote; ready may arrive in either order."""
+        if preview is None:
+            preview = getattr(self, "_shazam_preview", None)
+        if not preview or not preview.confirmed or preview.manual_override:
+            return
+        if not preview.play_authorized or not getattr(self, "auto_play_top_result", False):
+            return
+        video_id = preview.video_id
+        if not video_id:
+            return  # Search is still running; cue completion will arm playback.
+        if preview.play_sent:
+            return
+        try:
+            seek_seconds = int(self.config_service.get("auto_play_seek_seconds", 0))
+        except (TypeError, ValueError):
+            seek_seconds = 0
+        self.pending_auto_seek_video_id = video_id if seek_seconds > 0 else None
+        if not preview.ready:
+            self.pending_play_video_id = video_id
+            return
+        self.pending_play_video_id = video_id
+        if self._send_video_command("PLAY", video_id, self._find_video_data(video_id),
+                                    track_info_override=preview.track_info):
+            self.pending_play_video_id = None
+            preview.play_sent = True
+            # Tests / alternate transports can supply a bool without a command
+            # ID; the production HTTP bridge normally stores its real ID.
+            attempt = preview.attempt
+            if attempt is not None and attempt.play_request_id is None:
+                # Real send_command will have stored the request ID already.
+                # A transport mock may only return True; still record intent.
+                attempt.play_requested(None)
+            print(f"UI: Shazam confirmed; PLAY queued for ready cue: {video_id}; awaiting browser PLAYING")
+        else:
+            self.pending_play_video_id = None
+            self._handle_autoplay_failure(video_id, "confirmed-play-enqueue-failed")
+
+    def _cue_shazam_preview_video(self, video, preview=None):
+        """PRELOAD the candidate without the existing auto-PLAY-on-ready latch."""
+        if preview is None:
+            preview = getattr(self, "_shazam_preview", None)
+        if not preview or not video:
+            return
+        video_id = str(video.get("video_id", "") or "")
+        if not video_id:
+            return
+        # C may search freely, but must never overwrite B's physical cue
+        # until B PLAYING (or C itself is confirmed by a second vote).
+        if not self.shazam_flow.can_cue(preview.id):
+            preview.deferred_videos = [video]
+            preview.deferred_index = 0
+            print(f"UI: Deferred Shazam PRELOAD firstSeq={preview.id} "
+                  f"while confirmed firstSeq={self._confirmed_shazam_awaiting_play().id} plays")
+            return
+        if self.shazam_flow.begin_preload(preview, video_id) is None:
+            return
+        self._abandoned_preview_video_ids.discard(video_id)
+        self.preloaded_video_id = video_id
+        self.pending_play_video_id = None
+        self.pending_auto_seek_video_id = None
+        if not self._send_video_command("PRELOAD", video_id, video,
+                                        track_info_override=preview.track_info):
+            self._handle_autoplay_failure(video_id, "tentative-preload-enqueue-failed")
+            return
+        self._update_youtube_video_state("preloading", video_id)
+        print(f"UI: Shazam tentative PRELOAD sent firstSeq={preview.id} "
+              f"video={video_id} confirmed={preview.confirmed}; awaiting ready")
+        self._play_confirmed_shazam_preview_if_ready(preview)
 
     def on_shazam_new_track_detected(self, entry):
         """Shazamで曲が変わった時、既存のYouTube検索フローへ渡す。"""
@@ -1294,6 +1738,16 @@ class MainWindow(QMainWindow):
             return
 
         timestamp, track_title, artist = entry[0], entry[1], entry[2]
+        preview = getattr(self, "_shazam_preview", None)
+        if preview and preview.confirmed and preview.committed:
+            print(f"UI: Shazam tentative already searched firstSeq={preview.id}; "
+                  "committed to history without a duplicate search")
+            return
+        protected = self._confirmed_shazam_awaiting_play()
+        if protected and protected.committed:
+            print(f"UI: Confirmed Shazam firstSeq={protected.id} still awaiting "
+                  "PLAY; ignoring duplicate publication/search")
+            return
         self.right_table.selectRow(0)
         if self.youtube_search_box.text().strip():
             self.youtube_search_box.clear()
@@ -1611,7 +2065,8 @@ class MainWindow(QMainWindow):
             print("UI: No video ID found for selected YouTube video")
             return
 
-        # 手動プリロードでは、自動検索由来の早送り待ちを解除する。
+        # 手動操作は旧検索の自動フォールバックより優先する。
+        self._cancel_autoplay_recovery("manual preload")
         self.pending_auto_seek_video_id = None
         
         print(f"UI: Preloading YouTube video via hotkey: {title} ({video_id})")
@@ -1681,7 +2136,8 @@ class MainWindow(QMainWindow):
             print("UI: No video ID found for selected YouTube video")
             return
 
-        # 手動再生では、自動検索由来の早送り待ちを解除する。
+        # 手動操作は旧検索の自動フォールバックより優先する。
+        self._cancel_autoplay_recovery("manual play")
         self.pending_auto_seek_video_id = None
         
         print(f"UI: Playing YouTube video via hotkey: {title} ({video_id})")
@@ -1789,13 +2245,14 @@ class MainWindow(QMainWindow):
         )
 
     def search_youtube(
-        self, track_title, artist, comment, from_list=False, allow_auto_play=True, source_mode=None
+        self, track_title, artist, comment, from_list=False, allow_auto_play=True,
+        source_mode=None, shazam_candidate_id=None, _queued_request=None,
     ):
         """YouTubeで動画を検索。
         
         - 検索中でなければ即座に実行する。
-        - 既に検索中の場合は「保留キュー」に登録する（最新1件のみ）。
-          既にキューに入っていた曲は破棄し、最後に追加されたものだけを保持する。
+        - 検索中は状態モデルに保留。確定済みBの検索は仮候補Cに
+          上書きされず、Cが2回一致した時だけ差し替える。
         - 前の検索完了後、1秒待機してから保留中の検索を実行する。
         
         Args:
@@ -1804,21 +2261,28 @@ class MainWindow(QMainWindow):
         """
         from app.utils.logger import info, error
         from app.services.youtube_service import YouTubeService
+        from app.models.search_request import SearchRequest
 
         search_source_mode = str(source_mode or getattr(self, "source_mode", "rekordbox")).lower()
         if search_source_mode not in ("rekordbox", "shazam"):
             search_source_mode = "rekordbox"
+        if shazam_candidate_id is None:
+            preview = getattr(self, "_shazam_preview", None)
+            if preview:
+                preview.manual_override = True
+                print("UI: Shazam tentative PLAY disabled by independent YouTube search")
 
-        # Shazam can occasionally identify only the title. Keep the history/search result
-        # usable, but never auto-play a weak title-only match. Manual searches already pass
-        # allow_auto_play=False and Rekordbox behavior is intentionally unchanged.
+        # Shazamのアーティスト未取得時も、自動検索なら再生を許可する。
+        # （手動検索は従来どおり allow_auto_play=False のまま。）
         if search_source_mode == "shazam" and from_list and not str(artist or "").strip():
-            allow_auto_play = False
-            print(
-                f"UI: Auto-play suppressed for Shazam title-only track: "
-                f"{track_title or ''}"
-            )
+            print(f"UI: Shazam title-only track; keeping auto-play setting: {track_title or ''}")
         
+        # 新たな検索要求後は、前曲の失敗で旧結果へ戻らないようにする。
+        if not (shazam_candidate_id is not None and self._confirmed_shazam_awaiting_play()):
+            self._cancel_autoplay_recovery("new YouTube search")
+        else:
+            print("UI: New tentative search preserves previous confirmed PLAY")
+
         # 右カラムのリストから検索された場合、楽曲情報を保持
         if from_list:
             self._current_track_info = {
@@ -1828,18 +2292,41 @@ class MainWindow(QMainWindow):
             }
             print(f"UI: Track info saved - title: {track_title}, artist: {artist}, comment: {comment}")
         
-        # 検索中なら保留キューに登録して終了
-        if self.youtube_search_thread and self.youtube_search_thread.isRunning():
-            # 古い保留は破棄して最新の1件だけ保持
-            self._pending_search_args = (
-                track_title, artist, comment, from_list, allow_auto_play, search_source_mode
-            )
-            info(f"Search queued (previous search running): {track_title}", "UI")
+        flow = getattr(self, "shazam_flow", None)
+        candidate = (flow.find_candidate(int(shazam_candidate_id))
+                     if flow is not None and shazam_candidate_id is not None else None)
+        search_request = _queued_request or SearchRequest(
+            title=str(track_title or ""), artist=str(artist or ""),
+            comment=str(comment or ""), candidate_id=shazam_candidate_id,
+            source_mode=search_source_mode, allow_auto_play=bool(allow_auto_play),
+            from_list=bool(from_list), confirmed=bool(candidate and candidate.confirmed),
+        )
+        # QThread may already be finished while its 'finished' callback/1s
+        # queue timer is still pending. Never jump ahead of that queued B.
+        search_busy = bool(self.youtube_search_thread and self.youtube_search_thread.isRunning())
+        has_queued_work = bool(flow is not None and flow.queued_search is not None)
+        if _queued_request is None and (search_busy or has_queued_work):
+            if flow is not None:
+                flow.queue_search(search_request)
+                self._sync_pending_search_args()
+                priority = ("speculative" if flow.speculative_search is search_request
+                            else "next")
+            else:
+                # Compatibility with a non-stateful external/test caller.
+                self._pending_search_args = (
+                    track_title, artist, comment, from_list,
+                    allow_auto_play, search_source_mode, shazam_candidate_id,
+                )
+                priority = "next"
+            info(f"Search queued ({priority}): {track_title}", "UI")
             return
         
         # この検索が自動再生対象かを検索完了まで保持する。
         # 検索は同時に1本だけなので、アクティブ検索の属性として保持できる。
         self._active_search_allow_auto_play = bool(allow_auto_play)
+        self._active_search_candidate_id = shazam_candidate_id
+        if flow is not None:
+            flow.register_search(search_request)
 
         youtube_service = YouTubeService()
         
@@ -1930,6 +2417,14 @@ class MainWindow(QMainWindow):
             self.youtube_search_box.style().polish(self.youtube_search_box)
             print("UI: Search completed - search box enabled")
 
+    def _sync_pending_search_args(self):
+        """Keep the old UI tuple in sync with the authoritative typed queue."""
+        request = self.shazam_flow.queued_search
+        self._pending_search_args = (
+            request.title, request.artist, request.comment, request.from_list,
+            request.allow_auto_play, request.source_mode, request.candidate_id,
+        ) if request is not None and request.valid else None
+
     def _on_search_finished(self):
         """検索QThreadが実際に終了した後だけ参照を解放する。
         保留中の検索があれば 1秒後に実行する。
@@ -1949,6 +2444,14 @@ class MainWindow(QMainWindow):
         self._set_searching_state(False)
         if finished_thread is None or finished_thread is self.youtube_search_thread:
             self.youtube_search_thread = None
+            self._active_search_candidate_id = None
+            active_request = self.shazam_flow.active_search
+            if active_request and active_request.phase == SearchPhase.RUNNING:
+                active_request.phase = SearchPhase.COMPLETED
+            self.shazam_flow.active_search = None
+
+        self.shazam_flow.promote_speculative_search()
+        self._sync_pending_search_args()
 
         if self._pending_search_args is not None:
             info("Search finished. Pending search found - will execute in 1 second.", "UI")
@@ -1958,20 +2461,36 @@ class MainWindow(QMainWindow):
         """保留中のYouTube検索を実行する（検索完了から1秒後に呼ばれる）"""
         from app.utils.logger import info
         
-        if self._pending_search_args is None:
+        if self.youtube_search_thread and self.youtube_search_thread.isRunning():
+            self._pending_search_timer.start(1000)
             return
-        
-        track_title, artist, comment, from_list, allow_auto_play, source_mode = self._pending_search_args
-        self._pending_search_args = None  # キューをクリア
-        
-        info(f"Executing pending search: {track_title}", "UI")
+
+        request = self.shazam_flow.pop_queued_search()
+        if request is None:
+            self._sync_pending_search_args()
+            return
+        # Popping B promotes a waiting speculative C to the *next* slot.
+        # C cannot overtake B, even if its first vote arrived before the
+        # previous QThread emitted 'finished'.
+        self._sync_pending_search_args()
+        if request.candidate_id is not None and self.shazam_flow.find_candidate(
+                int(request.candidate_id)) is None:
+            request.cancel()
+            info(f"Skipping obsolete pending search: {request.title}", "UI")
+            if self._pending_search_args is not None:
+                self._pending_search_timer.start(1000)
+            return
+
+        info(f"Executing pending search: {request.title} confirmed={request.confirmed}", "UI")
         self.search_youtube(
-            track_title,
-            artist,
-            comment,
-            from_list=from_list,
-            allow_auto_play=allow_auto_play,
-            source_mode=source_mode,
+            request.title,
+            request.artist,
+            request.comment,
+            from_list=request.from_list,
+            allow_auto_play=request.allow_auto_play,
+            source_mode=request.source_mode,
+            shazam_candidate_id=request.candidate_id,
+            _queued_request=request,
         )
 
     def _auto_play_video(self, video):
@@ -2002,7 +2521,11 @@ class MainWindow(QMainWindow):
             auto_seek_seconds = 0
         self.pending_auto_seek_video_id = video_id if auto_seek_seconds > 0 else None
 
-        self._send_video_command("PRELOAD", video_id, video)
+        if not self._send_video_command("PRELOAD", video_id, video):
+            self.pending_play_video_id = None
+            self.pending_auto_seek_video_id = None
+            self._handle_autoplay_failure(video_id, "preload-enqueue-failed")
+            return
         self._update_youtube_video_state("preloading", video_id)
         print(f"UI: Auto-play queued search result: {title} ({video_id})")
 
@@ -2010,6 +2533,44 @@ class MainWindow(QMainWindow):
         """YouTube検索完了時のコールバック"""
         from app.utils.logger import info, debug
 
+        # Correlate queued Qt callbacks with the QThread that emitted them.
+        # Once the next search starts, the global _active_search_candidate_id
+        # points at C. A late B callback must not be interpreted as C's result.
+        sender = getattr(self, "sender", lambda: None)()
+        if sender is not None and sender is not getattr(self, "youtube_search_thread", None):
+            info("Ignoring result from obsolete YouTube search worker", "UI")
+            return
+        candidate_id = getattr(self, "_active_search_candidate_id", None)
+        active_request = self.shazam_flow.active_search
+        if (active_request is not None and active_request.candidate_id == candidate_id
+                and not active_request.valid):
+            print(f"UI: Ignoring cancelled YouTube search results firstSeq={candidate_id}")
+            return
+        preview = getattr(self, "_shazam_preview", None)
+        protected = self._confirmed_shazam_awaiting_play()
+        candidate_preview = (self.shazam_flow.find_candidate(candidate_id)
+                             if candidate_id is not None else None)
+        if candidate_id is not None and candidate_preview is None:
+            print(f"UI: Ignoring late YouTube results for rejected Shazam candidate {candidate_id}")
+            return
+        pending_args = getattr(self, "_pending_search_args", None)
+        queued_request = self.shazam_flow.queued_search
+        waiting_for_tentative = bool(
+            queued_request is not None and queued_request.candidate_id is not None
+            and not queued_request.confirmed
+        )
+        # Legacy method-extraction callers can still provide the old pending
+        # tuple. In production the typed queued_request is authoritative.
+        if queued_request is None and pending_args is not None and len(pending_args) >= 7:
+            pending_candidate = self.shazam_flow.find_candidate(pending_args[6])
+            waiting_for_tentative = bool(pending_candidate and not pending_candidate.confirmed)
+        if (pending_args is not None and not (
+                candidate_preview and candidate_preview.confirmed and waiting_for_tentative)):
+            print("UI: Ignoring superseded YouTube results; newer search is queued")
+            return
+
+        if active_request and active_request.candidate_id == candidate_id and active_request.valid:
+            active_request.phase = SearchPhase.COMPLETED
         self._youtube_search_error_message = ""
         import time as _time
         self._youtube_api_last_success_time = _time.time()
@@ -2018,11 +2579,16 @@ class MainWindow(QMainWindow):
             self.youtube_search_box.setProperty("searchError", False)
         
         self._refresh_connection_statuses()
+        if not (candidate_id is not None and protected):
+            self._cancel_autoplay_recovery("search results replaced")
 
         if not videos:
             info("No YouTube videos found", "UI")
             self.left_pane.clear_results()
             return
+
+        self._youtube_list_generation = getattr(self, "_youtube_list_generation", 0) + 1
+        self._youtube_results_owner_candidate_id = candidate_id
         
         # 設定に応じてウィンドウを最前面に表示（ホットキーと同じ実装）
         if self.config_service.get("bring_to_front_on_search", False):
@@ -2056,17 +2622,33 @@ class MainWindow(QMainWindow):
         # Keep the displayed ranking unchanged; only the automatic choice differs.
         # Manual searches never start playback, regardless of either toggle.
         selected_index = 0
-        if getattr(self, "_active_search_allow_auto_play", True):
+        if candidate_id is not None:
+            from app.services.autoplay_selection import select_auto_play_index
+            selected_index = select_auto_play_index(initial_videos, self.anime_op_mode)
+            if protected and candidate_preview is not protected:
+                # Do not overwrite B's physical nextPlayer while B is confirmed
+                # and waiting. Store C's chosen video and allow its search UI.
+                candidate_preview.deferred_videos = videos
+                candidate_preview.deferred_index = selected_index
+                print(f"UI: Deferred tentative PRELOAD firstSeq={candidate_id} "
+                      f"until confirmed previous track starts")
+            else:
+                self._start_autoplay_recovery(videos, selected_index)
+                self._cue_shazam_preview_video(initial_videos[selected_index],
+                                               preview=candidate_preview)
+        elif getattr(self, "_active_search_allow_auto_play", True):
             if self.auto_play_top_result:
                 from app.services.autoplay_selection import select_auto_play_index
                 selected_index = select_auto_play_index(initial_videos, self.anime_op_mode)
+                self._start_autoplay_recovery(videos, selected_index)
                 self._auto_play_video(initial_videos[selected_index])
         else:
             print("UI: Auto-play skipped - manual YouTube search")
 
-        # The list model is already populated. Select the actual candidate now,
-        # without a delayed first-row reset overriding it or a later user click.
-        self._select_search_video(initial_videos[selected_index].get("video_id", ""))
+        # An enqueue failure can synchronously move to the fallback before this
+        # callback finishes. Do not reselect the already-failed first result.
+        chosen_id = getattr(self, "_autoplay_active_video_id", None) or initial_videos[selected_index].get("video_id", "")
+        self._select_search_video(chosen_id)
 
         # 非同期でサムネイルを読み込む（最初の5件）
         # 新しい検索開始なのでキューをリセットしてから追加
@@ -2088,7 +2670,9 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QTimer
         
         # 500ms後に残りの動画を追加
-        QTimer.singleShot(500, lambda: self._add_remaining_videos(remaining_videos))
+        generation = getattr(self, "_youtube_list_generation", 0)
+        QTimer.singleShot(500, lambda: self._add_remaining_videos(remaining_videos)
+                          if generation == getattr(self, "_youtube_list_generation", 0) else None)
     
     def _add_remaining_videos(self, remaining_videos):
         """残りの動画をリストに追加"""
@@ -2269,6 +2853,31 @@ class MainWindow(QMainWindow):
     
     def on_youtube_search_error(self, error_message):
         """検索失敗時も直前の正常結果を残し、偽のクリック可能結果は作らない。"""
+        sender = getattr(self, "sender", lambda: None)()
+        if sender is not None and sender is not getattr(self, "youtube_search_thread", None):
+            print("UI: Ignoring error from obsolete YouTube search worker")
+            return
+        candidate_id = getattr(self, "_active_search_candidate_id", None)
+        request = self.shazam_flow.active_search
+        if (request is not None and request.candidate_id == candidate_id
+                and not request.valid):
+            print(f"UI: Ignoring cancelled YouTube search error firstSeq={candidate_id}")
+            return
+        preview = getattr(self, "_shazam_preview", None)
+        protected = self._confirmed_shazam_awaiting_play()
+        if candidate_id is not None and (
+                not (preview and preview.id == candidate_id) and
+                not (protected and protected.id == candidate_id) and
+                not (self.shazam_flow.confirmed_search_owner and
+                     self.shazam_flow.confirmed_search_owner.id == candidate_id)):
+            print(f"UI: Ignoring stale Shazam candidate search error firstSeq={candidate_id}")
+            return
+        if request is not None and request.candidate_id == candidate_id:
+            request.phase = SearchPhase.FAILED
+        if protected and protected.id == candidate_id:
+            print(f"UI: Confirmed Shazam search failed before PRELOAD firstSeq={candidate_id}")
+            self._confirmed_shazam_pending = None
+            self._release_deferred_shazam_cue()
         print(f"UI: YouTube search error: {error_message}")
         import time as _time
         self._youtube_api_last_error_time = _time.time()
@@ -2296,6 +2905,9 @@ class MainWindow(QMainWindow):
                 return
             
             print(f"UI: YouTube video double-clicked: {title} ({video_id})")
+            self._cancel_autoplay_recovery("manual double-click")
+            self.pending_play_video_id = None
+            self.pending_auto_seek_video_id = None
             print(f"UI: Current last_clicked_video_id: {getattr(self, 'last_clicked_video_id', 'None')}")
             
             # 状態に応じてコマンドを送信
@@ -2333,10 +2945,25 @@ class MainWindow(QMainWindow):
             video_id = str(feedback_data.get('videoId', '') or '')
             player_id = str(feedback_data.get('playerId', '') or '').upper()
             is_current = feedback_data.get('isCurrent')
+            request_id = str(feedback_data.get('requestId', '') or '')
 
             import time
             self._last_player_feedback_time = time.time()
             if state.upper() == 'HEARTBEAT':
+                return
+            # A delayed PLAYING for a different request must not finish B's
+            # watchdog (or mark it playing) just because YouTube chose the same ID.
+            play_video = getattr(self, '_play_watch_video_id', None)
+            play_request = getattr(self, '_play_watch_request_id', None)
+            if state == 'playing' and play_video == video_id and play_request and request_id != play_request:
+                print(f"UI: Ignored stale PLAYING video={video_id} "
+                      f"request={request_id or '-'} expected={play_request}")
+                return
+
+            # Canceled previews must not be revived by an older browser cue.
+            if (state in ('ready', 'preloading', 'error') and
+                    video_id in getattr(self, '_abandoned_preview_video_ids', set())):
+                print(f"UI: Ignored stale tentative preload feedback state={state} video={video_id}")
                 return
 
             self._update_player_control_panel(feedback_data)
@@ -2345,9 +2972,28 @@ class MainWindow(QMainWindow):
                 f"player: {player_id or '-'}, video: {video_id}"
             )
 
+            # Old player snapshots and previous retries must not certify a new cue.
+            watch_id = getattr(self, '_preload_watch_video_id', None)
+            watch_request = getattr(self, '_preload_watch_request_id', None)
+            if state in ('ready', 'preloading', 'error') and watch_id == video_id and watch_request:
+                if request_id != watch_request:
+                    print(f"UI: Ignoring stale PRELOAD feedback state={state} "
+                          f"video={video_id} request={request_id or '-'} expected={watch_request}")
+                    return
+            if state in ('ready', 'error') and watch_id == video_id:
+                if not watch_request or request_id == watch_request:
+                    self._clear_preload_watch()
+
             # ready/preloading identify the prepared next video even though it is not visible yet.
             if state == 'ready':
                 self._update_youtube_video_state('ready', video_id)
+
+                # PRELOAD feedback belongs to one candidate-specific attempt;
+                # checking only the YouTube video ID is unsafe across B/C.
+                ready_candidate = self.shazam_flow.accept_ready(video_id, request_id)
+                if ready_candidate:
+                    # Only a two-vote confirmed track is allowed to enqueue PLAY.
+                    self._play_confirmed_shazam_preview_if_ready(ready_candidate)
 
                 print(
                     f"UI: Checking auto-play - pending_play_video_id: "
@@ -2357,11 +3003,14 @@ class MainWindow(QMainWindow):
                     if self._send_video_command(
                         'PLAY', video_id, self._find_video_data(video_id)
                     ):
-                        self._update_youtube_video_state('playing', video_id)
+                        # Browser confirms real PLAYING asynchronously.
                         self.pending_play_video_id = None
                         print(f"UI: Sent PLAY command for auto-play: {video_id}")
                     else:
                         print("UI: Player server not available for auto-play")
+                        if self.pending_play_video_id == video_id:
+                            self.pending_play_video_id = None
+                        self._handle_autoplay_failure(video_id, "play-enqueue-failed")
 
             elif state == 'preloading':
                 self._update_youtube_video_state('preloading', video_id)
@@ -2407,8 +3056,32 @@ class MainWindow(QMainWindow):
                     self.current_playing_video_id = video_id
                     if self.pending_play_video_id == video_id:
                         self.pending_play_video_id = None
+                    watched_play = getattr(self, "_play_watch_video_id", None)
+                    expected_play_request = getattr(self, "_play_watch_request_id", None)
+                    verified_auto_play = (watched_play == video_id and
+                                          (not expected_play_request or request_id == expected_play_request))
+                    if verified_auto_play:
+                        self._clear_play_start_watch()
+                    if video_id == getattr(self, "_autoplay_active_video_id", None) and (
+                            verified_auto_play or not expected_play_request):
+                        self._cancel_autoplay_recovery("playback started")
+                    # Never acknowledge a new tentative C because B happens
+                    # to have the same YouTube ID. Only the owning PLAY token
+                    # may complete the protected B transaction.
+                    protected = self._confirmed_shazam_awaiting_play()
+                    playing_owner = self.shazam_flow.accept_playing(video_id, request_id)
+                    if protected is not None and playing_owner is protected:
+                        self._release_deferred_shazam_cue()
 
             elif state == 'error':
+                # Ignore delayed errors for superseded play requests.
+                watched = getattr(self, "_play_watch_video_id", None)
+                expected_play_request = getattr(self, "_play_watch_request_id", None)
+                if watched == video_id and expected_play_request and request_id and request_id != expected_play_request:
+                    print(f"UI: Ignoring stale PLAY error video={video_id} request={request_id}")
+                    return
+                if watched == video_id:
+                    self._clear_play_start_watch()
                 # Browser has already stopped/blackened the failed physical player.
                 # Reflect the failure on the original search result without switching videos.
                 if self.pending_play_video_id == video_id:
@@ -2422,6 +3095,9 @@ class MainWindow(QMainWindow):
                     self.youtube_video_state = 'error'
                 self._update_youtube_border_color('error', video_id)
                 print(f"UI: Marked video unavailable after player error: {video_id}")
+                self._handle_autoplay_failure(
+                    video_id, f"browser-error code={feedback_data.get('errorCode', '-')}"
+                )
 
         except Exception as e:
             print(f"UI: Error handling player feedback: {e}")
@@ -2511,6 +3187,8 @@ class MainWindow(QMainWindow):
                 self._memory_check_timer.stop()
             if hasattr(self, '_player_panel_timer'):
                 self._player_panel_timer.stop()
+            self._clear_preload_watch()
+            self._cancel_autoplay_recovery("app closing")
             if hasattr(self, '_connection_status_timer'):
                 self._connection_status_timer.stop()
             

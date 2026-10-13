@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from app.services.autoplay_selection import select_auto_play_index
 from app.services.config_service import ConfigService
+from app.models.shazam_state import ShazamStateMixin
 
 TREE = ast.parse((ROOT / 'main.py').read_text(encoding='utf-8'))
 
@@ -29,10 +30,15 @@ TitleHarness = type('TitleHarness', (), _methods('TitleBar', [
     '_on_autoplay_toggled', '_on_anime_op_toggled',
     'set_auto_play_checked', 'set_anime_op_checked',
 ]))
-WindowHarness = type('WindowHarness', (), _methods('MainWindow', [
+WindowHarness = type('WindowHarness', (ShazamStateMixin,), _methods('MainWindow', [
     '_restore_auto_play_settings', 'set_auto_play_enabled', 'set_anime_op_mode_enabled',
     '_auto_play_video', 'on_youtube_search_completed', '_select_search_video',
     '_add_remaining_videos', '_handle_player_feedback',
+    '_cancel_autoplay_recovery', '_start_autoplay_recovery', '_handle_autoplay_failure',
+    '_clear_preload_watch', '_on_preload_retry_timeout', '_send_video_command',
+    '_clear_play_start_watch', '_on_play_start_timeout',
+    '_confirmed_shazam_awaiting_play', '_release_deferred_shazam_cue',
+    '_sync_pending_search_args',
 ]))
 
 
@@ -156,11 +162,24 @@ def _window(values=None):
     window._send_video_command = Mock(return_value=True)
     for name in ['_update_youtube_video_state', '_refresh_connection_statuses',
                  '_schedule_remaining_videos', '_load_thumbnails_async',
-                 '_update_player_control_panel']:
+                 '_update_player_control_panel', '_update_youtube_border_color']:
         setattr(window, name, Mock())
     window.pending_auto_seek_video_id = None
     window.pending_play_video_id = None
+    window.current_playing_video_id = None
+    window.youtube_video_state = None
     window.preloaded_video_id = None
+    window._autoplay_active_video_id = None
+    window._autoplay_fallback_video = None
+    window._preload_watch_video_id = None
+    window._preload_watch_video_data = None
+    window._preload_watch_retries = 0
+    window._preload_watch_request_id = None
+    window._preload_retry_timer = Mock()
+    window._play_watch_video_id = None
+    window._play_watch_request_id = None
+    window._play_start_timer = Mock()
+    window._confirmed_shazam_pending = None
     window.last_clicked_video_id = None
     window._active_search_allow_auto_play = True
     window._find_video_data = lambda vid: next(
@@ -472,6 +491,186 @@ class PlaybackWiringTests(unittest.TestCase):
         _complete(window, videos)
         window._send_video_command.assert_called_once_with('PRELOAD', 'video-0', videos[0])
 
+
+class PlaybackRecoveryTests(unittest.TestCase):
+    def _w(self):
+        return _window({'auto_play_top_result': True, 'anime_op_mode': False})
+
+    def test_first_rank_error_automatically_cues_second(self):
+        w = self._w()
+        videos = _videos('4:00', '2:30', '3:00')
+        _complete(w, videos)
+        self.assertEqual(w._autoplay_active_video_id, 'video-0')
+        self.assertEqual(w._autoplay_fallback_video['video_id'], 'video-1')
+        w._handle_player_feedback({'state': 'error', 'videoId': 'video-0',
+                                   'playerId': 'B', 'errorCode': 150})
+        self.assertEqual([c.args[:2] for c in w._send_video_command.call_args_list],
+                         [('PRELOAD', 'video-0'), ('PRELOAD', 'video-1')])
+        self.assertEqual(w.left_pane.selected_row, 1)
+        self.assertEqual(w.pending_play_video_id, 'video-1')
+        self.assertIsNone(w._autoplay_fallback_video)
+        self.assertEqual(w._autoplay_active_video_id, 'video-1')
+
+    def test_fallback_plays_on_ready_and_clears_after_playing(self):
+        w = self._w()
+        _complete(w, _videos('4:00', '2:30'))
+        w._handle_player_feedback({'state': 'error', 'videoId': 'video-0', 'errorCode': 101})
+        w._handle_player_feedback({'state': 'ready', 'videoId': 'video-1'})
+        self.assertIsNone(w.pending_play_video_id)
+        self.assertEqual(w._send_video_command.call_args.args[:2], ('PLAY', 'video-1'))
+        w._handle_player_feedback({'state': 'playing', 'videoId': 'video-1', 'isCurrent': True})
+        self.assertIsNone(w._autoplay_active_video_id)
+
+    def test_repeated_first_error_cannot_trigger_more_than_one_fallback(self):
+        w = self._w()
+        _complete(w, _videos('4:00', '2:30', '2:10'))
+        for _ in range(3):
+            w._handle_player_feedback({'state': 'error', 'videoId': 'video-0'})
+        self.assertEqual(w._send_video_command.call_count, 2)
+        self.assertEqual(w._autoplay_active_video_id, 'video-1')
+        w._handle_player_feedback({'state': 'error', 'videoId': 'video-1'})
+        self.assertEqual(w._send_video_command.call_count, 2)
+        self.assertIsNone(w._autoplay_active_video_id)
+
+    def test_older_unrelated_error_does_not_trigger_fallback(self):
+        w = self._w()
+        _complete(w, _videos('4:00', '2:30'))
+        w._handle_player_feedback({'state': 'error', 'videoId': 'previous-song'})
+        self.assertEqual(w._send_video_command.call_count, 1)
+        self.assertEqual(w._autoplay_active_video_id, 'video-0')
+
+    def test_manual_play_cancels_automatic_recovery(self):
+        w = self._w()
+        _complete(w, _videos('4:00', '2:30'))
+        w._cancel_autoplay_recovery('manual playback')
+        self.assertIsNone(w.pending_play_video_id)
+        w._handle_player_feedback({'state': 'error', 'videoId': 'video-0'})
+        self.assertEqual(w._send_video_command.call_count, 1)
+
+    def test_anime_op_mode_fallback_uses_next_rank_without_reordering(self):
+        w = _window({'auto_play_top_result': True, 'anime_op_mode': True})
+        videos = _videos('4:00', '2:30', '1:40', '3:00', '2:00')
+        _complete(w, videos)
+        self.assertEqual(w._autoplay_active_video_id, 'video-2')
+        w._handle_player_feedback({'state': 'error', 'videoId': 'video-2'})
+        self.assertEqual(w._autoplay_active_video_id, 'video-3')
+        self.assertEqual(w.left_pane.selected_row, 3)
+
+    def test_stalled_preload_resends_every_fifteen_seconds_max_twice(self):
+        w = self._w()
+        videos = _videos('4:00', '2:30')
+        _complete(w, videos)
+        w._preload_watch_video_id = 'video-0'
+        w._preload_watch_video_data = videos[0]
+        w._send_video_command.reset_mock()
+        w._on_preload_retry_timeout()
+        self.assertEqual(w._preload_watch_retries, 1)
+        w._send_video_command.assert_called_with('PRELOAD', 'video-0', videos[0], force_reload=True)
+        w._preload_retry_timer.start.assert_called_with(15000)
+        w._on_preload_retry_timeout()
+        self.assertEqual(w._preload_watch_retries, 2)
+        w._on_preload_retry_timeout()  # after 45 seconds: fall back to second
+        self.assertEqual(w._autoplay_active_video_id, 'video-1')
+        self.assertIsNone(w._preload_watch_video_id)
+        self.assertEqual(w.pending_play_video_id, 'video-1')
+        self.assertEqual([c.args[:2] for c in w._send_video_command.call_args_list],
+                         [('PRELOAD', 'video-0'), ('PRELOAD', 'video-0'), ('PRELOAD', 'video-1')])
+
+    def test_manual_preload_exhaustion_does_not_change_video(self):
+        w = self._w()
+        w._preload_watch_video_id = 'manual'
+        w._preload_watch_video_data = {'video_id': 'manual'}
+        w._preload_watch_retries = 2
+        w._on_preload_retry_timeout()
+        w._send_video_command.assert_not_called()
+        self.assertIsNone(w._preload_watch_video_id)
+
+    def test_stale_ready_does_not_cancel_new_video_retry(self):
+        w = self._w()
+        w._preload_watch_video_id = 'new-video'
+        w._preload_watch_video_data = {'video_id': 'new-video'}
+        w._handle_player_feedback({'state': 'ready', 'videoId': 'old-video'})
+        self.assertEqual(w._preload_watch_video_id, 'new-video')
+        w._handle_player_feedback({'state': 'ready', 'videoId': 'new-video'})
+        self.assertIsNone(w._preload_watch_video_id)
+        w._preload_retry_timer.stop.assert_called()
+
+    def test_true_preload_send_arms_watchdog_and_force_reload_is_forwarded(self):
+        w = self._w()
+        w._send_video_command = WindowHarness._send_video_command.__get__(w)
+        w._current_track_info = {'title': 'track', 'artist': '', 'comment': ''}
+        w._build_player_media_info = Mock(return_value={'videoTitle': 'YT'})
+        w.player_server.send_command.return_value = 'command-id'
+        self.assertTrue(w._send_video_command('PRELOAD', 'x', {'video_id': 'x'}))
+        self.assertEqual(w._preload_watch_video_id, 'x')
+        w._preload_retry_timer.start.assert_called_with(15000)
+        self.assertTrue(w._send_video_command('PRELOAD', 'x', force_reload=True))
+        self.assertEqual(w.player_server.send_command.call_args.kwargs['force_reload'], True)
+        self.assertTrue(w._send_video_command('PLAY', 'x'))
+        self.assertIsNone(w._preload_watch_video_id)
+
+    def test_real_preload_watchdog_tracks_second_video_after_timeout(self):
+        w = self._w()
+        w._send_video_command = WindowHarness._send_video_command.__get__(w)
+        w._current_track_info = {'title': 'a', 'artist': '', 'comment': ''}
+        w._build_player_media_info = Mock(return_value={'videoTitle': 'test'})
+        w.player_server.send_command.return_value = 'id'
+        videos = _videos('4:00', '2:30')
+        _complete(w, videos)
+        self.assertEqual(w._preload_watch_video_id, 'video-0')
+        w._on_preload_retry_timeout()
+        w._on_preload_retry_timeout()
+        w._on_preload_retry_timeout()
+        self.assertEqual(w._preload_watch_video_id, 'video-1')
+        self.assertEqual(w._preload_watch_retries, 0)
+        self.assertEqual(w._preload_retry_timer.start.call_count, 4)
+        self.assertEqual([c.args[1] for c in w.player_server.send_command.call_args_list],
+                         ['video-0', 'video-0', 'video-0', 'video-1'])
+        self.assertEqual([c.kwargs['force_reload'] for c in w.player_server.send_command.call_args_list],
+                         [False, True, True, False])
+
+    def test_first_preload_enqueue_failure_selects_second_immediately(self):
+        w = self._w()
+        w._send_video_command.side_effect = [False, True]
+        videos = _videos('4:00', '2:30')
+        _complete(w, videos)
+        self.assertEqual(w.left_pane.selected_row, 1)
+        self.assertEqual(w.pending_play_video_id, 'video-1')
+        self.assertEqual([c.args[1] for c in w._send_video_command.call_args_list],
+                         ['video-0', 'video-1'])
+
+    def test_play_command_enqueue_failure_falls_back_to_second(self):
+        w = self._w()
+        videos = _videos('4:00', '2:30')
+        _complete(w, videos)
+        w._send_video_command.side_effect = [False, True]
+        w._handle_player_feedback({'state': 'ready', 'videoId': 'video-0'})
+        self.assertEqual(w._autoplay_active_video_id, 'video-1')
+        self.assertEqual(w.pending_play_video_id, 'video-1')
+
+    def test_preload_ready_cancels_timer_without_retries(self):
+        w = self._w()
+        w._send_video_command = WindowHarness._send_video_command.__get__(w)
+        w._current_track_info = {'title': 'a', 'artist': '', 'comment': ''}
+        w._build_player_media_info = Mock(return_value={})
+        w.player_server.send_command.return_value = 'cmd'
+        _complete(w, _videos('4:00', '2:30'))
+        w._handle_player_feedback({'state': 'ready', 'videoId': 'video-0',
+                                   'requestId': 'cmd', 'playerId': 'B'})
+        self.assertIsNone(w._preload_watch_video_id)
+        w._preload_retry_timer.stop.assert_called()
+        w._on_preload_retry_timeout()
+        self.assertEqual([c.args[0] for c in w.player_server.send_command.call_args_list],
+                         ['PRELOAD', 'PLAY'])
+
+    def test_enqueue_failure_does_not_arm_watchdog(self):
+        w = self._w()
+        w._send_video_command = WindowHarness._send_video_command.__get__(w)
+        w._current_track_info = {'title': '', 'artist': '', 'comment': ''}
+        w._build_player_media_info = Mock(return_value={})
+        w.player_server.send_command.return_value = None
+        self.assertFalse(w._send_video_command('PRELOAD', 'x'))
+        w._preload_retry_timer.start.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()

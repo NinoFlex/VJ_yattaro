@@ -44,6 +44,14 @@ internal sealed class BridgeHost : Form
     private long _candidateTime;
     private string? _audioError;
     private bool _audioStarted;
+    private bool _audioBridgeArmed;
+    private bool _pcmDataArrived;
+    private double _firstPcmPeak;
+    private double _firstPcmRms;
+    private int _nativePermissionsDenied;
+    private string _lastNativePermissionKind = "";
+    private int _tagResponses;
+    private int _lastTagStatus;
     private bool _definiteNoMatch;
     private CancellationTokenSource? _currentRecognitionCancellation;
     private string _currentRecognitionId = "";
@@ -55,7 +63,7 @@ internal sealed class BridgeHost : Form
         _language = language;
         _debug = debug;
         _instanceId = instanceId;
-        Text = "VJ_yattaro - Shazam WebView2 diagnostics";
+        Text = $"VJ_yattaro - Shazam WebView2 diagnostics ({_instanceId})";
         ShowInTaskbar = debug;
         StartPosition = FormStartPosition.Manual;
         FormBorderStyle = debug ? FormBorderStyle.Sizable : FormBorderStyle.None;
@@ -107,6 +115,11 @@ internal sealed class BridgeHost : Form
             {
                 // The selected microphone is already captured by Python. The helper
                 // must not open some other physical microphone or camera by accident.
+                if (_cycle is not null)
+                {
+                    _nativePermissionsDenied++;
+                    _lastNativePermissionKind = args.PermissionKind.ToString();
+                }
                 args.State = CoreWebView2PermissionState.Deny;
                 args.Handled = true;
             };
@@ -239,7 +252,7 @@ internal sealed class BridgeHost : Form
         catch (OperationCanceledException) { return; }
         catch (Exception ex)
         {
-            Program.Log("Recognition failed: " + ex.Message);
+            Program.Log($"Recognition failed: {ex.Message} id={id} instance={_instanceId}");
             error = ex.Message;
             shouldSend = !string.IsNullOrWhiteSpace(id);
         }
@@ -350,6 +363,14 @@ internal sealed class BridgeHost : Form
         _best = null;
         _audioError = null;
         _audioStarted = false;
+        _audioBridgeArmed = false;
+        _pcmDataArrived = false;
+        _firstPcmPeak = 0;
+        _firstPcmRms = 0;
+        _nativePermissionsDenied = 0;
+        _lastNativePermissionKind = "";
+        _tagResponses = 0;
+        _lastTagStatus = 0;
         _definiteNoMatch = false;
         _cycle = id;
         var load = "(async()=>{if(!window.__vjAudioBridge||!window.__vjResults)" +
@@ -429,10 +450,45 @@ internal sealed class BridgeHost : Form
             catch (Exception) { /* Navigation may be in progress. Route capture remains active. */ }
             await Task.Delay(100, token);
             if (!_audioStarted && watch.Elapsed > TimeSpan.FromSeconds(10))
+            {
+                // Always preserve a bounded diagnostic snapshot BEFORE the helper is
+                // closed by Python. Normal recognition and no-match paths are unchanged.
+                await LogAudioRequestFailureAsync(id, button, watch.ElapsedMilliseconds, token);
                 throw new InvalidOperationException("The Shazam button did not request the supplied audio. Use VJ_SHAZAM_DEBUG=1 to inspect the page/consent dialog.");
+            }
         }
         Program.Log("Recognition finished with no usable match (15 second safety deadline).");
         return null;
+    }
+
+    private async Task LogAudioRequestFailureAsync(
+        string id, Button button, long elapsedMs, CancellationToken token)
+    {
+        // Avoid credentials, raw PCM, response payloads, and page HTML in logs.
+        Program.Log($"Audio request timeout id={id} instance={_instanceId} " +
+            $"afterClickMs={elapsedMs} buttonLabel={button.Label} " +
+            $"bridgeArmed={_audioBridgeArmed} pcmReached={_pcmDataArrived} " +
+            $"firstPeak={_firstPcmPeak:F4} firstRms={_firstPcmRms:F4} " +
+            $"streamStarted={_audioStarted} tagResponses={_tagResponses} " +
+            $"lastTagStatus={_lastTagStatus} nativePermissionsDenied={_nativePermissionsDenied} " +
+            $"lastPermissionKind={_lastNativePermissionKind}");
+        try
+        {
+            // A 2s bound prevents broken navigation/script execution from delaying
+            // the existing 10s error decision indefinitely.
+            var script = Script("audio_failure_snapshot.js")
+                .Replace("__VJ_CLICK_X__", JsonSerializer.Serialize(button.X), StringComparison.Ordinal)
+                .Replace("__VJ_CLICK_Y__", JsonSerializer.Serialize(button.Y), StringComparison.Ordinal);
+            var snapshot = await _webView.CoreWebView2.ExecuteScriptAsync(script)
+                .WaitAsync(TimeSpan.FromSeconds(2), token);
+            Program.Log($"Audio request page snapshot id={id} instance={_instanceId} " +
+                $"details={snapshot[..Math.Min(snapshot.Length, 1800)]}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Program.Log($"Audio request page snapshot unavailable id={id} " +
+                $"instance={_instanceId} reason={ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private async Task<HashSet<string>> GetAppleTrackIdsAsync(CancellationToken token)
@@ -739,9 +795,16 @@ internal sealed class BridgeHost : Form
                     _audioError = ReadString(root, "error");
                     break;
                 case "audio-live-armed":
+                    _audioBridgeArmed = true;
                     Program.Log("App live PCM bridge armed in WebView2.");
                     break;
                 case "audio-live-data":
+                    if (!_pcmDataArrived)
+                    {
+                        _pcmDataArrived = true;
+                        _firstPcmPeak = ReadDouble(root, "peak");
+                        _firstPcmRms = ReadDouble(root, "rms");
+                    }
                     Program.Log($"Live PCM reached WebView2 peak={ReadDouble(root, "peak"):F4} " +
                         $"rms={ReadDouble(root, "rms"):F4} queuedMs={ReadInt(root, "queuedMs")} " +
                         $"inputRate={ReadInt(root, "inputSampleRate")} contextRate={ReadInt(root, "contextSampleRate")}");
@@ -774,6 +837,8 @@ internal sealed class BridgeHost : Form
             bool shazamHost = string.Equals(uri.Host, "shazam.com", StringComparison.OrdinalIgnoreCase) ||
                 uri.Host.EndsWith(".shazam.com", StringComparison.OrdinalIgnoreCase);
             if (!shazamHost || !uri.AbsolutePath.Contains("/tag/", StringComparison.OrdinalIgnoreCase)) return;
+            _tagResponses++;
+            _lastTagStatus = args.Response.StatusCode;
             if (args.Response.StatusCode < 200 || args.Response.StatusCode >= 300) return;
 
             using var stream = await args.Response.GetContentAsync();

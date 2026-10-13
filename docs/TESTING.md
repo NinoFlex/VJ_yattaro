@@ -1,6 +1,6 @@
 # テスト手順と今回の確認結果
 
-確認日: 2026-09-10
+確認日: 2026-10-13
 
 ## オフライン回帰テスト
 
@@ -9,6 +9,8 @@ Windows用の開発環境では、ルートフォルダーで実行します。
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
 node tests/javascript_checks.cjs
+node tests/player_recovery_checks.cjs
+node tests/player_race_checks.cjs
 ```
 
 PythonのテストはQtと通信をモック化しています。実機の認識試験ではありません。
@@ -19,10 +21,11 @@ PythonのテストはQtと通信をモック化しています。実機の認識
 
 | 確認対象 | 結果 |
 |---|---|
-| Pythonの回帰テスト | 182件成功 |
-| JavaScriptのモック試験 | 21件成功 |
-| Python 3.12の構文としての解析 | Python・specファイル31件成功 |
-| JavaScriptの構文検査 | 7ファイル成功 |
+| Pythonの回帰テスト | 467件成功 |
+| Shazam向けJavaScriptモック試験 | 29件成功 |
+| YouTube PRELOAD復旧JavaScriptモック試験 | 5件成功 |
+| YouTubeプレイヤー競合JavaScriptモック試験 | 8件成功 |
+| JavaScriptの構文検査 | `web/player.js` 成功 |
 
 入力として添付された個人の履歴JSONは書き換えていません。
 そのファイル自体もソースZIPには収録していません。
@@ -64,9 +67,8 @@ PythonのテストはQtと通信をモック化しています。実機の認識
 通信は模擬応答です。YouTubeで実際にヒットすることは未確認です。
 以上は前回追加した検索テストで、今回も再実行して通過しています。
 
-Shazam履歴のアーティスト名が空の場合は、YouTube検索と候補表示は行いますが、
-自動再生フラグを強制的にOFFにすることも確認しています。Rekordbox側のタイトルのみ検索は
-この制限の対象外です。
+今回の変更では、Shazam履歴のアーティスト名が空の場合も、自動検出からの検索は
+自動再生を抑制しないことを確認しています。手動検索の自動再生抑止は維持しています。
 
 ### アニメOPモードの追加確認
 
@@ -79,8 +81,21 @@ Shazam履歴のアーティスト名が空の場合は、YouTube検索と候補�
 
 選曲関数と`main.py`の実際のメソッドを実行し、Qtボタン・リスト・設定保存・プレイヤーは模擬しています。
 この環境ではPySide6を導入できなかったため、実画面の表示・クリック操作は未確認です。
-今回のbusy改善では`app/services/shazam_service.py`、時系列/共有プールのテスト、説明文を変更しています。
-offset判定は廃止し、ネイティブWebView2ブリッジもoffsetを返さない単純な経路へ戻しています。`web/`、`ui/`、YouTube検索、アニメOP選曲の実装は変更していません。
+今回の再生復旧では`web/player.js`を変更しています。`ui/`とShazamネイティブブリッジは変更していません。
+以前の4レーン化やoffset判定に関する変更は、今回の追加修正対象には含みません。
+
+### 自動再生失敗・PRELOAD再送の追加確認
+
+- 1位の再生エラー（100/101/150/153等）で2位がプリロードされ、`ready`を受けたら再生されること。
+- 2位もエラーになったら、それ以上の自動切り替えをしないこと。
+- 手動操作後の古いエラーで自動切り替えしないこと。
+- 15秒経過による`forceReload=true`の再送と、最大2回の制限。
+- 新しい動画のPRELOAD監視を、古い動画の`ready`通知で解除しないこと。
+- JavaScript側が同じ動画IDでも実際に再キューすること、未完了なのに偽の`ready`を返さないこと。
+- 前回のShazam音声要求失敗診断コードと資料を変更していないこと。
+
+ブラウザでの実再生、WindowsのWebView2動作についてはオフラインテストの対象外です。
+詳細は[再生復旧の仕様](PLAYBACK_RECOVERY.md)を参照してください。
 
 ## 実ブラウザーの補助テスト
 
@@ -151,3 +166,33 @@ The temporal two-hit guard and sequence look-ahead run only after a raw Shazam r
 
 ## Live input level diagnostics
 A healthy run logs `ShazamService: Audio level rawPeak=... rawRms=... agcGain=... outPeak=... outRms=...`. Very quiet raw input is automatically raised (up to 32x); silence is not boosted. Two-channel endpoints are captured as stereo and downmixed before AGC.
+
+## Shazam確定待機と仮認識の状態分離
+
+追加した独立モデルの検証は次のとおりです。
+
+```powershell
+python -m pytest -q tests/test_shazam_state_ownership.py
+```
+
+検証対象は、Bの確定済みPRELOAD/PLAYの保護、Cの1回目認識と誤認識取消、
+同じYouTube動画IDに対する要求ID照合、Bの再送中のC検索、B再生開始後の
+CのPRELOAD解除、Cの2回目一致での正式な所有権移動です。
+
+詳細は [状態管理設計](STATE_MANAGEMENT_REFACTOR.md) を参照してください。
+
+
+## Shazam検索キュー優先度の回帰確認（2026-10-13）
+
+```powershell
+python -m pytest -q tests/test_shazam_search_queue_priority.py
+python -m pytest -q tests
+node tests/javascript_checks.cjs
+node tests/player_recovery_checks.cjs
+node tests/player_race_checks.cjs
+```
+
+確定済みB検索の保護、Cの1回目認識と取消、Cの2回目一致での
+待機中／実行中B検索の取り消し、A検索の遅延、古いB検索結果の遅延配送、
+自動再生OFFでの検索保護、通常の手動検索優先をテストしています。
+詳しいイベント順序は [SEARCH_QUEUE_PRIORITY.md](SEARCH_QUEUE_PRIORITY.md) を参照してください。
