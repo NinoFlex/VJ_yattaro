@@ -10,6 +10,7 @@ Shazam-specific ID and therefore still require independent title/search proof.
 from __future__ import annotations
 
 import html as html_lib
+from html.parser import HTMLParser
 from concurrent.futures import ThreadPoolExecutor
 import re
 import time
@@ -271,10 +272,103 @@ def _parse_og_artist(value: str) -> str:
     return ""
 
 
+class _ShazamPrimaryHeaderParser(HTMLParser):
+    """Read only the song's own Shazam header, never recommendations or CTAs.
+
+    CSS module suffixes are build-dependent, so match the stable class prefixes.
+    An exact canonical Shazam track identity is checked by the HTTP caller before
+    these fields are accepted. This intentionally does not infer artist from nearby
+    unrelated headings or the page's generic description.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._div_depth = 0
+        self._span_depth = 0
+        self._root_depth = None
+        self._title_depth = None
+        self._artist_depth = None
+        self._titles: list[str] = []
+        self._artists: list[str] = []
+        self._title_parts: list[str] = []
+        self._artist_parts: list[str] = []
+        self.headers: list[tuple[str, str]] = []
+
+    @staticmethod
+    def _has_prefix(attrs, wanted: str) -> bool:
+        return any(
+            key == 'class' and any(token.startswith(wanted) for token in (value or '').split())
+            for key, value in attrs
+        )
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'div':
+            self._div_depth += 1
+            if self._root_depth is None and self._has_prefix(attrs, 'NewTrackPageHeader_trackContent__'):
+                self._root_depth = self._div_depth
+                self._title_parts = []
+                self._artist_parts = []
+                self._titles = []
+                self._artists = []
+            elif self._root_depth is not None and self._has_prefix(attrs, 'NewTrackPageHeader_trackTitle__'):
+                if self._title_depth is None:
+                    self._title_depth = self._div_depth
+                    self._title_parts = []
+        elif tag == 'span':
+            self._span_depth += 1
+            if self._root_depth is not None and self._has_prefix(attrs, 'TrackPageArtistLink_artistNameText__'):
+                if self._artist_depth is None:
+                    self._artist_depth = self._span_depth
+                    self._artist_parts = []
+
+    def handle_data(self, data):
+        if self._title_depth is not None:
+            self._title_parts.append(data)
+        if self._artist_depth is not None:
+            self._artist_parts.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == 'div':
+            if self._title_depth == self._div_depth:
+                self._titles.append(''.join(self._title_parts))
+                self._title_depth = None
+            if self._root_depth == self._div_depth:
+                title = clean_metadata(self._titles[0]) if len(self._titles) == 1 else ''
+                artist = clean_artist(self._artists[0]) if len(self._artists) == 1 else ''
+                self.headers.append((title, artist))
+                self._root_depth = None
+            self._div_depth = max(0, self._div_depth - 1)
+        elif tag == 'span':
+            if self._artist_depth == self._span_depth:
+                self._artists.append(''.join(self._artist_parts))
+                self._artist_depth = None
+            self._span_depth = max(0, self._span_depth - 1)
+
+
+def _parse_shazam_primary_header(page: str) -> tuple[str, str]:
+    """Extract a title and performer only from one primary Shazam track header."""
+    parser = _ShazamPrimaryHeaderParser()
+    try:
+        parser.feed(page)
+        parser.close()
+    except (ValueError, TypeError):
+        return '', ''
+    if len(parser.headers) != 1:
+        return '', ''
+    title, artist = parser.headers[0]
+    if is_generic_ui_title(title):
+        return '', ''
+    return title, artist
+
+
 def _same_shazam_route(expected: str, candidate: str) -> bool:
     expected_id, _ = _shazam_route_identity(expected)
     candidate_id, _ = _shazam_route_identity(candidate)
-    return bool(expected_id and candidate_id and expected_id == candidate_id)
+    # /track and /song IDs belong to distinct Shazam/Apple namespaces.
+    return bool(
+        expected_id and candidate_id and expected_id == candidate_id
+        and _shazam_route_kind(expected) == _shazam_route_kind(candidate)
+    )
 
 
 class ITunesMetadataResolver:
@@ -605,33 +699,104 @@ class ITunesMetadataResolver:
     def _shazam_page_metadata(self, route_url: str, cancelled=None) -> tuple[str, str, str, bool]:
         url = _safe_shazam_song_url(route_url)
         if not url or self._cancelled(cancelled):
-            return "", "", "", False
+            return '', '', '', False
         cached = self._page_cache.get(url)
         if cached and cached[0] > time.monotonic():
             return cached[1]
-        resolved = ("", "", "", False)
-        try:
-            import requests
-            response = requests.get(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) VJ-yattaro/1.2",
-                    "Accept": "text/html,application/xhtml+xml",
-                    "Accept-Language": "ja-JP,ja;q=0.9,en;q=0.5",
-                },
-                timeout=(4, 8),
-            )
-            response.raise_for_status()
-            page = response.text
-            if len(page) <= 4_000_000:
-                og_title = _find_meta_content(page, "og:title")
-                title = _parse_og_title(og_title)
-                artist = _parse_og_artist(og_title)
-                page_url = _find_meta_content(page, "og:url") or _find_canonical(page)
-                resolved = (title, artist, page_url, _same_shazam_route(url, page_url))
-        except Exception as exc:
-            print(f"ShazamMetadata: public Shazam page unavailable ({type(exc).__name__})")
-        self._page_cache[url] = (time.monotonic() + (3600 if resolved[0] else 45), resolved)
+
+        # Old /track URLs may redirect to a completely different /song page for
+        # HTTP clients. The same-ID /unavailable route renders the actual track
+        # header in current Shazam (including artist) as verified in the user's
+        # saved Ray Of Bullet page. Do not follow any result *as identity proof*:
+        # inspect canonical/og:url and require the same track namespace and ID.
+        route_id, _ = _shazam_route_identity(url)
+        candidates = [url]
+        if _shazam_route_kind(url) == 'track' and route_id:
+            track_page = f'https://www.shazam.com/ja-jp/track/{route_id}/unavailable'
+            if track_page != url:
+                # The exact-ID track page is usually more useful than a legacy
+                # slug URL that has been observed redirecting to an unrelated
+                # /song ID. Prefer it to avoid delaying the first Shazam search.
+                candidates = [track_page, url]
+
+        resolved = ('', '', '', False)
+        for index, candidate in enumerate(candidates):
+            if self._cancelled(cancelled):
+                break
+            try:
+                import requests
+                response = requests.get(
+                    candidate,
+                    headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VJ-yattaro/1.2',
+                        'Accept': 'text/html,application/xhtml+xml',
+                        'Accept-Language': 'ja-JP,ja;q=0.9,en;q=0.5',
+                    },
+                    timeout=(4, 8) if index == 0 else (3, 5),
+                )
+                response.raise_for_status()
+                page = response.text
+                if len(page) > 4_000_000:
+                    continue
+                og_url = _find_meta_content(page, 'og:url')
+                canonical = _find_canonical(page)
+                page_url = canonical or og_url
+                declared_routes = [item for item in (og_url, canonical) if item]
+                identity_verified = bool(declared_routes) and all(
+                    _same_shazam_route(url, item) for item in declared_routes
+                )
+                if not identity_verified:
+                    if page_url:
+                        print(
+                            'ShazamMetadata: public Shazam page identity mismatch; '
+                            f'expected={url!r} returned={page_url!r}'
+                        )
+                    continue
+
+                og_title = _find_meta_content(page, 'og:title')
+                title, artist = _parse_shazam_primary_header(page)
+                # A page whose primary header exists but is inconsistent is
+                # unsafe as a whole: OG fields may be stale from the same SPA.
+                has_primary_header = bool(re.search(
+                    r'<div\b[^>]*class\s*=\s*[\"\'][^\"\']*NewTrackPageHeader_trackContent__',
+                    page, re.I,
+                ))
+                if has_primary_header and not title:
+                    continue
+                # Unlike a generic HTML title, this is an exact primary track
+                # component. Nevertheless reject a stale non-Japanese heading
+                # that disagrees with the original route slug.
+                expected_title = _title_from_shazam_route(url)
+                if title and expected_title and not (
+                    _route_metadata_compatible(expected_title, title, False)
+                    or contains_japanese(title)
+                ):
+                    print(
+                        'ShazamMetadata: public Shazam primary title mismatch; '
+                        f'expected={expected_title!r} heading={title!r}'
+                    )
+                    # Do not fall back to a possibly stale og:title on the
+                    # same internally inconsistent HTML document.
+                    continue
+                if not title:
+                    title = _parse_og_title(og_title)
+                    artist = _parse_og_artist(og_title)
+                current = (title, clean_artist(artist), page_url, True)
+                if title and artist:
+                    resolved = current
+                    print(
+                        'ShazamMetadata: exact primary Shazam page artist accepted '
+                        f'routeId={route_id} title={title!r} artist={artist!r}'
+                    )
+                    break
+                if title and not resolved[0]:
+                    resolved = current
+            except Exception as exc:
+                print(f'ShazamMetadata: public Shazam page unavailable ({type(exc).__name__})')
+        self._page_cache[url] = (
+            time.monotonic() + (3600 if resolved[3] and resolved[0] and resolved[1] else 45),
+            resolved,
+        )
         return resolved
 
     def _cache(self, key: tuple, value: tuple[str, str], seconds: float = 86400) -> tuple[str, str]:

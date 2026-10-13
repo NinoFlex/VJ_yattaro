@@ -17,11 +17,11 @@ PythonのテストはQtと通信をモック化しています。実機の認識
 `test_track_matching.py`自体は標準ライブラリーだけで実行でき、
 既存の統合テストには`numpy`と`requests`も必要です。
 
-今回、Linux / Python 3.13.5 / Node.js 22.16.0で次を確認しました。
+今回、Linux上のPythonとNode.jsで次を確認しました。
 
 | 確認対象 | 結果 |
 |---|---|
-| Pythonの回帰テスト | 467件成功 |
+| Pythonの回帰テスト | 496件成功 |
 | Shazam向けJavaScriptモック試験 | 29件成功 |
 | YouTube PRELOAD復旧JavaScriptモック試験 | 5件成功 |
 | YouTubeプレイヤー競合JavaScriptモック試験 | 8件成功 |
@@ -33,6 +33,22 @@ PythonのテストはQtと通信をモック化しています。実機の認識
 主な既存テストは、本家とカバーの交互検出、アーティスト相違、3文字一致と4文字一致の境界、
 4文字未満の従来判定、同曲が別曲を挟んで再登場する場合、古い認識結果の拒否、
 再起動時の初回通知、履歴の読み込みと保存、全グループ使用中の音声変換抑止です。
+
+### 2026-10-13 現場ログの回帰テスト（仮表示維持は撤回）
+
+`tests/test_shazam_field_log_regressions.py` で11件を追加しました。
+ID-onlyで2回一致がメタデータより先行する経路、同じ曲の時系列追い越し、
+欠番での仮表示期限切れ、古い別曲候補による検索抑制、即時確定時の表示遷移、
+誤認識時の正しい破棄、候補ID重複通知抑制などを確認しています。
+詳細: [FIELD_LOG_20261013_FIXES.md](FIELD_LOG_20261013_FIXES.md)
+
+### Shazam公開曲ページのアーティスト名補完
+
+`test_shazam_primary_page_artist.py` に11件の単体テストを追加しました。
+保存Shazamページの専用ヘッダー、CSSクラスのハッシュ変化、異なる曲ID/名前空間、
+二重ヘッダー、古い曲名、canonicalとog:urlの矛盾、UI宣伝の除外を確認します。
+曲の2回一致・検索・PRELOAD制御には変更していません。
+詳細: [SHAZAM_TRACK_ARTIST_RECOVERY.md](SHAZAM_TRACK_ARTIST_RECOVERY.md)
 
 ### Shazam 4レーン共有プール・時系列確認の追加確認
 
@@ -196,3 +212,14 @@ node tests/player_race_checks.cjs
 待機中／実行中B検索の取り消し、A検索の遅延、古いB検索結果の遅延配送、
 自動再生OFFでの検索保護、通常の手動検索優先をテストしています。
 詳しいイベント順序は [SEARCH_QUEUE_PRIORITY.md](SEARCH_QUEUE_PRIORITY.md) を参照してください。
+
+
+## 2026-10-13 「群青」先行PRELOADの回帰テスト
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest tests.test_gunjo_preload_regression -v
+```
+
+同じ曲IDの後続2回一致で時系列処理が追い越されたときも、旧候補の
+YouTube検索とPRELOAD要求IDが引き継がれることを確認します。
+対応するログ解析は `docs/GUNJO_PRELOAD_RECOVERY.md` を参照してください。

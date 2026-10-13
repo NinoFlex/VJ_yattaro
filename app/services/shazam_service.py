@@ -94,6 +94,9 @@ class ShazamService(QObject):
         self._generation = 0
         self._last_track = None
         self._last_published_identity = None
+        # Populated immediately before history/new_track Qt signals. UI must
+        # associate a publication with THIS confirmed candidate, not a stale one.
+        self._last_publication_candidate_id = None
 
         from app.services.shazam_webview_client import WebViewRecognizer
         from app.services.itunes_metadata import ITunesMetadataResolver
@@ -318,6 +321,7 @@ class ShazamService(QObject):
             self._pending_group_results.clear()
             self._raw_lane_results.clear()
             self._latest_published_sequence = -1
+            self._last_publication_candidate_id = None
             self._temporal_results.clear()
             self._reject_tentative_candidate("shazam-restarted")
             self._next_temporal_sequence = 0
@@ -409,6 +413,7 @@ class ShazamService(QObject):
         self._metadata_raw_results.clear()
         self._pending_identity_confirmation = None
         self._newest_temporal_observation = None
+        self._last_publication_candidate_id = None
         self._metadata_prefetch.discard_cancelled()
         for ready in self._lane_ready:
             ready.clear()
@@ -1245,12 +1250,83 @@ class ShazamService(QObject):
             f"{artist} - {title}"
         )
         self._next_temporal_sequence = first_sequence
-        # Do not compare the first look-ahead result with an observation from before the gap.
-        # The pair itself supplies the required two independent observations.
-        self._reject_tentative_candidate("older-observation-bypassed")
+        # A blocked earlier window may have *already* shown this same track as
+        # tentative. Retain that logical first vote and its UI/search ownership,
+        # while using the new independent pair to satisfy temporal confirmation.
+        # Reject only if the newer pair is a genuinely different song.
+        candidate = self._tentative_candidate
+        retain, retain_reason = self._can_retain_tentative_for_bypass(
+            candidate, first, self._temporal_results[second_sequence]
+        )
+        if retain:
+            first["_retain_existing_tentative"] = True
+            print(f"ShazamService: Retaining tentative firstSeq={candidate['sequence']} "
+                  f"for matching lookahead {first_sequence}/{second_sequence} "
+                  f"reason={retain_reason}; keep existing YouTube PRELOAD/request ID")
+        else:
+            if candidate:
+                print(f"ShazamService: Cannot retain tentative firstSeq={candidate['sequence']} "
+                      f"for lookahead {first_sequence}/{second_sequence} "
+                      f"reason={retain_reason}")
+            self._reject_tentative_candidate("older-observation-bypassed")
+        # Do not compare the pair with an observation before the stuck head.
         self._last_temporal_observation = None
         self._pending_identity_confirmation = None
         return True
+
+    def _can_retain_tentative_for_bypass(self, candidate, first, second):
+        """Keep the *search/PRELOAD owner* of a verified same-song lookahead pair.
+
+        The lookahead pair has already passed the independent-vote and neutral-gap
+        rules in _find_temporal_bypass_pair().  The first, older vote is NOT
+        counted as an additional confirmation.  It is only the identity of an
+        already displayed/queued preview that can be reused after a stuck
+        recognition lane or a delayed Qt event loop.
+
+        Checking the newest receipt against *the current wall/monotonic time*
+        incorrectly discards a valid early PRELOAD when callbacks are drained
+        late: by then its original 'ready' request ID may have arrived, and
+        issuing a replacement PRELOAD makes that correct acknowledgement stale.
+        Bound reuse to the existing 30s tentative display lifetime and require
+        the two newer observations to match the same song.  A different song
+        always invalidates the old preview.
+        """
+        if not candidate:
+            return False, "no-existing-preview"
+        old = candidate["observation"]
+        if not self._temporal_observations_match(old, first):
+            return False, "different-first-identity"
+        if not self._temporal_observations_match(first, second):
+            return False, "lookahead-pair-mismatch"
+        if candidate["confirmed"]:
+            return True, "already-confirmed-same-identity"
+        received_at = old.get("received_at")
+        if received_at is None:
+            return False, "first-vote-without-receipt-time"
+        age = time.monotonic() - received_at
+        max_age = self.SHAZAM_NO_MATCH_WINDOW_SECONDS * 2
+        if age < 0 or age > max_age:
+            return False, f"first-vote-too-old age={age:.1f}s limit={max_age:.1f}s"
+        return True, f"verified-same-identity age={age:.1f}s"
+
+    def _latest_matching_tentative_time(self, candidate):
+        """Newest matching evidence, including results blocked behind older windows.
+
+        This extends the *display* timeout only when another independent
+        recognition of the SAME identity is already available; it never treats
+        skipped or uncompleted requests as successful confirmation votes.
+        """
+        observation = candidate["observation"]
+        latest = observation.get("received_at") or time.monotonic()
+        buffered = list(self._temporal_results.values())
+        newest = self._newest_temporal_observation
+        if newest is not None:
+            buffered.append(newest[1])
+        for later in buffered:
+            if (later is not None and later.get("sequence", -1) > observation["sequence"]
+                    and self._temporal_observations_match(observation, later)):
+                latest = max(latest, later.get("received_at", latest))
+        return latest
 
     def _reject_tentative_candidate(self, reason):
         """Discard a first-vote UI preview; never touch committed history.json."""
@@ -1263,11 +1339,11 @@ class ShazamService(QObject):
         if candidate["emitted"]:
             self.candidate_rejected.emit(candidate["sequence"], str(reason))
 
-    def _emit_tentative_if_ready(self):
-        """Preview an ID-only first vote when its asynchronous metadata arrives."""
+    def _emit_tentative_if_ready(self, *, allow_confirmed=False):
+        """Resolve ID-only metadata, even if the second vote beat the lookup."""
         candidate = self._tentative_candidate
-        if not candidate or candidate["emitted"] or candidate["confirmed"]:
-            return
+        if not candidate or candidate["emitted"] or (candidate["confirmed"] and not allow_confirmed):
+            return False
         observation = candidate["observation"]
         title, artist = observation["track"]
         if not title and observation.get("metadata_key"):
@@ -1284,13 +1360,14 @@ class ShazamService(QObject):
             else is_same_track(self._last_track, (title, artist))
         )
         if not title or same_as_published:
-            return
+            return False
         entry = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), title, artist)
         candidate["entry"] = entry
         candidate["emitted"] = True
         print(f"ShazamService: Tentative first vote seq={candidate['sequence']} "
               f"title={title!r} artist={artist!r}; start YouTube preload, no PLAY")
         self.candidate_started.emit(candidate["sequence"], entry)
+        return True
 
     def _start_tentative_candidate(self, observation):
         self._reject_tentative_candidate("new-candidate")
@@ -1313,7 +1390,15 @@ class ShazamService(QObject):
             return
         received_at = candidate["observation"].get("received_at")
         if received_at is not None:
-            remaining = self.SHAZAM_NO_MATCH_WINDOW_SECONDS - (time.monotonic() - received_at)
+            # A later matching recognition blocked by an unfinished lower seq
+            # is evidence that the candidate is still current. Keep the UI
+            # tentative for up to 30s total, but NEVER count that observation
+            # as a second vote until the temporal drain validates it.
+            evidence_at = min(
+                self._latest_matching_tentative_time(candidate),
+                received_at + self.SHAZAM_NO_MATCH_WINDOW_SECONDS,
+            )
+            remaining = self.SHAZAM_NO_MATCH_WINDOW_SECONDS - (time.monotonic() - evidence_at)
             if remaining > 0:
                 self._tentative_timer.setInterval(max(1, int(remaining * 1000) + 100))
                 self._tentative_timer.start()
@@ -1322,13 +1407,16 @@ class ShazamService(QObject):
 
     def _confirm_tentative_candidate(self, first, second):
         candidate = self._tentative_candidate
-        if not candidate or candidate["sequence"] != first["sequence"]:
+        if not candidate or candidate["observation"]["sequence"] != first["sequence"]:
             return
+        already_confirmed = candidate["confirmed"]
         candidate["confirmed"] = True
+        candidate["confirmed_by"] = second["sequence"]
         self._tentative_timer.stop()
-        if candidate["emitted"]:
-            print(f"ShazamService: Tentative confirmed firstSeq={first['sequence']} "
-                  f"secondSeq={second['sequence']}; playback now permitted")
+        if candidate["emitted"] and not already_confirmed:
+            print(f"ShazamService: Tentative confirmed firstSeq={candidate['sequence']} "
+                  f"temporalSeq={first['sequence']} secondSeq={second['sequence']}; "
+                  "playback now permitted")
             self.candidate_confirmed.emit(candidate["sequence"], candidate["entry"])
 
     def _process_temporal_observation(self, sequence, observation):
@@ -1383,6 +1471,16 @@ class ShazamService(QObject):
         title, artist = observation["track"]
         if previous is None:
             self._pending_identity_confirmation = None
+            candidate = self._tentative_candidate
+            if (observation.pop("_retain_existing_tentative", False) and
+                    candidate and
+                    self._temporal_observations_match(candidate["observation"], observation)):
+                # The same first vote keeps its original UI/candidate ID. Only
+                # its temporal reference advances to the valid lookahead pair.
+                candidate["observation"] = observation
+                print(f"ShazamService: Tentative continued firstSeq={candidate['sequence']} "
+                      f"lookaheadSeq={sequence}; no UI removal or repeat search")
+                return
             self._start_tentative_candidate(observation)
             print(
                 f"ShazamService: Candidate pending seq={sequence} "
@@ -1470,9 +1568,21 @@ class ShazamService(QObject):
         print(f"ShazamService: Metadata prefetch completed identity={key[2:]} "
               f"usable={metadata is not None} error={error_text!r}")
         preview = self._tentative_candidate
-        if preview and preview["observation"].get("metadata_key") == key:
-            self._emit_tentative_if_ready()
         pending = self._pending_identity_confirmation
+        if preview and preview["observation"].get("metadata_key") == key:
+            # A rapid ID-only second vote may confirm before title/artist are
+            # fetched. Still emit the first-vote UI/search event followed by
+            # confirmation in that order, rather than silently skipping search.
+            # But a *superseded* confirmation must never revive an old video.
+            safe_late_vote = (not preview["confirmed"] or
+                              pending is not None and pending.get("metadata_key") == key
+                              and self._pending_publication_safe(pending)[0])
+            newly_visible = (self._emit_tentative_if_ready(allow_confirmed=True)
+                             if safe_late_vote else False)
+            if newly_visible and preview["confirmed"]:
+                print(f"ShazamService: Late ID-only metadata completed two-vote "
+                      f"candidate firstSeq={preview['sequence']}; enable PLAY")
+                self.candidate_confirmed.emit(preview["sequence"], preview["entry"])
         if pending and pending["metadata_key"] == key:
             self._try_publish_identity_confirmation()
 
@@ -1738,10 +1848,22 @@ class ShazamService(QObject):
         del self._history[self.HISTORY_LIMIT:]
         self._save_history()
 
+        # Correlate the committed history entry to its *own* two-vote candidate.
+        # The previous confirmed UI candidate can still be stored when a new
+        # ID-only song is published; it must never suppress the new song search.
+        candidate = self._tentative_candidate
+        candidate_identity = candidate["observation"].get("identity") if candidate else None
+        associated = bool(candidate and candidate["confirmed"] and (
+            identity is not None and candidate_identity == identity
+            or identity is None and is_same_track(candidate["observation"]["track"], track_key)
+        ))
+        self._last_publication_candidate_id = candidate["sequence"] if associated else None
         self.history_updated.emit(list(self._history))
         self.new_track_detected.emit(entry)
         candidate = self._tentative_candidate
-        if candidate and candidate.get("confirmed") and candidate["sequence"] <= request_sequence:
+        if (candidate and candidate.get("confirmed") and
+                candidate["sequence"] <= request_sequence and
+                candidate["sequence"] == self._last_publication_candidate_id):
             self._tentative_timer.stop()
             self._tentative_candidate = None
         self.status_changed.emit(f"Shazam: {artist} - {title}")

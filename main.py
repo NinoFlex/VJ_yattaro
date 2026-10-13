@@ -1520,15 +1520,21 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         print("UI: New Rekordbox track detected! Auto-selected row 0.")
 
     def on_shazam_history_updated(self, new_history):
-        """Shazam履歴を最大50件で右カラムへ反映する。"""
+        """Mark only the *matching* preview committed, never a stale song."""
         preview = getattr(self, "_shazam_preview", None)
         protected = self._confirmed_shazam_awaiting_play()
-        if preview and preview.confirmed:
-            # history_updated is only emitted by the service for a committed result.
-            # Do not show the same song twice as preview + confirmed history.
-            preview.committed = True
-        elif protected:
-            protected.committed = True
+        publisher_id = getattr(self.shazam_service, "_last_publication_candidate_id", None)
+        head = new_history[0] if new_history else None
+        for candidate in (preview, protected):
+            if candidate is None or not candidate.confirmed or head is None:
+                continue
+            # Production supplies an exact candidate ID, including localized
+            # metadata; Qt-free/legacy test harnesses fall back to exact text.
+            same = (candidate.id == publisher_id if isinstance(publisher_id, int)
+                    else candidate.entry[1].strip().casefold() == str(head[1]).strip().casefold()
+                    and candidate.entry[2].strip().casefold() == str(head[2]).strip().casefold())
+            if same:
+                candidate.committed = True
         self._refresh_shazam_history_view(new_history)
 
     def _refresh_shazam_history_view(self, new_history):
@@ -1739,15 +1745,27 @@ class MainWindow(ShazamStateMixin, QMainWindow):
 
         timestamp, track_title, artist = entry[0], entry[1], entry[2]
         preview = getattr(self, "_shazam_preview", None)
-        if preview and preview.confirmed and preview.committed:
+        publisher_id = getattr(self.shazam_service, "_last_publication_candidate_id", None)
+        def matches_publication(candidate):
+            if candidate is None or not candidate.confirmed or not candidate.committed:
+                return False
+            if isinstance(publisher_id, int):
+                return candidate.id == publisher_id
+            return (candidate.entry[1].strip().casefold() == str(track_title).strip().casefold()
+                    and candidate.entry[2].strip().casefold() == str(artist).strip().casefold())
+        if matches_publication(preview):
             print(f"UI: Shazam tentative already searched firstSeq={preview.id}; "
                   "committed to history without a duplicate search")
             return
         protected = self._confirmed_shazam_awaiting_play()
-        if protected and protected.committed:
+        if matches_publication(protected):
             print(f"UI: Confirmed Shazam firstSeq={protected.id} still awaiting "
                   "PLAY; ignoring duplicate publication/search")
             return
+        # ID-only confirmation can publish a NEW song while an old confirmed
+        # preview is still retained in the UI. Never treat it as its search.
+        if preview and preview.confirmed and not matches_publication(preview):
+            self.on_shazam_candidate_rejected(preview.id, "new-confirmed-track")
         self.right_table.selectRow(0)
         if self.youtube_search_box.text().strip():
             self.youtube_search_box.clear()
@@ -3278,6 +3296,8 @@ def main():
         configure_logging(enabled=enable_logging, redirect=True)
         
         print("UI: Starting application...")
+        from app.version import SOURCE_BUILD_TAG
+        print(f"UI: Source build: {SOURCE_BUILD_TAG}")
         if sys.platform == "win32":
             try:
                 import ctypes
