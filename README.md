@@ -251,3 +251,10 @@ Each Shazam `getUserMedia()` request receives a fresh `MediaStreamTrack`; stoppi
 ## 最新の競合対策
 
 Shazam先行検索における古いPRELOAD完了通知、PLAY開始タイムアウト、確定曲Bと仮認識Cの競合対策については [`docs/PRELOAD_PLAY_RACE_FIXES.md`](docs/PRELOAD_PLAY_RACE_FIXES.md) を参照してください。
+
+### YouTube検索0件の軽量診断ログ（2026-10-14）
+
+`UI: Source build: 2026-10-14-youtube-search-diagnostic-v1` の版では、
+検索APIが0件を返した際に、HTTP/JSON/プロキシ/応答指紋を既存の1行に記録します。
+通常成功時の行数は増えず、APIキーやレスポンス本文も記録しません。
+詳細は `docs/YOUTUBE_ZERO_RESULT_DIAGNOSTICS.md` を参照。

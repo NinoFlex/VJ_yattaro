@@ -2,4 +2,4 @@
 
 Update this tag for field releases so runtime logs can identify an old EXE.
 """
-SOURCE_BUILD_TAG = "2026-10-14-shazam-artist-generic-v3"
+SOURCE_BUILD_TAG = "2026-10-14-youtube-search-diagnostic-v1"

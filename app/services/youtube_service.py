@@ -1,11 +1,14 @@
 import re
+import hashlib
+import secrets
+import time
 import unicodedata
 import requests
 from typing import Dict, Optional, List
 from PySide6.QtCore import QObject, Signal, QThread, Qt
 from PySide6.QtGui import QPixmap
 import json
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 
 # Keep QThread wrappers alive until the native thread has actually finished.
@@ -135,6 +138,11 @@ class YouTubeSearchThread(QThread):
         ))[:_MAX_SEARCH_QUERIES]
         self.api_key_store = api_key_store
         self._is_aborted = False
+        # Correlate concurrent searches without logging API keys or request URLs.
+        self.search_id = secrets.token_hex(3)
+        self._last_http_probe = None
+        self._last_filter_probe = None
+        self._query_attempt = 0
 
     def run(self):
         """YouTube APIで検索を実行。クォータ上限時は次キーへ自動切替する。"""
@@ -167,8 +175,10 @@ class YouTubeSearchThread(QThread):
         for index, query in enumerate(self.queries, 1):
             if self._is_aborted:
                 return []
+            self._query_attempt = index
             print(
-                f"YouTubeSearchThread: query {index}/{len(self.queries)}: {query!r}"
+                f"YouTubeSearchThread: query {index}/{len(self.queries)}: "
+                f"{query!r} sid={self.search_id}"
             )
             videos = self._search_with_key_rotation(query)
             if self._is_aborted:
@@ -269,29 +279,171 @@ class YouTubeSearchThread(QThread):
 
         return False, reasons[0] if reasons else "", message
 
-    def _request_json(self, base_url: str, params: dict, headers: dict, timeout: int = 10):
-        """APIキーをログへ露出させずにYouTube APIエラーを分類する。"""
-        response = requests.get(
-            f"{base_url}?{urlencode(params)}",
-            headers=headers,
-            timeout=timeout,
-        )
+    @staticmethod
+    def _probe_token(value, limit=48):
+        """Bound log tokens to prevent response-controlled text/log injection."""
+        token = '-' if value is None or value == '' else str(value)
+        return re.sub(r"[^a-zA-Z0-9_.#/-]", "_", token.strip())[:limit]
 
+    @classmethod
+    def _response_probe(cls, response, data, json_error, elapsed_ms):
+        """Summarize response metadata without URLs, API keys, or response text."""
+        headers = response.headers or {}
+        raw_content = response.content or b""
+        if isinstance(raw_content, str):
+            raw_content = raw_content.encode('utf-8', errors='replace')
+        if not isinstance(raw_content, bytes):
+            raw_content = bytes(raw_content)
+        content_type = cls._probe_token(
+            str(headers.get('Content-Type', '-') or '-').split(';', 1)[0].lower(), 52
+        )
+        server = cls._probe_token(headers.get('Server', '-'), 42)
+        page_info = data.get('pageInfo', {}) if isinstance(data, dict) else {}
+        if not isinstance(page_info, dict):
+            page_info = {}
+        total = page_info.get('totalResults', '-')
+        if not isinstance(total, (int, float, str)):
+            total = '-'
+        if isinstance(data, dict):
+            if 'error' in data:
+                issue = 'api-json-error'
+            elif 'items' not in data:
+                issue = 'missing-items'
+            elif not isinstance(data['items'], list):
+                issue = 'invalid-items-type'
+            elif not data['items']:
+                issue = 'api-empty'
+            else:
+                issue = 'ok'
+            items = len(data['items']) if isinstance(data.get('items'), list) else '-'
+            kind = cls._probe_token(data.get('kind', '-'))
+            error_obj = data.get('error')
+            if isinstance(error_obj, dict):
+                error_code = cls._probe_token(error_obj.get('code', '-'))
+                reasons = error_obj.get('errors')
+                if isinstance(reasons, list) and reasons and isinstance(reasons[0], dict):
+                    error_reason = cls._probe_token(reasons[0].get('reason', '-'))
+                else:
+                    error_reason = '-'
+            else:
+                error_code = '-'
+                error_reason = '-'
+        else:
+            issue = 'invalid-json-type'
+            items = '-'
+            kind = '-'
+            error_code = '-'
+            error_reason = '-'
+        if json_error is not None:
+            issue = 'invalid-json'
+        elif (issue in ('ok', 'api-empty') and content_type != '-'
+              and content_type != 'application/json'
+              and not content_type.endswith('+json')):
+            issue = 'unexpected-content-type'
+        elif issue == 'api-empty' and isinstance(total, int) and total > 0:
+            issue = 'empty-with-positive-total'
+        host = '-'
+        try:
+            # Ignore query parameters entirely: the outgoing URL has the API key.
+            hostname = urlsplit(str(response.url or '')).hostname
+            if hostname:
+                host = cls._probe_token(hostname, 70)
+        except (TypeError, ValueError):
+            pass
+        lower_prefix = raw_content[:256].lstrip().lower()
+        html = int(lower_prefix.startswith((b'<html', b'<!doctype html')))
+        redirects = len(getattr(response, 'history', []) or [])
+        proxy_header = int(any(k in headers for k in ('Via', 'X-Cache', 'X-Squid-Error')))
+        return {
+            'issue': issue,
+            'http': response.status_code,
+            'ct': content_type,
+            'server': server,
+            'bytes': len(raw_content),
+            'ms': elapsed_ms,
+            'json': 'error' if json_error is not None else type(data).__name__,
+            'parseError': type(json_error).__name__ if json_error is not None else '-',
+            'items': items,
+            'pageTotal': cls._probe_token(total, 30),
+            'kind': kind,
+            'errorCode': error_code,
+            'errorReason': error_reason,
+            'html': html,
+            'redirects': redirects,
+            'host': host,
+            'proxyHdr': proxy_header,
+            # Fingerprint helps distinguish recurring proxy/block pages, not content.
+            'sha12': hashlib.sha256(raw_content).hexdigest()[:12],
+        }
+
+    def _probe_fields(self, probe):
+        if not probe:
+            return 'probe=unavailable'
+        return ' '.join(f'{key}={value}' for key, value in probe.items())
+
+    def _request_json(self, base_url: str, params: dict, headers: dict, timeout: int = 10):
+        """Track uncommon API responses without increasing normal-success log lines.
+
+        This is diagnostics-only: malformed HTTP 200 responses still return {}
+        (as in the existing version). We do not change query retry/selection.
+        """
+        stage = 'search' if base_url.endswith('/search') else 'videos'
+        self._last_http_probe = None
+        began = time.monotonic()
+        try:
+            response = requests.get(
+                f"{base_url}?{urlencode(params)}",
+                headers=headers,
+                timeout=timeout,
+            )
+        except requests.exceptions.RequestException as exc:
+            # requests exception messages can contain the full ?key= URL.
+            name = type(exc).__name__
+            elapsed_ms = round((time.monotonic() - began) * 1000)
+            print(
+                f'YouTubeSearchThread: API diagnostic sid={self.search_id} '
+                f'attempt={self._query_attempt}/{len(self.queries)} '
+                f'stage={stage} keyIndex={self.active_index + 1} '
+                f'issue=transport exception={name} ms={elapsed_ms}'
+            )
+            raise RuntimeError(f'YouTube API transport error: {name}') from None
+
+        elapsed_ms = round((time.monotonic() - began) * 1000)
+        json_error = None
         try:
             data = response.json()
-        except Exception:
+        except Exception as exc:
+            json_error = exc
             data = {}
 
+        probe = self._response_probe(response, data, json_error, elapsed_ms)
+        self._last_http_probe = (stage, probe)
         if response.ok:
+            if ((stage == 'videos' and probe['issue'] not in ('ok', 'api-empty'))
+                    or (stage == 'search' and probe['issue'] == 'invalid-json-type')):
+                # Search's usual zero-result line covers all other anomalies;
+                # malformed top-level JSON otherwise raises before that line.
+                print(
+                    f'YouTubeSearchThread: API diagnostic sid={self.search_id} '
+                    f'attempt={self._query_attempt}/{len(self.queries)} '
+                    f'stage={stage} keyIndex={self.active_index + 1} '
+                    f'{self._probe_fields(probe)}'
+                )
             return data
 
         is_quota, reason, message = self._is_quota_error(response, data)
+        print(
+            f'YouTubeSearchThread: API diagnostic sid={self.search_id} '
+            f'attempt={self._query_attempt}/{len(self.queries)} '
+            f'stage={stage} keyIndex={self.active_index + 1} '
+            f'{self._probe_fields(probe)} quota={int(is_quota)}'
+        )
         if is_quota:
             raise YouTubeQuotaExceededError(reason=reason, message=message)
 
-        # HTTPErrorの文字列にはURL(APIキー)が含まれる可能性があるため、独自メッセージにする。
-        detail = reason or message or response.reason or "unknown error"
-        raise Exception(f"YouTube API error HTTP {response.status_code}: {detail}")
+        # Never include response.url, raw HTTP body, or user-controlled messages.
+        detail = self._probe_token(reason or response.reason or 'unknown error')
+        raise Exception(f'YouTube API error HTTP {response.status_code}: {detail}')
 
     def _search_youtube(self, query: Optional[str] = None) -> List[Dict]:
         """YouTube Data API v3で動画検索（ショート動画を除外）"""
@@ -314,12 +466,26 @@ class YouTubeSearchThread(QThread):
             'User-Agent': 'VJ_yattaro/1.0'
         }
 
+        self._last_http_probe = None
         data = self._request_json(base_url, params, headers, timeout=10)
 
         if self._is_aborted:
             return []
         items = data.get('items', [])
-        print(f"YouTubeSearchThread: API returned {len(items)} item(s)")
+        if not items:
+            # One annotated zero-result line instead of the two old generic lines.
+            probe = (
+                self._last_http_probe[1] if self._last_http_probe
+                and self._last_http_probe[0] == 'search' else None
+            )
+            print(
+                f'YouTubeSearchThread: API returned 0 item(s) sid={self.search_id} '
+                f'attempt={self._query_attempt}/{len(self.queries)} '
+                f'keyIndex={self.active_index + 1} '
+                f'{self._probe_fields(probe)}'
+            )
+            return []
+        print(f"YouTubeSearchThread: API returned {len(items)} item(s) sid={self.search_id}")
 
         videos = []
         video_ids = []
@@ -351,17 +517,36 @@ class YouTubeSearchThread(QThread):
                 'url': f"https://www.youtube.com/watch?v={video_id}"
             })
 
-        if excluded_count:
+        if excluded_count and video_ids:
             print(
                 f"YouTubeSearchThread: excluded {excluded_count} cover candidate(s) "
                 f"matching {', '.join(_EXCLUDED_CANDIDATE_TITLE_TERMS)}"
             )
 
         # 動画の詳細情報を取得して長さを確認
+        self._last_filter_probe = None
         if video_ids and not self._is_aborted:
             videos = self._filter_shorts(videos, video_ids)
 
-        print(f"YouTubeSearchThread: {len(videos)} usable video(s) after filtering")
+        if not videos:
+            # A separate zero mode: API returned items but every item was
+            # excluded by ID/title/duration validation.
+            details = self._last_filter_probe or {}
+            print(
+                f'YouTubeSearchThread: 0 usable video(s) after filtering '
+                f'sid={self.search_id} attempt={self._query_attempt}/{len(self.queries)} '
+                f'apiItems={len(items)} missingVideoId={len(items) - len(video_ids) - excluded_count} '
+                f'coverExcluded={excluded_count} videoIds={len(video_ids)} '
+                f'detailsItems={details.get("detailsItems", "-")} '
+                f'under60s={details.get("under60s", "-")} '
+                f'missingDuration={details.get("missingDuration", "-")} '
+                f'detailsIssue={details.get("issue", "-")}'
+            )
+        else:
+            print(
+                f'YouTubeSearchThread: {len(videos)} usable video(s) after filtering '
+                f'sid={self.search_id}'
+            )
         return videos[:20]  # 上位20件を返す
 
     def _filter_shorts(self, videos: List[Dict], video_ids: List[str]) -> List[Dict]:
@@ -379,7 +564,14 @@ class YouTubeSearchThread(QThread):
         }
 
         try:
+            self._last_http_probe = None
             data = self._request_json(base_url, params, headers, timeout=10)
+            self._last_filter_probe = {
+                'issue': self._last_http_probe[1]['issue']
+                if self._last_http_probe else 'unknown',
+                'detailsItems': len(data.get('items', []))
+                if isinstance(data.get('items'), list) else '-',
+            }
 
             if 'items' not in data:
                 # エラー時はすべての動画に空のdurationを設定して返す
@@ -407,6 +599,8 @@ class YouTubeSearchThread(QThread):
 
         # ショート動画（60秒未満）を除外
         filtered_videos = []
+        under_60s = 0
+        missing_duration = 0
         for video in videos:
             video_id = video['video_id']
             duration = duration_map.get(video_id, 0)
@@ -415,7 +609,16 @@ class YouTubeSearchThread(QThread):
             if duration >= 60:
                 video['duration'] = self._format_duration(duration)
                 filtered_videos.append(video)
+            elif video_id not in duration_map or not duration:
+                missing_duration += 1
+            else:
+                under_60s += 1
 
+        if self._last_filter_probe is None:
+            self._last_filter_probe = {}
+        self._last_filter_probe.update(
+            under60s=under_60s, missingDuration=missing_duration
+        )
         return filtered_videos
 
     def _parse_duration(self, duration_str: str) -> int:

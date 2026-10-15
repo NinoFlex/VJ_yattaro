@@ -232,3 +232,12 @@ node tests/player_race_checks.cjs
 同じ曲IDの後続2回一致で時系列処理が追い越されたときも、旧候補の
 YouTube検索とPRELOAD要求IDが引き継がれることを確認します。
 対応するログ解析は `docs/GUNJO_PRELOAD_RECOVERY.md` を参照してください。
+
+## YouTube検索0件応答の診断ログ（2026-10-14）
+
+`tests/test_youtube_search_diagnostics.py` にHTTP応答を模擬した診断テストを追加。
+HTTP 200でHTMLが返った場合や、正常なJSONの0件、異常JSON、詳細取得不良、
+ショート動画・カバー全件除外、通信エラーとクォータ時のAPIキー切替を検査します。
+通常成功時のログ行数を増やさず、APIキー・URLクエリ・本文・エラーメッセージを
+漏らさないことも検証します。検索・再生動作には変更ありません。
+詳細：`YOUTUBE_ZERO_RESULT_DIAGNOSTICS.md`。

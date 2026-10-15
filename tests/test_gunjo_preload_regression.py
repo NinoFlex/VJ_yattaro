@@ -174,7 +174,7 @@ class GunjoPreloadFieldLogTests(unittest.TestCase):
 
     def test_running_build_tag_is_present(self):
         from app.version import SOURCE_BUILD_TAG
-        self.assertEqual(SOURCE_BUILD_TAG, '2026-10-14-shazam-artist-generic-v3')
+        self.assertEqual(SOURCE_BUILD_TAG, '2026-10-14-youtube-search-diagnostic-v1')
 
 
 if __name__ == '__main__':
