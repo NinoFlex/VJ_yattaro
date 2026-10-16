@@ -20,7 +20,7 @@ from app.services.shazam_metadata_prefetch import (
 class ShazamService(QObject):
     """Microphone -> live PCM fanout -> Shazam recognition service.
 
-    One PortAudio input stream is captured continuously and fanned out to four independent
+    One PortAudio input stream is captured continuously and fanned out to 4-16 independent
     WebView2 workers only while each lane is recognizing. New recognition starts are spaced
     by at least three seconds. If all workers are busy, the due slot is held instead of
     discarded and starts as soon as one worker becomes free. Each WebView therefore receives
@@ -74,7 +74,7 @@ class ShazamService(QObject):
     SHAZAM_AUDIO_REQUEST_ERROR_MARKER = "the shazam button did not request the supplied audio"
     # A single audio-supply miss may be transient. Two consecutive misses on the same
     # worker are treated as a lane-health problem: quarantine only that lane, replace its
-    # WebView2 helper, and prewarm the replacement while the other three lanes keep running.
+    # WebView2 helper, and prewarm the replacement while the other lanes keep running.
     LANE_RECYCLE_AUDIO_ERROR_THRESHOLD = 2
     LANE_RECYCLE_RETRY_DELAYS_SECONDS = (0.0, 1.0, 2.0, 5.0)
 
@@ -83,6 +83,16 @@ class ShazamService(QObject):
         from app.services.config_service import ConfigService
 
         self.config = ConfigService()
+        from app.services.config_service import normalize_shazam_lane_count
+        lane_count = normalize_shazam_lane_count(self.config.get("shazam_lane_count", 4))
+        # Class-level constants preserve old 4-lane behavior for external callers;
+        # each instance overrides the selected active worker count.
+        self.RECOGNITION_GROUPS = lane_count
+        self.PARALLEL_RECOGNITION_LANES = lane_count * self.LANES_PER_GROUP
+        # Leave retired worker threads parked after a reduction. stop() closes
+        # their WebView2 processes, and the dispatcher cannot select them.
+        # Retaining their slots prevents races with late cancelled callbacks.
+        self._pool_capacity = self.PARALLEL_RECOGNITION_LANES
         self._capture_sample_rate = self.SAMPLE_RATE
         self._capture_channels = self.CHANNELS
         self._agc_gain = 1.0
@@ -112,12 +122,12 @@ class ShazamService(QObject):
         self._metadata_prefetch = MetadataPrefetcher()
         self._pending_identity_confirmation = None
         self._newest_temporal_observation = None
-        self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
+        self._lane_busy = [False] * self._pool_capacity
         self._lane_ready = [threading.Event() for _ in range(self.PARALLEL_RECOGNITION_LANES)]
-        self._lane_audio_request_failure_streak = [0] * self.PARALLEL_RECOGNITION_LANES
-        self._lane_recycling = [False] * self.PARALLEL_RECOGNITION_LANES
-        self._lane_recycle_count = [0] * self.PARALLEL_RECOGNITION_LANES
-        self._group_busy = [False] * self.RECOGNITION_GROUPS
+        self._lane_audio_request_failure_streak = [0] * self._pool_capacity
+        self._lane_recycling = [False] * self._pool_capacity
+        self._lane_recycle_count = [0] * self._pool_capacity
+        self._group_busy = [False] * self._pool_capacity
         # _next_group_index is the round-robin search start for the shared worker pool.
         # _next_group_slot_at is the earliest time at which another recognition may start.
         self._next_group_index = 0
@@ -275,6 +285,33 @@ class ShazamService(QObject):
         except Exception as e:
             return [], f"sounddevice/PortAudio initialization failed: {e}"
 
+    def _sync_lane_count(self):
+        """Apply the persisted 4..16 count between stop() and start().
+
+        Increase capacity on demand; park higher-index workers on decrease.
+        Parked workers cannot dispatch or prewarm and have no live WebView2
+        helper. Worker slots remain valid for cancelled/late callbacks.
+        """
+        from app.services.config_service import normalize_shazam_lane_count
+        from app.services.shazam_webview_client import WebViewRecognizer
+
+        count = normalize_shazam_lane_count(self.config.get("shazam_lane_count", 4))
+        required_capacity = count * self.LANES_PER_GROUP
+        if required_capacity > self._pool_capacity:
+            for index in range(self._pool_capacity, required_capacity):
+                self._work_queues.append(queue.Queue(maxsize=1))
+                self._worker_threads.append(None)
+                self._web_recognizers.append(WebViewRecognizer(f"lane-{index + 1}"))
+                self._lane_busy.append(False)
+                self._lane_ready.append(threading.Event())
+                self._lane_audio_request_failure_streak.append(0)
+                self._lane_recycling.append(False)
+                self._lane_recycle_count.append(0)
+                self._group_busy.append(False)
+            self._pool_capacity = required_capacity
+        self.RECOGNITION_GROUPS = count
+        self.PARALLEL_RECOGNITION_LANES = required_capacity
+
     def get_history(self):
         return list(self._history)
 
@@ -302,17 +339,18 @@ class ShazamService(QObject):
             self._agc_gain = 1.0
             self._last_audio_level_log = 0.0
 
-            # Only load/start the Shazam worker after the selected microphone has
-            # passed validation. This keeps a failed Shazam start as lightweight as possible.
+            # Reload lane count after microphone validation; no new workers on
+            # a failed Shazam start.
+            self._sync_lane_count()
             self._ensure_worker_threads()
             self._generation += 1
             self._cancel_current = threading.Event()
             self._recognition_busy = False
-            self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
-            self._lane_audio_request_failure_streak = [0] * self.PARALLEL_RECOGNITION_LANES
-            self._lane_recycling = [False] * self.PARALLEL_RECOGNITION_LANES
-            self._lane_recycle_count = [0] * self.PARALLEL_RECOGNITION_LANES
-            self._group_busy = [False] * self.RECOGNITION_GROUPS
+            self._lane_busy = [False] * self._pool_capacity
+            self._lane_audio_request_failure_streak = [0] * self._pool_capacity
+            self._lane_recycling = [False] * self._pool_capacity
+            self._lane_recycle_count = [0] * self._pool_capacity
+            self._group_busy = [False] * self._pool_capacity
             self._next_group_index = 0
             self._next_group_slot_at = 0.0
             self._slot_wait_started_at = None
@@ -342,16 +380,19 @@ class ShazamService(QObject):
             )
             self._stream.start()
             self._active = True
-            # Prewarm all four hidden WebView2 helpers immediately. Once ready, they form
+            # Prewarm only configured WebView2 helpers. Once ready, they form
             # a shared worker pool; recognition dispatches are spaced by at least 3 seconds.
             language = str(self.config.get("shazam_language", "ja-JP") or "ja-JP")
-            for lane_index, work_queue in enumerate(self._work_queues):
+            for lane_index, work_queue in enumerate(self._work_queues[:self.PARALLEL_RECOGNITION_LANES]):
+                # A quick settings reload can leave last generation's request in a
+                # single-slot queue. Drop it before enqueueing THIS generation's
+                # prewarm; otherwise queue.Full incorrectly marked a cold lane ready.
                 try:
-                    work_queue.put_nowait(("prewarm", self._generation, language, self._cancel_current))
-                except queue.Full:
-                    # Prewarm is optional. Do not permanently block a lane if an old
-                    # cancelled item is still leaving the queue during a quick restart.
-                    self._lane_ready[lane_index].set()
+                    while True:
+                        work_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                work_queue.put_nowait(("prewarm", self._generation, language, self._cancel_current))
             self._recognize_timer.start()
             self.status_changed.emit("Shazam: live microphone capture started")
             try:
@@ -366,6 +407,7 @@ class ShazamService(QObject):
             print(
                 f"ShazamService: Started (device={device}, name={device_name!r}, hostapi={hostapi_name!r}, "
                 f"capture={capture_rate}Hz/{capture_channels}ch/int16->mono, input=live-stream-agc, "
+                f"laneCount={self.PARALLEL_RECOGNITION_LANES}, "
                 f"laneInterval={self.GROUP_STAGGER_SECONDS:.1f}s, metadata=identity-prefetch-v1, "
                 f"confirmation=shazam-neutral-gap-v2 window={self.SHAZAM_NO_MATCH_WINDOW_SECONDS:.1f}s "
                 f"maxNeutral={self.SHAZAM_NO_MATCH_MAX_GAPS} "
@@ -399,10 +441,10 @@ class ShazamService(QObject):
         self._recognize_timer.stop()
         self._close_stream()
         self._recognition_busy = False
-        self._lane_busy = [False] * self.PARALLEL_RECOGNITION_LANES
-        self._lane_audio_request_failure_streak = [0] * self.PARALLEL_RECOGNITION_LANES
-        self._lane_recycling = [False] * self.PARALLEL_RECOGNITION_LANES
-        self._group_busy = [False] * self.RECOGNITION_GROUPS
+        self._lane_busy = [False] * self._pool_capacity
+        self._lane_audio_request_failure_streak = [0] * self._pool_capacity
+        self._lane_recycling = [False] * self._pool_capacity
+        self._group_busy = [False] * self._pool_capacity
         self._slot_wait_started_at = None
         self._slot_wait_logged = False
         self._pending_group_results.clear()
@@ -421,7 +463,7 @@ class ShazamService(QObject):
         print("ShazamService: Stopped")
 
     def reload_settings(self):
-        """Apply microphone and Shazam locale settings while Shazam mode is active."""
+        """Apply microphone, locale and lane count, restarting when active."""
         was_active = self._active
         if was_active:
             self.stop()
@@ -431,7 +473,7 @@ class ShazamService(QObject):
         self._shutting_down = True
         self.stop()
         self._metadata_prefetch.close()
-        # Drop queued (not yet started) recordings and wake both idle workers.
+        # Drop queued (not yet started) recordings and wake all idle workers.
         for work_queue in self._work_queues:
             try:
                 while True:
@@ -615,7 +657,7 @@ class ShazamService(QObject):
             print(f"ShazamService: Audio preprocessing failed: {exc}")
             return
 
-        for recognizer in self._web_recognizers:
+        for recognizer in self._web_recognizers[:self.PARALLEL_RECOGNITION_LANES]:
             try:
                 recognizer.feed_live_audio(pcm_bytes, self._capture_sample_rate)
             except Exception:
@@ -721,8 +763,8 @@ class ShazamService(QObject):
             if self._slot_wait_started_at is None:
                 self._slot_wait_started_at = now
             if not self._slot_wait_logged:
-                busy = sum(1 for value in self._lane_busy if value)
-                ready = sum(1 for value in self._lane_ready if value.is_set())
+                busy = sum(1 for value in self._lane_busy[:self.PARALLEL_RECOGNITION_LANES] if value)
+                ready = sum(1 for value in self._lane_ready[:self.PARALLEL_RECOGNITION_LANES] if value.is_set())
                 print(
                     f"ShazamService: Recognition slot waiting seq={self._request_sequence} "
                     f"busy={busy}/{self.PARALLEL_RECOGNITION_LANES} "
@@ -959,7 +1001,7 @@ class ShazamService(QObject):
                 group_index, request_sequence, lanes, results, raw_results
             )
         finally:
-            # A completed worker may satisfy a slot that was waiting because all four
+            # A completed worker may satisfy a slot that was waiting because all active
             # workers were busy. The scheduler still enforces 3 seconds between dispatches.
             if self._active and generation == self._generation:
                 self._recognize_tick()

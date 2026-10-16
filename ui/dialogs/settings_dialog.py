@@ -202,6 +202,11 @@ class SettingsDialog(QDialog):
                 shazam_index = -1
         self.shazam_input_device_combo.setCurrentIndex(shazam_index if shazam_index >= 0 else 0)
 
+        from app.services.config_service import normalize_shazam_lane_count
+        self.shazam_lane_count_spin.setValue(
+            normalize_shazam_lane_count(self.config_service.get("shazam_lane_count", 4))
+        )
+
         shazam_language = str(self.config_service.get("shazam_language", "ja-JP") or "ja-JP")
         language_index = self.shazam_language_combo.findText(shazam_language)
         if language_index >= 0:
@@ -466,6 +471,15 @@ class SettingsDialog(QDialog):
         self.shazam_device_status_label.setStyleSheet(self._muted_style("font-size: 10px;"))
         layout.addRow("", self.shazam_device_status_label)
 
+        self.shazam_lane_count_spin = QSpinBox()
+        self.shazam_lane_count_spin.setRange(4, 16)
+        self.shazam_lane_count_spin.setSingleStep(1)
+        self.shazam_lane_count_spin.setSuffix(" レーン")
+        self.shazam_lane_count_spin.setToolTip(
+            "同時に稼働可能なShazam WebView2数。新しい認識の開始間隔は3秒のままです。"
+        )
+        layout.addRow("WebView2レーン数:", self.shazam_lane_count_spin)
+
         self.shazam_language_combo = QComboBox()
         self.shazam_language_combo.setEditable(True)
         self.shazam_language_combo.addItems(["ja-JP", "en-US", "en-GB"])
@@ -486,7 +500,9 @@ class SettingsDialog(QDialog):
 
         info_label = QLabel(
             "mono / int16 で常時取り込み、取得したPCMをWebView2へリアルタイム配信します。\n"
-            "4レーンを共有し、認識開始は3秒以上ずらします。WAVの6秒ループ再生は行いません。\n"
+            "4〜16レーンを共有し、認識開始は3秒以上ずらします。WAVの6秒ループ再生は行いません。\n"
+            "レーン数を増やすと待機余裕が増えますが、WebView2のメモリ使用量も増加します。\n"
+            "設定の変更はShazamモードの再起動で反映します。\n"
             "新曲は時間差のある2回のタイトル一致で確定します。"
         )
         info_label.setWordWrap(True)
@@ -1133,6 +1149,7 @@ class SettingsDialog(QDialog):
         )
         enable_logging = self.enable_logging_checkbox.isChecked()
         shazam_input_device = self.shazam_input_device_combo.currentData()
+        shazam_lane_count = int(self.shazam_lane_count_spin.value())
         shazam_language = self.shazam_language_combo.currentText().strip() or "ja-JP"
         if shazam_language.lower() == "jp-jp":
             shazam_language = "ja-JP"
@@ -1204,6 +1221,7 @@ class SettingsDialog(QDialog):
             "youtube_search_template_shazam": youtube_search_template_shazam,
             "enable_logging": enable_logging,
             "shazam_input_device": shazam_input_device,
+            "shazam_lane_count": shazam_lane_count,
             "shazam_language": shazam_language,
             "shazam_endpoint_country": shazam_endpoint_country,
             "player_track_info_position": self._get_track_info_position_value(),

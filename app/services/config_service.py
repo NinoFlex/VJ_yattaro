@@ -3,6 +3,19 @@ import os
 import sys
 from pathlib import Path
 
+SHAZAM_MIN_LANES = 4
+SHAZAM_MAX_LANES = 16
+
+
+def normalize_shazam_lane_count(value):
+    """Bound persisted, UI, and runtime lane counts consistently."""
+    try:
+        count = int(value)
+    except (TypeError, ValueError, OverflowError):
+        count = SHAZAM_MIN_LANES
+    return max(SHAZAM_MIN_LANES, min(SHAZAM_MAX_LANES, count))
+
+
 class ConfigService:
     """
     アプリケーションの設定（DBパス、更新間隔など）を管理するシングルトンサービス
@@ -58,6 +71,7 @@ class ConfigService:
             "ui_theme": "dark",
             "enable_logging": True,
             "shazam_input_device": None,
+            "shazam_lane_count": SHAZAM_MIN_LANES,
             "shazam_language": "ja-JP",
             "shazam_endpoint_country": "JP",
             "midi_port_name": "",
