@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
                                QLabel, QLineEdit, QPushButton, QTabWidget, 
                                QCheckBox, QSpinBox, QGroupBox, QWidget, QApplication, QFileDialog, QComboBox,
-                               QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox)
+                               QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox, QScrollArea)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QClipboard, QKeyEvent, QColor
 
@@ -151,6 +151,7 @@ class SettingsDialog(QDialog):
         
         # タブウィジェット
         self.tabs = QTabWidget()
+        self.tabs.setUsesScrollButtons(True)
         self.layout.addWidget(self.tabs)
         
         # 各タブの構築
@@ -160,6 +161,7 @@ class SettingsDialog(QDialog):
         self._init_hotkey_tab()
         self._init_midi_tab()
         self._init_youtube_tab()
+        self._init_title_keywords_tab()
         self._init_player_tab()
         
         # 既存設定の読み込み
@@ -185,6 +187,11 @@ class SettingsDialog(QDialog):
     def _error_style(self, extra=""):
         return f"color: {self._theme_color('error')}; {extra}"
 
+    def _init_title_keywords_tab(self):
+        from ui.widgets.title_keyword_editor import TitleKeywordEditor
+        self.title_keyword_editor = TitleKeywordEditor(self)
+        self.tabs.addTab(self.title_keyword_editor, "曲名キーワード除去")
+
     def _load_current_settings(self):
         """現在の設定値をUIに反映させる"""
         self.db_path_edit.setText(self.config_service.get("db_path", ""))
@@ -202,9 +209,9 @@ class SettingsDialog(QDialog):
                 shazam_index = -1
         self.shazam_input_device_combo.setCurrentIndex(shazam_index if shazam_index >= 0 else 0)
 
-        from app.services.config_service import normalize_shazam_lane_count
+        from app.services.config_service import SHAZAM_DEFAULT_LANES, normalize_shazam_lane_count
         self.shazam_lane_count_spin.setValue(
-            normalize_shazam_lane_count(self.config_service.get("shazam_lane_count", 4))
+            normalize_shazam_lane_count(self.config_service.get("shazam_lane_count", SHAZAM_DEFAULT_LANES))
         )
 
         shazam_language = str(self.config_service.get("shazam_language", "ja-JP") or "ja-JP")
@@ -261,6 +268,8 @@ class SettingsDialog(QDialog):
         else:
             self.midi_device_combo.setCurrentIndex(0)
             
+        from app.services.title_keywords import CONFIG_KEY
+        self.title_keyword_editor.set_keywords(self.config_service.get(CONFIG_KEY, []))
         self.youtube_api_keys, self.youtube_active_key_index = self.youtube_api_key_store.load()
         self._refresh_youtube_api_key_table()
         legacy_search_template = self.config_service.get("youtube_search_template", "%tracktitle% %comment%")
@@ -269,6 +278,9 @@ class SettingsDialog(QDialog):
         )
         self.youtube_search_template_shazam_edit.setText(
             self.config_service.get("youtube_search_template_shazam", "%tracktitle% %artist%")
+        )
+        self.youtube_search_template_shazam_tieup_edit.setText(
+            self.config_service.get("youtube_search_template_shazam_tieup", "%tracktitle% %comment%")
         )
         
         # プレイヤータブの設定値を読み込み
@@ -474,11 +486,10 @@ class SettingsDialog(QDialog):
         self.shazam_lane_count_spin = QSpinBox()
         self.shazam_lane_count_spin.setRange(4, 16)
         self.shazam_lane_count_spin.setSingleStep(1)
-        self.shazam_lane_count_spin.setSuffix(" レーン")
         self.shazam_lane_count_spin.setToolTip(
             "同時に稼働可能なShazam WebView2数。新しい認識の開始間隔は3秒のままです。"
         )
-        layout.addRow("WebView2レーン数:", self.shazam_lane_count_spin)
+        layout.addRow("レーン数 :", self.shazam_lane_count_spin)
 
         self.shazam_language_combo = QComboBox()
         self.shazam_language_combo.setEditable(True)
@@ -847,7 +858,14 @@ class SettingsDialog(QDialog):
 
         self.youtube_search_template_shazam_edit = QLineEdit()
         self.youtube_search_template_shazam_edit.setPlaceholderText("例: %tracktitle% %artist%")
-        layout.addRow("Shazam検索テンプレート:", self.youtube_search_template_shazam_edit)
+        layout.addRow("Shazam通常検索テンプレート:", self.youtube_search_template_shazam_edit)
+
+        self.youtube_search_template_shazam_tieup_edit = QLineEdit()
+        self.youtube_search_template_shazam_tieup_edit.setPlaceholderText("例: %tracktitle% %comment%")
+        layout.addRow("タイアップ補完後検索テンプレート:", self.youtube_search_template_shazam_tieup_edit)
+        tieup_note = QLabel("補完ON時は歌ネットの結果を待ち、コメントありなら補完後、なしなら通常検索の結果だけを自動再生します。")
+        tieup_note.setWordWrap(True)
+        layout.addRow("", tieup_note)
 
         variables_label = QLabel("• %tracktitle% - トラックタイトル\n• %artist% - アーティスト名\n• %comment% - コメント")
         variables_label.setStyleSheet(f"color: {self._theme_color('text')}; font-size: 9px; margin-left: 10px; margin-bottom: 10px;")
@@ -855,13 +873,19 @@ class SettingsDialog(QDialog):
 
         examples_label = QLabel(
             "Rekordbox既定: %tracktitle% %comment%\n"
-            "Shazam既定: %tracktitle% %artist%\n"
+            "Shazam通常既定: %tracktitle% %artist%\n"
+            "タイアップ補完後既定: %tracktitle% %comment%\n"
             "例: %artist% - %tracktitle% live"
         )
         examples_label.setStyleSheet(self._muted_style("font-size: 9px; margin-top: 5px;"))
         layout.addRow("", examples_label)
 
-        self.tabs.addTab(tab, "YouTube")
+        # The API-key list and three template fields must stay accessible at
+        # the existing compact dialog size and at Windows high-DPI scaling.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(tab)
+        self.tabs.addTab(scroll, "YouTube")
 
     @staticmethod
     def _masked_youtube_api_key(key):
@@ -1147,6 +1171,9 @@ class SettingsDialog(QDialog):
         youtube_search_template_shazam = (
             self.youtube_search_template_shazam_edit.text().strip() or "%tracktitle% %artist%"
         )
+        youtube_search_template_shazam_tieup = (
+            self.youtube_search_template_shazam_tieup_edit.text().strip() or "%tracktitle% %comment%"
+        )
         enable_logging = self.enable_logging_checkbox.isChecked()
         shazam_input_device = self.shazam_input_device_combo.currentData()
         shazam_lane_count = int(self.shazam_lane_count_spin.value())
@@ -1185,6 +1212,7 @@ class SettingsDialog(QDialog):
         )
         print(f"Settings: Saving Rekordbox YouTube Search Template: {youtube_search_template_rekordbox}")
         print(f"Settings: Saving Shazam YouTube Search Template: {youtube_search_template_shazam}")
+        print(f"Settings: Saving Tieup YouTube Search Template: {youtube_search_template_shazam_tieup}")
 
         if not self.youtube_api_key_store.save(youtube_api_keys, youtube_active_key_index):
             QMessageBox.critical(
@@ -1194,7 +1222,8 @@ class SettingsDialog(QDialog):
             )
             return
 
-        self.config_service.save_config({
+        if not self.config_service.save_config({
+            "track_title_remove_keywords": self.title_keyword_editor.keywords(),
             "db_path": db_path,
             "interval_s": interval,
             "player_port": player_port,
@@ -1219,6 +1248,7 @@ class SettingsDialog(QDialog):
             "youtube_search_template": youtube_search_template_rekordbox,
             "youtube_search_template_rekordbox": youtube_search_template_rekordbox,
             "youtube_search_template_shazam": youtube_search_template_shazam,
+            "youtube_search_template_shazam_tieup": youtube_search_template_shazam_tieup,
             "enable_logging": enable_logging,
             "shazam_input_device": shazam_input_device,
             "shazam_lane_count": shazam_lane_count,
@@ -1235,7 +1265,9 @@ class SettingsDialog(QDialog):
             "midi_search": midi_search,
             "midi_rewind": midi_rewind,
             "midi_forward": midi_forward
-        })
+        }):
+            QMessageBox.critical(self, "設定保存", "config.json の保存に失敗しました。設定は適用されていません。")
+            return
         
         # 設定画面を閉じる際に再登録
         self._restore_hotkeys()

@@ -89,6 +89,16 @@ class _Job:
     country: str
     cancelled: object
     callback: object
+    superseded: object
+
+
+class _LookupCancellation:
+    """Cooperative HTTP boundary cancellation, including live-DOM upgrades."""
+    def __init__(self, cancelled, superseded):
+        self.cancelled, self.superseded = cancelled, superseded
+
+    def is_set(self):
+        return self.cancelled.is_set() or self.superseded.is_set()
 
 
 class MetadataPrefetcher:
@@ -111,6 +121,7 @@ class MetadataPrefetcher:
         self._lock = threading.Lock()
         self._cache = OrderedDict()
         self._inflight = set()
+        self._lookup_cancels = {}
         self._queue = queue.Queue(maxsize=self.QUEUE_LIMIT)
         self._workers = []
         self._closed = False
@@ -145,6 +156,9 @@ class MetadataPrefetcher:
             with self._lock:
                 if not self._closed:
                     self._put_locked(key, metadata)
+                    for (_, lookup_key), event in self._lookup_cancels.items():
+                        if lookup_key == key:
+                            event.set()
         return metadata
 
     def request(self, generation, key, raw, language, country, cancelled, callback):
@@ -172,12 +186,15 @@ class MetadataPrefetcher:
                                               name=f'ShazamPrefetch-{index + 1}')
                     self._workers.append(worker)
                     worker.start()
-            job = _Job(generation, key, dict(raw), language, country, cancelled, callback)
+            superseded = threading.Event()
+            job = _Job(generation, key, dict(raw), language, country, cancelled, callback, superseded)
             self._inflight.add(ticket)
+            self._lookup_cancels[ticket] = superseded
             try:
                 self._queue.put_nowait(job)
             except queue.Full:
                 self._inflight.discard(ticket)
+                self._lookup_cancels.pop(ticket, None)
                 return 'queue-full'
             return 'started'
 
@@ -192,6 +209,7 @@ class MetadataPrefetcher:
                     break
                 if job.cancelled.is_set():
                     self._inflight.discard((job.generation, job.key))
+                    self._lookup_cancels.pop((job.generation, job.key), None)
                 else:
                     retained.append(job)
             for job in retained:
@@ -200,6 +218,8 @@ class MetadataPrefetcher:
     def close(self):
         with self._lock:
             self._closed = True
+            for event in self._lookup_cancels.values():
+                event.set()
         # No join on the UI thread. Workers use bounded/cooperative network calls
         # and daemon threads; stopped-generation callbacks are ignored by Qt.
         self.discard_cancelled()
@@ -228,7 +248,8 @@ class MetadataPrefetcher:
                 else:
                     if resolver is None:
                         resolver = self._factory()
-                    values = resolver.resolve(job.raw, job.language, job.country, job.cancelled)
+                    values = resolver.resolve(job.raw, job.language, job.country,
+                                              _LookupCancellation(job.cancelled, job.superseded))
                     metadata = usable_metadata(
                         values[0] or job.raw.get('title'),
                         clean_artist(values[1]) or job.raw.get('artist'),
@@ -246,6 +267,7 @@ class MetadataPrefetcher:
                     if resolver is not None:
                         self._retry_after = max(self._retry_after, getattr(resolver, '_retry_after', 0.0))
                     self._inflight.discard((job.generation, job.key))
+                    self._lookup_cancels.pop((job.generation, job.key), None)
                     # New live primary metadata beats an older lookup result.
                     current = self._cached_locked(job.key)
                     if current and current[0]:
@@ -257,3 +279,60 @@ class MetadataPrefetcher:
                         job.callback(job.generation, job.key, metadata, error)
                     except RuntimeError:
                         pass  # QObject was destroyed during application shutdown.
+
+
+class EarlyIdentityProbe:
+    """One live helper cycle's non-voting, bounded ID-prefetch callback.
+
+    Invoked by the lane worker, not Qt. get()/request() are thread-safe; the
+    callback supplied by ShazamService only emits a queued Qt signal. A true
+    return permits the helper to shorten its *metadata* grace; the normal final
+    result is still the only recognition vote. No song-specific mapping exists.
+    """
+    MAX_IDENTITIES = 2
+
+    def __init__(self, broker, generation, language, country, cancelled, callback):
+        self.broker = broker
+        self.generation = generation
+        self.language = language
+        self.country = country
+        self.cancelled = cancelled
+        self.callback = callback
+        self._requested = set()
+
+    def __call__(self, raw):
+        if self.cancelled.is_set() or not isinstance(raw, dict):
+            return False
+        # The helper's identity notification carries no trustworthy metadata;
+        # discard any text in the IPC hint before consulting the resolver.
+        url = str(raw.get('url') or '')
+        if raw.get('source') != 'shazam-route':
+            return False
+        identity_raw = {'url': url, 'shazamTrackId': raw.get('shazamTrackId'),
+                        'source': 'shazam-route'}
+        try:
+            parsed = urlparse(url)
+            port = parsed.port
+            identity = track_identity(identity_raw)
+        except (IdentityConflict, ValueError):
+            return False
+        if (parsed.scheme != 'https' or parsed.hostname not in ('www.shazam.com', 'shazam.com')
+                or parsed.username or parsed.password or port not in (None, 443)
+                or not identity or identity[0] != 'shazam-track'):
+            return False
+        key = (self.language.casefold(), self.country.upper(), *identity)
+        metadata = self.broker.get(key)
+        if metadata and complete_metadata(*metadata):
+            return True
+        if key not in self._requested and len(self._requested) < self.MAX_IDENTITIES:
+            self._requested.add(key)
+            state = self.broker.request(
+                self.generation, key, identity_raw, self.language, self.country,
+                self.cancelled, self.callback,
+            )
+            # One line only when new HTTP work was actually submitted, not for
+            # each 200ms cache check or another lane joining the same lookup.
+            if state == 'started':
+                print(f"ShazamService: Early metadata prefetch gen={self.generation} identity={identity}")
+        metadata = self.broker.get(key)
+        return bool(metadata and complete_metadata(*metadata))

@@ -1,0 +1,97 @@
+[
+  {
+    "title": "ハレの日に",
+    "artist": "汐れいら",
+    "comment": "薫る花は凛と咲く エンディング",
+    "song_id": 376215,
+    "scope": "user example",
+    "url": "https://www.uta-net.com/song/376215/",
+    "input_title": "ハレの日に",
+    "input_artist": "汐れいら",
+    "checked_at": "2026-10-20",
+    "evidence": "Public page metadata viewed through web tool; cached page possible. Application HTTPS search not executed.",
+    "offline_fixture_result": {
+      "parser": "pass",
+      "comment_update": "pass",
+      "requery": "pass",
+      "no_unconfirmed_play": "pass",
+      "http_source": "synthetic_fixture_not_site_html"
+    }
+  },
+  {
+    "title": "日曜日の太陽",
+    "artist": "THE NEUTRAL",
+    "comment": "なるたる オープニング",
+    "song_id": 75559,
+    "seq": 38,
+    "url": "https://www.uta-net.com/song/75559/",
+    "input_title": "日曜日の太陽",
+    "input_artist": "THE NEUTRAL",
+    "checked_at": "2026-10-20",
+    "evidence": "Public page metadata viewed through web tool; cached page possible. Application HTTPS search not executed.",
+    "offline_fixture_result": {
+      "parser": "pass",
+      "comment_update": "pass",
+      "requery": "pass",
+      "no_unconfirmed_play": "pass",
+      "http_source": "synthetic_fixture_not_site_html"
+    }
+  },
+  {
+    "title": "花の塔",
+    "artist": "さユり",
+    "comment": "リコリス・リコイル エンディング",
+    "song_id": 321038,
+    "seq": 931,
+    "url": "https://www.uta-net.com/song/321038/",
+    "input_title": "花の塔",
+    "input_artist": "さユり",
+    "checked_at": "2026-10-20",
+    "evidence": "Public page metadata viewed through web tool; cached page possible. Application HTTPS search not executed.",
+    "offline_fixture_result": {
+      "parser": "pass",
+      "comment_update": "pass",
+      "requery": "pass",
+      "no_unconfirmed_play": "pass",
+      "http_source": "synthetic_fixture_not_site_html"
+    }
+  },
+  {
+    "title": "センチメンタルクライシス",
+    "artist": "halca",
+    "comment": "かぐや様は告らせたい〜天才たちの恋愛頭脳戦〜 エンディング",
+    "song_id": 263122,
+    "seq": 921,
+    "url": "https://www.uta-net.com/song/263122/",
+    "input_title": "センチメンタルクライシス instrumental",
+    "input_artist": "halca",
+    "checked_at": "2026-10-20",
+    "evidence": "Public page metadata viewed through web tool; cached page possible. Application HTTPS search not executed.",
+    "offline_fixture_result": {
+      "parser": "pass",
+      "comment_update": "pass",
+      "requery": "pass",
+      "no_unconfirmed_play": "pass",
+      "http_source": "synthetic_fixture_not_site_html"
+    }
+  },
+  {
+    "title": "サウンドスケープ",
+    "artist": "TRUE",
+    "comment": "響け！ユーフォニアム2 オープニング",
+    "song_id": 216569,
+    "seq": 545,
+    "url": "https://www.uta-net.com/song/216569/",
+    "input_title": "サウンドスケープ",
+    "input_artist": "TRUE",
+    "checked_at": "2026-10-20",
+    "evidence": "Public page metadata viewed through web tool; cached page possible. Application HTTPS search not executed.",
+    "offline_fixture_result": {
+      "parser": "pass",
+      "comment_update": "pass",
+      "requery": "pass",
+      "no_unconfirmed_play": "pass",
+      "http_source": "synthetic_fixture_not_site_html"
+    }
+  }
+]

@@ -2,9 +2,11 @@ import json
 import os
 import sys
 from pathlib import Path
+from app.services.title_keywords import CONFIG_KEY, normalize_keywords
 
 SHAZAM_MIN_LANES = 4
 SHAZAM_MAX_LANES = 16
+SHAZAM_DEFAULT_LANES = 6
 
 
 def normalize_shazam_lane_count(value):
@@ -12,7 +14,7 @@ def normalize_shazam_lane_count(value):
     try:
         count = int(value)
     except (TypeError, ValueError, OverflowError):
-        count = SHAZAM_MIN_LANES
+        count = SHAZAM_DEFAULT_LANES
     return max(SHAZAM_MIN_LANES, min(SHAZAM_MAX_LANES, count))
 
 
@@ -65,13 +67,17 @@ class ConfigService:
             "youtube_search_template": "%tracktitle% %comment%",
             "youtube_search_template_rekordbox": "%tracktitle% %comment%",
             "youtube_search_template_shazam": "%tracktitle% %artist%",
+            "youtube_search_template_shazam_tieup": "%tracktitle% %comment%",
             "auto_play_top_result": False,
             "anime_op_mode": False,
+            "utanet_tieup_enabled": False,
+            "utanet_permission_confirmed": False,
             "auto_play_seek_seconds": 0,
             "ui_theme": "dark",
             "enable_logging": True,
+            CONFIG_KEY: [],
             "shazam_input_device": None,
-            "shazam_lane_count": SHAZAM_MIN_LANES,
+            "shazam_lane_count": SHAZAM_DEFAULT_LANES,
             "shazam_language": "ja-JP",
             "shazam_endpoint_country": "JP",
             "midi_port_name": "",
@@ -96,6 +102,7 @@ class ConfigService:
                 with open(self._config_file, "r", encoding="utf-8") as f:
                     file_config = json.load(f)
                     self.config.update(file_config)
+                self.config[CONFIG_KEY] = normalize_keywords(self.config.get(CONFIG_KEY))
 
                 # Live PCM recognition no longer uses a configurable recording duration.
                 # Remove the obsolete key from older config.json files so the persisted
@@ -135,13 +142,16 @@ class ConfigService:
 
     def save_config(self, new_config):
         """設定をファイルに保存する"""
+        previous_config = dict(self.config)
         self.config.update(new_config)
+        self.config[CONFIG_KEY] = normalize_keywords(self.config.get(CONFIG_KEY))
         try:
             with open(self._config_file, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
             print(f"ConfigService: Config saved to {self._config_file}")
             return True
         except Exception as e:
+            self.config = previous_config
             print(f"ConfigService: Error saving config file: {e}")
             return False
 

@@ -829,8 +829,40 @@ class VJPlayer {
         if (!videoId) {
             return;
         }
-        if (!forceReload && videoId === this.nextVideoId && this.playerVideoIds[targetPlayer] === videoId) {
-            this.sendPlayerSnapshot(targetPlayer);
+        const existingCue = (this._preloadRequestByPlayer || {})[targetPlayer];
+        if (!forceReload && videoId === this.nextVideoId &&
+                this.playerVideoIds[targetPlayer] === videoId && existingCue &&
+                existingCue.videoId === videoId && !this.failedVideoIds[targetPlayer]) {
+            // Reuse the physical cue, but transfer feedback ownership BEFORE
+            // reporting its state. The desktop is waiting for the new command
+            // ID even when a previous candidate preloaded this identical video.
+            // Keep the cue serial: its in-flight readiness timer / iframe load
+            // callback and verified readiness still describe this same load.
+            const previousRequestId = existingCue.requestId;
+            if (requestId) existingCue.requestId = requestId;
+            if (trackInfo) {
+                this.nextTrackInfo = trackInfo;
+                this.playerTrackInfo[targetPlayer] = trackInfo;
+            }
+            if (mediaInfo) {
+                this.nextMediaInfo = mediaInfo;
+                this.playerMediaInfo[targetPlayer] = mediaInfo;
+            }
+            // A former PLAY on this standby side must not label this PRELOAD
+            // acknowledgement with an obsolete PLAY token.
+            if (this._playRequestByPlayer) this._playRequestByPlayer[targetPlayer] = null;
+            const container = document.getElementById(`player${targetPlayer}Container`);
+            const fallbackMatches = container && container.dataset &&
+                container.dataset.embedFallback === '1' &&
+                container.dataset.embedVideoId === videoId &&
+                container.querySelector && container.querySelector('iframe');
+            const ready = this.isReady[targetPlayer] &&
+                this.preloadIsVerified(targetPlayer, videoId) &&
+                (this.actualMatchesRequest(targetPlayer, videoId) || fallbackMatches);
+            console.log(`Reusing PRELOAD ${videoId} on ${targetPlayer}: request=${previousRequestId} -> ${existingCue.requestId}`);
+            // PAUSED and loaded fallback iframes are also valid prepared cues.
+            // Requested IDs alone are NOT proof of readiness.
+            this.sendPlayerSnapshot(targetPlayer, ready ? 'ready' : 'preloading');
             return;
         }
 

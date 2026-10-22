@@ -572,7 +572,8 @@ class PreservationTests(unittest.TestCase):
     def test_settings_exposes_separate_rekordbox_and_shazam_search_templates(self):
         source = (ROOT / 'ui/dialogs/settings_dialog.py').read_text(encoding='utf-8')
         self.assertIn('Rekordbox検索テンプレート:', source)
-        self.assertIn('Shazam検索テンプレート:', source)
+        self.assertIn('Shazam通常検索テンプレート:', source)
+        self.assertIn('youtube_search_template_shazam_tieup', source)
         self.assertIn('%tracktitle% %artist%', source)
 
     def test_fast_bridge_observes_official_tag_response_and_clears_busy_before_reply(self):
@@ -585,7 +586,7 @@ class PreservationTests(unittest.TestCase):
         self.assertIn('TimeSpan.FromMilliseconds(650)', source)
         self.assertIn('RouteEvidenceWindow = TimeSpan.FromSeconds(4)', source)
 
-    def test_four_parallel_helpers_have_isolated_profiles_and_15s_deadline(self):
+    def test_parallel_helpers_have_isolated_profiles_and_15s_deadline(self):
         program = (ROOT / 'native/ShazamWebViewBridge/Program.cs').read_text(encoding='utf-8')
         bridge = (ROOT / 'native/ShazamWebViewBridge/BridgeHost.cs').read_text(encoding='utf-8')
         client = (ROOT / 'app/services/shazam_webview_client.py').read_text(encoding='utf-8')
@@ -594,7 +595,7 @@ class PreservationTests(unittest.TestCase):
         self.assertIn('_instanceId', bridge)
         self.assertIn('TimeSpan.FromSeconds(15)', bridge)
         self.assertIn('"--instance", self._instance_id', client)
-        self.assertIn('RECOGNITION_GROUPS = 4', service)
+        self.assertIn('RECOGNITION_GROUPS = SHAZAM_DEFAULT_LANES', service)
         self.assertIn('LANES_PER_GROUP = 1', service)
         self.assertIn('PARALLEL_RECOGNITION_LANES = RECOGNITION_GROUPS * LANES_PER_GROUP', service)
         self.assertIn('GROUP_STAGGER_SECONDS = 3.0', service)

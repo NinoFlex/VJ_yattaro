@@ -181,7 +181,7 @@ def _shazam_route_kind(value: str) -> str:
 
 def _title_from_shazam_route(value: str) -> str:
     _, slug = _shazam_route_identity(value)
-    if not slug or slug.isdigit():
+    if not slug or slug.isdigit() or slug.casefold() == "unavailable":
         return ""
     # Keep the route fallback readable. It is only a last resort; Japanese live
     # metadata and safe Apple metadata always take priority.
@@ -378,6 +378,7 @@ class ITunesMetadataResolver:
         self._id_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
         self._search_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
         self._page_cache: dict[str, tuple[float, tuple[str, str, str, bool]]] = {}
+        self._page_identity_cache = {}
         self._route_search_proof_cache: dict[tuple[str, str], tuple[float, bool]] = {}
         self._retry_after = 0.0
 
@@ -701,6 +702,15 @@ class ITunesMetadataResolver:
         url = _safe_shazam_song_url(route_url)
         if not url or self._cancelled(cancelled):
             return '', '', '', False
+        # Do not share translated page text across explicit locale prefixes.
+        # Unprefixed pages use the same ja-JP Accept-Language as this request.
+        locale_match = re.match(r"^/([a-z]{2}(?:-[a-z]{2})?)/(?:song|track)/",
+                                urlparse(url).path, re.I)
+        page_locale = locale_match.group(1).casefold() if locale_match else 'ja-jp'
+        identity_key = (page_locale, _shazam_route_kind(url), _shazam_route_identity(url)[0])
+        proven = self._page_identity_cache.get(identity_key)
+        if proven and proven[0] > time.monotonic():
+            return proven[1]
         cached = self._page_cache.get(url)
         if cached and cached[0] > time.monotonic():
             return cached[1]
@@ -719,7 +729,9 @@ class ITunesMetadataResolver:
             # Some HTTP clients are redirected to an unrelated /song page on
             # the localized and original slug routes; try *both* exact-ID paths,
             # always verifying canonical / og:url after each response.
-            candidates = list(dict.fromkeys((localized, url, canonical)))
+            # First use the URL the official site actually recognized. Retain
+            # both recovery URLs when it fails exact identity/complete metadata.
+            candidates = list(dict.fromkeys((url, localized, canonical)))
 
         resolved = ('', '', '', False)
         for index, candidate in enumerate(candidates):
@@ -795,10 +807,14 @@ class ITunesMetadataResolver:
                     resolved = current
             except Exception as exc:
                 print(f'ShazamMetadata: public Shazam page unavailable ({type(exc).__name__})')
-        self._page_cache[url] = (
-            time.monotonic() + (3600 if resolved[3] and resolved[0] and resolved[1] else 45),
-            resolved,
-        )
+        complete = bool(resolved[3] and resolved[0] and resolved[1])
+        self._page_cache[url] = (time.monotonic() + (3600 if complete else 45), resolved)
+        if complete:
+            # Only complete, exact-ID verified pages can bypass future HTTP;
+            # failures/title-only responses never poison an alias of the ID.
+            if len(self._page_identity_cache) >= 128:
+                self._page_identity_cache.pop(next(iter(self._page_identity_cache)))
+            self._page_identity_cache[identity_key] = (time.monotonic() + 300, resolved)
         return resolved
 
     def _cache(self, key: tuple, value: tuple[str, str], seconds: float = 86400) -> tuple[str, str]:

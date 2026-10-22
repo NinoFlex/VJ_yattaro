@@ -105,7 +105,7 @@ class ShazamPrimroseRecoveryTests(unittest.TestCase):
                 {'url': ray_route, 'shazamTrackId': '228936711', 'source': 'shazam-route'},
                 'ja-JP', 'JP'), expected)
         self.assertNotIn(ray_canonical, requested)
-        self.assertNotIn(ray_route, requested)
+        self.assertEqual(requested.count(ray_route), 1)
 
     def test_canonical_retry_succeeds_for_unlisted_artist(self):
         requested = []

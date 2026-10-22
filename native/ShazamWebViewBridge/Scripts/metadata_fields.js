@@ -84,6 +84,20 @@
   const PRIMARY_TITLE_SELECTOR = '[class*="NewTrackPageHeader_trackTitle__"]';
   const PRIMARY_ARTIST_SELECTOR = 'a[data-test-id="track_userevent_artist_link"]';
   const PRIMARY_APPLE_SELECTOR = 'a[data-test-id="track_userevent_redirect_apple_music"]';
+  const sameRoute = (left, right) => !!left && !!right &&
+    left.kind === right.kind && left.id === right.id;
+  // A meaningful recognition-route slug provides an extra stale-DOM check.
+  // /unavailable and slugless canonical routes carry no title evidence.
+  const routeTitleMatches = (routeUrl, title) => {
+    try {
+      const u = new URL(routeUrl, location.href);
+      const match = u.pathname.match(/\/(?:song|track)\/\d{6,20}(?:\/([^/]+))?\/?$/i);
+      if (!match) return false;
+      const slug = clean(decodeURIComponent(match[1] || '').replace(/[-_]+/g, ' '));
+      if (!slug || fold(slug) === 'unavailable') return true;
+      return !!key(slug) && key(slug) === key(title);
+    } catch (_) { return false; }
+  };
   const readPrimaryTrack = routeUrl => {
     const current = route(routeUrl);
     if (!current) return null;
@@ -96,14 +110,31 @@
       return !r || r.kind !== current.kind || r.id !== current.id;
     })) return identityOnly;
     const recording = readRecording(routeUrl);
-    if (!recording) return identityOnly;
+    const headerOnly = !recording;
+    if (headerOnly) {
+      // Separate fallback for pages with NO JSON-LD. Do not turn malformed,
+      // conflicting, or unrelated structured records into trusted DOM metadata.
+      // The current browser route and a nonempty canonical are mandatory here.
+      if (document.querySelectorAll('script[type="application/ld+json"]').length ||
+          !sameRoute(current, route(location.href)) || !canonicals.length ||
+          canonicals.some(e => !clean(e.getAttribute('href'))))
+        return identityOnly;
+      const ogUrls = [...document.querySelectorAll('meta[property="og:url"]')];
+      if (ogUrls.some(e => !sameRoute(current, route(e.getAttribute('content')))))
+        return identityOnly;
+    }
     const roots = [...document.querySelectorAll(ROOT_SELECTOR)].filter(e =>
       !e.closest('footer,nav,aside,dialog,[role="dialog"],[role="navigation"],[role="contentinfo"]') && visible(e));
+    // Without a structured record, even duplicate visible primary components
+    // are ambiguous. Never pick a recommendation or an arbitrary nearby label.
+    if (headerOnly && roots.length !== 1) return identityOnly;
     const valid = [];
     let conflictingHeader = false;
     for (const root of roots) {
       const titles = unique([...root.querySelectorAll(PRIMARY_TITLE_SELECTOR)].filter(visible).map(nodeText));
-      if (titles.length !== 1 || fold(titles[0]) !== fold(recording.title)) {
+      if (titles.length !== 1 || (headerOnly
+          ? !routeTitleMatches(routeUrl, titles[0]) || promo.test(fold(titles[0])) || ui.test(fold(titles[0]))
+          : fold(titles[0]) !== fold(recording.title))) {
         conflictingHeader = true;
         continue;
       }
@@ -115,17 +146,27 @@
               && /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?artist\//i.test(u.pathname);
           } catch (_) { return false; }
         })()).map(e => cleanArtist(nodeText(e))));
-      if (!names.length) continue;
+      // Some primary artist components have no artist catalog link at all.
+      // Read ONLY their dedicated artist-name span under the artist component,
+      // never a nearby subtitle, whole header text, button, or recommendation.
+      // A span inside an invalid <a> must not bypass the link validation above.
+      const plainNames = unique([...root.querySelectorAll(
+        '[class*="TrackPageArtistLink_artistData__"] [class*="TrackPageArtistLink_artistNameText__"]')]
+        .filter(e => visible(e) && !e.closest('a,footer,nav,aside,dialog,[role="dialog"],button,[role="button"]'))
+        .map(e => cleanArtist(nodeText(e))));
+      const performers = unique([...names, ...plainNames]);
+      if (!performers.length) continue;
       const links = [...root.querySelectorAll(PRIMARY_APPLE_SELECTOR)].filter(e => visible(e) && appleId(e.href));
       const ids = unique(links.map(e => appleId(e.href)));
       const appleMusicUrl = ids.length === 1 ? links[0].href : '';
-      valid.push({...identityOnly, title: titles[0], artist: names.join(', '),
+      valid.push({...identityOnly, title: titles[0], artist: performers.join(', '),
         appleMusicUrl, appleTrackId: appleId(appleMusicUrl), evidence: 'track-primary-header'});
     }
     if (conflictingHeader) return identityOnly;
     const distinct = new Map(valid.map(x => [JSON.stringify([x.title,x.artist,x.appleTrackId]),x]));
     if (distinct.size > 1) return identityOnly;
     if (distinct.size === 1) return [...distinct.values()][0];
+    if (headerOnly) return identityOnly;
     // Only the exact primary MusicRecording; never citation/recommendation items.
     return {...identityOnly, title: recording.title, artist: recording.artist, evidence: 'jsonld'};
   };

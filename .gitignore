@@ -61,3 +61,11 @@ logs/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Local verification output and source archives
+/utanet_check*.json
+/utanet_live_check*.json
+/verification-output/
+/release/
+/*.zip
+/SHA256SUMS.txt.tmp

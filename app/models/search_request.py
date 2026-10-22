@@ -24,6 +24,10 @@ class SearchRequest:
     from_list: bool = False
     # A two-vote result must never be evicted by a later one-vote result.
     confirmed: bool = False
+    # True selects the independent tie-up template and the enriched PLAY owner.
+    metadata_refresh: bool = False
+    enrichment_epoch: int | None = None
+    interaction_epoch: int | None = None
 
     @property
     def valid(self) -> bool:

@@ -10,10 +10,15 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from app.services.track_matching import deduplicate_history, is_same_track
+from app.services.config_service import SHAZAM_DEFAULT_LANES
+from app.services.track_matching import deduplicate_history, is_same_track, shares_title_prefix
+from app.services.title_keywords import CONFIG_KEY, normalize_keywords, strip_title_keywords, title_variant_matches
 from app.services.itunes_metadata import clean_artist
+from app.services.shazam_lane_health import (
+    LaneHealth, LanePhase, LaneStartupGate, lane_failure_reason,
+)
 from app.services.shazam_metadata_prefetch import (
-    MetadataPrefetcher, IdentityConflict, complete_metadata, track_identity,
+    MetadataPrefetcher, EarlyIdentityProbe, IdentityConflict, complete_metadata, track_identity,
 )
 
 
@@ -58,7 +63,7 @@ class ShazamService(QObject):
     AGC_MIN_GAIN = 0.5
     AGC_NOISE_GATE_RMS = 0.00025
     RECOGNITION_INTERVAL_MS = 100
-    RECOGNITION_GROUPS = 4
+    RECOGNITION_GROUPS = SHAZAM_DEFAULT_LANES
     LANES_PER_GROUP = 1
     PARALLEL_RECOGNITION_LANES = RECOGNITION_GROUPS * LANES_PER_GROUP
     GROUP_STAGGER_SECONDS = 3.0
@@ -72,11 +77,11 @@ class ShazamService(QObject):
     # but the total number of bridged gaps remains bounded by SHAZAM_NO_MATCH_MAX_GAPS.
     SHAZAM_TRANSPORT_ERROR_MAX_GAPS = 1
     SHAZAM_AUDIO_REQUEST_ERROR_MARKER = "the shazam button did not request the supplied audio"
-    # A single audio-supply miss may be transient. Two consecutive misses on the same
-    # worker are treated as a lane-health problem: quarantine only that lane, replace its
-    # WebView2 helper, and prewarm the replacement while the other lanes keep running.
-    LANE_RECYCLE_AUDIO_ERROR_THRESHOLD = 2
-    LANE_RECYCLE_RETRY_DELAYS_SECONDS = (0.0, 1.0, 2.0, 5.0)
+    # A failed transport already closes its helper. Every such lane must be
+    # re-prepared before scheduling, not only after two audio-supply errors.
+    LANE_INIT_MAX_CONCURRENT = 2
+    LANE_INIT_INTERVAL_SECONDS = 0.5
+    LANE_RECYCLE_RETRY_DELAYS_SECONDS = (2.0, 5.0, 10.0, 20.0, 30.0)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -84,15 +89,21 @@ class ShazamService(QObject):
 
         self.config = ConfigService()
         from app.services.config_service import normalize_shazam_lane_count
-        lane_count = normalize_shazam_lane_count(self.config.get("shazam_lane_count", 4))
-        # Class-level constants preserve old 4-lane behavior for external callers;
-        # each instance overrides the selected active worker count.
+        lane_count = normalize_shazam_lane_count(self.config.get("shazam_lane_count", SHAZAM_DEFAULT_LANES))
+        # Class-level constants use the shared default; each instance overrides
+        # the active worker count with a persisted 4..16 selection.
         self.RECOGNITION_GROUPS = lane_count
         self.PARALLEL_RECOGNITION_LANES = lane_count * self.LANES_PER_GROUP
         # Leave retired worker threads parked after a reduction. stop() closes
         # their WebView2 processes, and the dispatcher cannot select them.
         # Retaining their slots prevents races with late cancelled callbacks.
         self._pool_capacity = self.PARALLEL_RECOGNITION_LANES
+        self._lane_state_lock = threading.RLock()
+        # Do not replace this gate at restart: old cancelled workers must release
+        # their slots before the new generation may consume them.
+        self._lane_startup_gate = LaneStartupGate(
+            self.LANE_INIT_MAX_CONCURRENT, self.LANE_INIT_INTERVAL_SECONDS)
+        self._lane_health = [LaneHealth() for _ in range(self._pool_capacity)]
         self._capture_sample_rate = self.SAMPLE_RATE
         self._capture_channels = self.CHANNELS
         self._agc_gain = 1.0
@@ -107,6 +118,8 @@ class ShazamService(QObject):
         # Populated immediately before history/new_track Qt signals. UI must
         # associate a publication with THIS confirmed candidate, not a stale one.
         self._last_publication_candidate_id = None
+        self._confirmed_search_receipt = None
+        self._last_publication_search_reused = False
 
         from app.services.shazam_webview_client import WebViewRecognizer
         from app.services.itunes_metadata import ITunesMetadataResolver
@@ -115,6 +128,8 @@ class ShazamService(QObject):
         self._web_recognizers = [
             WebViewRecognizer(f"lane-{index + 1}") for index in range(self.PARALLEL_RECOGNITION_LANES)
         ]
+        for recognizer in self._web_recognizers:
+            recognizer.require_prewarm = True
         # Legacy ID-less results retain their original resolver path. ID-bearing
         # observations use bounded per-ID prefetch, independent of confirmation.
         self._metadata_resolver = ITunesMetadataResolver()
@@ -158,7 +173,9 @@ class ShazamService(QObject):
 
         self._history_path = self._get_history_path()
         self._ensure_history_file()
+        self._history_comments = {}
         self._history = self._load_history()
+        self._recognition_settings = self._recognition_settings_key()
 
     @classmethod
     def list_input_devices(cls):
@@ -295,13 +312,16 @@ class ShazamService(QObject):
         from app.services.config_service import normalize_shazam_lane_count
         from app.services.shazam_webview_client import WebViewRecognizer
 
-        count = normalize_shazam_lane_count(self.config.get("shazam_lane_count", 4))
+        count = normalize_shazam_lane_count(self.config.get("shazam_lane_count", SHAZAM_DEFAULT_LANES))
         required_capacity = count * self.LANES_PER_GROUP
         if required_capacity > self._pool_capacity:
             for index in range(self._pool_capacity, required_capacity):
                 self._work_queues.append(queue.Queue(maxsize=1))
                 self._worker_threads.append(None)
-                self._web_recognizers.append(WebViewRecognizer(f"lane-{index + 1}"))
+                recognizer = WebViewRecognizer(f"lane-{index + 1}")
+                recognizer.require_prewarm = True
+                self._web_recognizers.append(recognizer)
+                self._lane_health.append(LaneHealth())
                 self._lane_busy.append(False)
                 self._lane_ready.append(threading.Event())
                 self._lane_audio_request_failure_streak.append(0)
@@ -319,8 +339,11 @@ class ShazamService(QObject):
         return self._active
 
     def start(self):
+        if self._shutting_down:
+            return False
         if self._active:
             return True
+        self._recognition_settings = self._recognition_settings_key()
 
         try:
             import sounddevice as sd
@@ -343,8 +366,10 @@ class ShazamService(QObject):
             # a failed Shazam start.
             self._sync_lane_count()
             self._ensure_worker_threads()
-            self._generation += 1
-            self._cancel_current = threading.Event()
+            with self._lane_state_lock:
+                self._generation += 1
+                self._cancel_current = threading.Event()
+                self._lane_health = [LaneHealth() for _ in range(self._pool_capacity)]
             self._recognition_busy = False
             self._lane_busy = [False] * self._pool_capacity
             self._lane_audio_request_failure_streak = [0] * self._pool_capacity
@@ -360,6 +385,8 @@ class ShazamService(QObject):
             self._raw_lane_results.clear()
             self._latest_published_sequence = -1
             self._last_publication_candidate_id = None
+            self._confirmed_search_receipt = None
+            self._last_publication_search_reused = False
             self._temporal_results.clear()
             self._reject_tentative_candidate("shazam-restarted")
             self._next_temporal_sequence = 0
@@ -379,9 +406,13 @@ class ShazamService(QObject):
                 blocksize=0,
             )
             self._stream.start()
-            self._active = True
-            # Prewarm only configured WebView2 helpers. Once ready, they form
-            # a shared worker pool; recognition dispatches are spaced by at least 3 seconds.
+            with self._lane_state_lock:
+                self._active = True
+                for health in self._lane_health[:self.PARALLEL_RECOGNITION_LANES]:
+                    health.phase = LanePhase.QUEUED
+            # Queue all selected lanes, but the common startup gate admits only
+            # two initializations at once. Recognition may use each successful lane
+            # immediately, without waiting for the rest of the pool.
             language = str(self.config.get("shazam_language", "ja-JP") or "ja-JP")
             for lane_index, work_queue in enumerate(self._work_queues[:self.PARALLEL_RECOGNITION_LANES]):
                 # A quick settings reload can leave last generation's request in a
@@ -413,13 +444,14 @@ class ShazamService(QObject):
                 f"maxNeutral={self.SHAZAM_NO_MATCH_MAX_GAPS} "
                 f"maxTransportError={self.SHAZAM_TRANSPORT_ERROR_MAX_GAPS}, "
                 f"publication=confirmed-neutral-v1, "
-                f"laneRecycle=audio-failure-v1 "
-                f"threshold={self.LANE_RECYCLE_AUDIO_ERROR_THRESHOLD})"
+                f"laneStartup=staged-v1 initMax={self.LANE_INIT_MAX_CONCURRENT} "
+                f"initSpacing={self.LANE_INIT_INTERVAL_SECONDS:.1f}s "
+                f"laneRecovery=transport-backoff-v1)"
             )
             return True
         except Exception as e:
-            self._active = False
-            self._close_stream()
+            # Also cancel queued/running prewarms if startup fails after capture.
+            self.stop()
             message = f"Shazam microphone start failed: {e}"
             self.error_occurred.emit(message)
             self.status_changed.emit(message)
@@ -427,17 +459,24 @@ class ShazamService(QObject):
             return False
 
     def stop(self):
-        self._cancel_current.set()
+        # Invalidate under the same lock used when publishing READY/replacements.
+        # Nothing from an old generation can mark a freshly restarted lane ready.
+        with self._lane_state_lock:
+            self._cancel_current.set()
+            self._generation += 1
+            self._active = False
+            for ready, health in zip(self._lane_ready, self._lane_health):
+                ready.clear()
+                health.phase = LanePhase.STOPPED
+            recognizers = list(self._web_recognizers)
         for pending in list(self._pending_group_results.values()):
             timer = pending.get("confirmation_timer")
             if timer is not None:
                 timer.stop()
                 if hasattr(timer, "deleteLater"):
                     timer.deleteLater()
-        for recognizer in self._web_recognizers:
+        for recognizer in recognizers:
             recognizer.close()
-        self._generation += 1
-        self._active = False
         self._recognize_timer.stop()
         self._close_stream()
         self._recognition_busy = False
@@ -456,16 +495,27 @@ class ShazamService(QObject):
         self._pending_identity_confirmation = None
         self._newest_temporal_observation = None
         self._last_publication_candidate_id = None
+        self._confirmed_search_receipt = None
+        self._last_publication_search_reused = False
         self._metadata_prefetch.discard_cancelled()
         for ready in self._lane_ready:
             ready.clear()
         self.status_changed.emit("Shazam: stopped")
         print("ShazamService: Stopped")
 
+    def _recognition_settings_key(self):
+        from app.services.config_service import normalize_shazam_lane_count
+        return (self.config.get("shazam_input_device"),
+                normalize_shazam_lane_count(self.config.get("shazam_lane_count", SHAZAM_DEFAULT_LANES)),
+                self.config.get("shazam_language", "ja-JP"),
+                self.config.get("shazam_endpoint_country", "JP"))
+
     def reload_settings(self):
-        """Apply microphone, locale and lane count, restarting when active."""
-        was_active = self._active
-        if was_active:
+        """Keyword-only edits must not cancel cues or restart recognition."""
+        settings = self._recognition_settings_key()
+        changed = settings != self._recognition_settings
+        self._recognition_settings = settings
+        if self._active and changed:
             self.stop()
             self.start()
 
@@ -507,99 +557,163 @@ class ShazamService(QObject):
     def _is_lane_audio_request_failure(cls, error_text):
         return cls.SHAZAM_AUDIO_REQUEST_ERROR_MARKER in str(error_text or "").casefold()
 
-    def _record_lane_health(self, lane_index, error_text):
-        """Update one lane's failure streak and return True when it must be rebuilt.
+    def _lane_run_current(self, lane_index, generation, cancelled):
+        """Call under _lane_state_lock when publishing shared lifecycle state."""
+        return (not cancelled.is_set() and not self._shutting_down
+                and self._active and generation == self._generation
+                and 0 <= lane_index < self.PARALLEL_RECOGNITION_LANES)
 
-        Only the known WebView audio-supply failure participates in the streak. A usable
-        result, no-match, or a different error breaks the streak. This keeps the repair
-        policy separate from temporal track confirmation: rebuilding a helper never turns
-        an unrelated recognition error into a neutral gap.
+    def _lane_retry_delay(self, failure_count):
+        delays = self.LANE_RECYCLE_RETRY_DELAYS_SECONDS
+        if failure_count <= 0 or not delays:
+            return 0.0
+        return float(delays[min(failure_count - 1, len(delays) - 1)])
+
+    def _lane_health_summary(self):
+        with self._lane_state_lock:
+            phases = [health.phase for health in
+                      self._lane_health[:self.PARALLEL_RECOGNITION_LANES]]
+            return (f"initializing={phases.count(LanePhase.INITIALIZING)} "
+                    f"queued={phases.count(LanePhase.QUEUED)} "
+                    f"retryWait={phases.count(LanePhase.RETRY_WAIT)}")
+
+    def _record_lane_health(self, lane_index, error_text, *, generation=None,
+                            cancelled=None, error_type="RuntimeError"):
+        """Quarantine ALL failed transports before the result frees their busy slot.
+
+        A normal no-match is a successful transport and does not restart a lane.
+        This lifecycle policy does not relax or change track confirmation rules.
         """
-        if not 0 <= lane_index < self.PARALLEL_RECOGNITION_LANES:
-            return False
-        if self._is_lane_audio_request_failure(error_text):
-            streak = self._lane_audio_request_failure_streak[lane_index] + 1
-            self._lane_audio_request_failure_streak[lane_index] = streak
-            if streak >= self.LANE_RECYCLE_AUDIO_ERROR_THRESHOLD:
-                # Quarantine before the Qt callback releases _lane_busy. The scheduler
-                # then sees ready=False and cannot hand new work to this lane mid-rebuild.
-                self._lane_ready[lane_index].clear()
-                self._lane_recycling[lane_index] = True
-                print(
-                    f"ShazamService: Recycling WebView2 lane {lane_index + 1} after "
-                    f"{streak} consecutive audio-supply failures"
-                )
-                return True
-            return False
+        with self._lane_state_lock:
+            generation = self._generation if generation is None else generation
+            cancelled = self._cancel_current if cancelled is None else cancelled
+            if not self._lane_run_current(lane_index, generation, cancelled):
+                return False
+            health = self._lane_health[lane_index]
+            if not error_text:
+                self._lane_audio_request_failure_streak[lane_index] = 0
+                health.failures = 0
+                health.last_error_type = ""
+                health.last_failure_reason = ""
+                health.phase = LanePhase.READY
+                return False
+            if self._is_lane_audio_request_failure(error_text):
+                self._lane_audio_request_failure_streak[lane_index] += 1
+            else:
+                self._lane_audio_request_failure_streak[lane_index] = 0
+            health.failures += 1
+            health.last_error_type = error_type
+            health.last_failure_reason = lane_failure_reason(error_text)
+            health.phase = LanePhase.RETRY_WAIT
+            self._lane_ready[lane_index].clear()
+            self._lane_recycling[lane_index] = True
+            delay = self._lane_retry_delay(health.failures)
+            # No error body/URL/credentials here. The existing result log carries
+            # its exception text. This is one compact extra lifecycle line.
+            print(f"ShazamService: Lane retry lane={lane_index + 1} gen={generation} "
+                  f"stage=recognize failures={health.failures} error={error_type} "
+                  f"reason={health.last_failure_reason} retryIn={delay:.1f}s")
+            return True
 
-        self._lane_audio_request_failure_streak[lane_index] = 0
-        return False
+    def _prepare_lane_recognizer(self, lane_index, recognizer, generation,
+                                 language, cancelled, *, replace=False, recovery=False):
+        """Cancellable startup/recovery; only successful prewarm publishes READY.
 
-    def _recycle_lane_recognizer(
-        self, lane_index, recognizer, generation, language, cancelled
-    ):
-        """Replace and prewarm one bad WebView2 helper without stopping other lanes.
-
-        The worker owning this lane calls the method after it has emitted the failed
-        recognition result. While this method retries, _lane_ready remains clear, so the
-        shared scheduler simply uses the other ready lanes. Stop/reload cancels the loop.
+        The initialization slot is released before every retry delay. Calls from
+        initial startup and from failed recognitions use this same FIFO gate.
+        Each lane has only one worker, so replacement/cleanup cannot overlap the
+        next request on that lane. All publications are generation-guarded.
         """
         from app.services.shazam_webview_client import WebViewRecognizer, RecognitionCancelled
 
-        started = time.monotonic()
+        current = recognizer
+        while True:
+            with self._lane_state_lock:
+                if not self._lane_run_current(lane_index, generation, cancelled):
+                    return current
+                health = self._lane_health[lane_index]
+                self._lane_ready[lane_index].clear()
+                delay = self._lane_retry_delay(health.failures)
+                health.phase = LanePhase.RETRY_WAIT if delay else LanePhase.QUEUED
+            if delay and cancelled.wait(delay):
+                return current
+            with self._lane_state_lock:
+                if not self._lane_run_current(lane_index, generation, cancelled):
+                    return current
+                health.phase = LanePhase.QUEUED
+            if not self._lane_startup_gate.acquire(cancelled):
+                return current
+            started = time.monotonic()
+            failure = None
+            try:
+                with self._lane_state_lock:
+                    if not self._lane_run_current(lane_index, generation, cancelled):
+                        return current
+                    health.phase = LanePhase.INITIALIZING
+                    health.attempts += 1
+                    if replace:
+                        current = WebViewRecognizer(f"lane-{lane_index + 1}")
+                        current.require_prewarm = True
+                        self._web_recognizers[lane_index] = current
+                    current.require_prewarm = True
+                current.prewarm(language, cancelled)
+                with self._lane_state_lock:
+                    if not self._lane_run_current(lane_index, generation, cancelled):
+                        current.close()
+                        return current
+                    # Keep the failure count until one recognition completes: a
+                    # helper that repeatedly starts then crashes must back off too.
+                    health.phase = LanePhase.READY
+                    self._lane_recycling[lane_index] = False
+                    if recovery:
+                        self._lane_recycle_count[lane_index] += 1
+                    self._lane_ready[lane_index].set()
+                    ready_count = sum(event.is_set() for event in
+                                      self._lane_ready[:self.PARALLEL_RECOGNITION_LANES])
+                    elapsed_ms = round((time.monotonic() - started) * 1000)
+                    print(f"ShazamService: Lane ready lane={lane_index + 1} gen={generation} "
+                          f"attempt={health.attempts} elapsedMs={elapsed_ms} "
+                          f"poolReady={ready_count}/{self.PARALLEL_RECOGNITION_LANES} "
+                          f"recovered={recovery}")
+                return current
+            except RecognitionCancelled:
+                current.close()
+                with self._lane_state_lock:
+                    if not self._lane_run_current(lane_index, generation, cancelled):
+                        return current
+                # Unexpected cancellation with a live generation is a lost helper,
+                # not a user stop. Recover rather than leave the lane stuck busy.
+                failure = "RecognitionCancelled"
+                reason = "helper-unavailable"
+            except Exception as exc:
+                current.close()
+                failure = type(exc).__name__
+                reason = lane_failure_reason(exc)
+            finally:
+                self._lane_startup_gate.release()
+            with self._lane_state_lock:
+                if not self._lane_run_current(lane_index, generation, cancelled):
+                    return current
+                health.failures += 1
+                health.last_error_type = failure
+                health.last_failure_reason = reason
+                health.phase = LanePhase.RETRY_WAIT
+                self._lane_recycling[lane_index] = True
+                delay = self._lane_retry_delay(health.failures)
+                print(f"ShazamService: Lane retry lane={lane_index + 1} gen={generation} "
+                      f"stage=prewarm attempt={health.attempts} error={failure} reason={reason} "
+                      f"retryIn={delay:.1f}s elapsedMs={round((time.monotonic() - started) * 1000)}")
+            replace, recovery = True, True
+
+    def _recycle_lane_recognizer(self, lane_index, recognizer, generation, language, cancelled):
+        """Close a failed helper and rejoin bounded preparation, off the Qt thread."""
         try:
             recognizer.close()
         except Exception:
             pass
-
-        attempt = 0
-        current = recognizer
-        while not self._shutting_down:
-            if cancelled.is_set() or generation != self._generation or not self._active:
-                break
-
-            current = WebViewRecognizer(f"lane-{lane_index + 1}")
-            # Publish the replacement immediately so stop() can close it even if a reload
-            # races with prewarm. The lane is still quarantined until ready is set below.
-            self._web_recognizers[lane_index] = current
-            attempt += 1
-            try:
-                current.prewarm(language, cancelled)
-                if cancelled.is_set() or generation != self._generation or not self._active:
-                    current.close()
-                    break
-                self._lane_audio_request_failure_streak[lane_index] = 0
-                self._lane_recycling[lane_index] = False
-                self._lane_recycle_count[lane_index] += 1
-                self._lane_ready[lane_index].set()
-                elapsed = max(0.0, time.monotonic() - started)
-                print(
-                    f"ShazamService: WebView2 lane {lane_index + 1} recycle ready "
-                    f"attempt={attempt} elapsed={elapsed:.2f}s "
-                    f"count={self._lane_recycle_count[lane_index]}"
-                )
-                return current
-            except RecognitionCancelled:
-                current.close()
-                break
-            except Exception as exc:
-                current.close()
-                if cancelled.is_set() or generation != self._generation or not self._active:
-                    break
-                delays = self.LANE_RECYCLE_RETRY_DELAYS_SECONDS
-                delay = delays[min(attempt - 1, len(delays) - 1)] if delays else 1.0
-                print(
-                    f"ShazamService: WebView2 lane {lane_index + 1} recycle prewarm failed "
-                    f"attempt={attempt}: {exc}; retryIn={delay:.1f}s"
-                )
-                if delay > 0 and cancelled.wait(delay):
-                    break
-
-        # stop()/reload_settings() resets these arrays for the next generation. Keep a
-        # cancelled lane non-ready in the current generation; it must not accept work.
-        if generation == self._generation:
-            self._lane_recycling[lane_index] = False
-        return current
+        return self._prepare_lane_recognizer(
+            lane_index, recognizer, generation, language, cancelled,
+            replace=True, recovery=True)
 
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
@@ -768,7 +882,8 @@ class ShazamService(QObject):
                 print(
                     f"ShazamService: Recognition slot waiting seq={self._request_sequence} "
                     f"busy={busy}/{self.PARALLEL_RECOGNITION_LANES} "
-                    f"ready={ready}/{self.PARALLEL_RECOGNITION_LANES}"
+                    f"ready={ready}/{self.PARALLEL_RECOGNITION_LANES} "
+                    f"{self._lane_health_summary()}"
                 )
                 self._slot_wait_logged = True
             return
@@ -785,6 +900,8 @@ class ShazamService(QObject):
         self._group_busy[group_index] = True
         for lane_index in lanes:
             self._lane_busy[lane_index] = True
+            with self._lane_state_lock:
+                self._lane_health[lane_index].phase = LanePhase.RECOGNIZING
         self._pending_group_results[request_sequence] = {
             "group_index": group_index,
             "lanes": lanes,
@@ -806,6 +923,8 @@ class ShazamService(QObject):
             self._group_busy[group_index] = False
             for lane_index in lanes:
                 self._lane_busy[lane_index] = False
+                with self._lane_state_lock:
+                    self._lane_health[lane_index].phase = LanePhase.READY
             self._recognition_busy = any(self._group_busy) or any(self._lane_busy)
             return
 
@@ -830,7 +949,7 @@ class ShazamService(QObject):
         )
 
     def _worker_main(self, lane_index):
-        from app.services.shazam_webview_client import RecognitionCancelled
+        from app.services.shazam_webview_client import RecognitionCancelled, RecognitionAborted
 
         work_queue = self._work_queues[lane_index]
         recognizer = self._web_recognizers[lane_index]
@@ -843,18 +962,8 @@ class ShazamService(QObject):
                     _, generation, language, cancelled = item
                     if cancelled.is_set() or generation != self._generation:
                         continue
-                    try:
-                        recognizer.prewarm(language, cancelled)
-                        print(f"ShazamService: WebView2 lane {lane_index + 1} prewarm ready")
-                    except RecognitionCancelled:
-                        pass
-                    except Exception as exc:
-                        # Prewarm is an optimization only. The real recognition request
-                        # will retry startup and surface an error if it still cannot run.
-                        print(f"ShazamService: WebView2 lane {lane_index + 1} prewarm failed: {exc}")
-                    finally:
-                        if not cancelled.is_set() and generation == self._generation:
-                            self._lane_ready[lane_index].set()
+                    recognizer = self._prepare_lane_recognizer(
+                        lane_index, recognizer, generation, language, cancelled)
                     continue
 
                 (
@@ -871,8 +980,15 @@ class ShazamService(QObject):
                         continue
                     if cancelled.is_set() or generation != self._generation:
                         continue
-                    result = recognizer.recognize_live(capture_sample_rate, language, cancelled)
-                    if cancelled.is_set():
+                    recognizer.identity_probe = EarlyIdentityProbe(
+                        self._metadata_prefetch, generation, language, country,
+                        cancelled, self._prefetch_finished.emit,
+                    )
+                    try:
+                        result = recognizer.recognize_live(capture_sample_rate, language, cancelled)
+                    finally:
+                        recognizer.identity_probe = None
+                    if cancelled.is_set() or generation != self._generation:
                         continue
 
                     # Do NOT run Apple/iTunes localization here. Keeping metadata work
@@ -884,7 +1000,10 @@ class ShazamService(QObject):
                     raw_result["_received_monotonic"] = time.monotonic()
                     title = str(raw_result.get("title") or "").strip()
                     artist = str(raw_result.get("artist") or "").strip()
-                    self._raw_lane_results[(generation, item_lane, request_sequence)] = raw_result
+                    with self._lane_state_lock:
+                        if not self._lane_run_current(lane_index, generation, cancelled):
+                            continue
+                        self._raw_lane_results[(generation, item_lane, request_sequence)] = raw_result
                     print(
                         f"ShazamService: WebView2 raw group={group_index + 1} "
                         f"lane={lane_index + 1} seq={request_sequence} "
@@ -893,13 +1012,25 @@ class ShazamService(QObject):
                         f"appleTrackId={raw_result.get('appleTrackId', '')} "
                         f"title={title!r} artist={artist!r}"
                     )
-                    self._record_lane_health(lane_index, "")
-                except RecognitionCancelled:
-                    continue
-                except Exception as exc:
+                    self._record_lane_health(lane_index, "", generation=generation, cancelled=cancelled)
+                except RecognitionAborted as exc:
+                    # Intentional request-scoped abort keeps the helper usable.
                     error_text = str(exc)
-                    recycle_lane = self._record_lane_health(lane_index, error_text)
-                if not cancelled.is_set() and not self._shutting_down:
+                    self._record_lane_health(lane_index, "", generation=generation, cancelled=cancelled)
+                except RecognitionCancelled:
+                    if cancelled.is_set() or generation != self._generation or self._shutting_down:
+                        continue
+                    error_text = "Shazam helper became unavailable during recognition."
+                    recycle_lane = self._record_lane_health(
+                        lane_index, error_text, generation=generation, cancelled=cancelled,
+                        error_type="RecognitionCancelled")
+                except Exception as exc:
+                    error_text = str(exc) or type(exc).__name__
+                    recycle_lane = self._record_lane_health(
+                        lane_index, error_text, generation=generation, cancelled=cancelled,
+                        error_type=type(exc).__name__)
+                if (not cancelled.is_set() and not self._shutting_down
+                        and generation == self._generation):
                     try:
                         self._recognition_finished.emit(
                             generation, item_lane, request_sequence, title, artist, error_text
@@ -1006,8 +1137,7 @@ class ShazamService(QObject):
             if self._active and generation == self._generation:
                 self._recognize_tick()
 
-    @staticmethod
-    def _temporal_observations_match(previous, current):
+    def _temporal_observations_match(self, previous, current):
         if (not previous or not current or previous.get("kind") or current.get("kind")):
             return False
         previous_id, current_id = previous.get("identity"), current.get("identity")
@@ -1015,7 +1145,7 @@ class ShazamService(QObject):
             # No cross-provider numeric-ID equality, and no name-based fallback
             # around two different known IDs. An ID-less result cannot certify an ID.
             return previous_id is not None and previous_id == current_id
-        return is_same_track(previous["track"], current["track"])
+        return is_same_track(self._display_track(previous["track"]), self._display_track(current["track"]))
 
     @staticmethod
     def _is_completed_no_match(observation):
@@ -1336,7 +1466,7 @@ class ShazamService(QObject):
         if not candidate:
             return False, "no-existing-preview"
         old = candidate["observation"]
-        if not self._temporal_observations_match(old, first):
+        if not self._same_presentation_observations(old, first):
             return False, "different-first-identity"
         if not self._temporal_observations_match(first, second):
             return False, "lookahead-pair-mismatch"
@@ -1380,6 +1510,44 @@ class ShazamService(QObject):
         print(f"ShazamService: Tentative rejected firstSeq={candidate['sequence']} reason={reason}")
         if candidate["emitted"]:
             self.candidate_rejected.emit(candidate["sequence"], str(reason))
+        elif candidate.get("retained_preview"):
+            self.candidate_rejected.emit(candidate["retained_preview"]["sequence"], str(reason))
+
+    def _display_track(self, track):
+        if not track:
+            return None
+        return (strip_title_keywords(track[0], self.config.get(CONFIG_KEY, [])), track[1])
+
+    def _same_presentation(self, previous, current, previous_id=None, current_id=None):
+        # Verified IDs control confirmation votes, not UI/search deduplication.
+        # Even across different known IDs, the first four displayed title
+        # characters are enough to reuse the same search/PRELOAD/history row.
+        if previous_id is not None and current_id is not None:
+            if previous_id == current_id:
+                return True
+            if shares_title_prefix(self._display_track(previous), self._display_track(current)):
+                return True
+            return title_variant_matches(previous, current, self.config.get(CONFIG_KEY, []))
+        return is_same_track(self._display_track(previous), self._display_track(current))
+
+    def _observation_track(self, observation):
+        track = observation.get("track", ("", ""))
+        if not track[0] and observation.get("metadata_key"):
+            track = self._metadata_prefetch.get(observation["metadata_key"]) or track
+        return track
+
+    def _same_presentation_observations(self, previous, current):
+        if not previous or not current or previous.get("kind") or current.get("kind"):
+            return False
+        return self._same_presentation(self._observation_track(previous), self._observation_track(current),
+                                       previous.get("identity"), current.get("identity"))
+
+    def _receipt_matches(self, identity, track):
+        receipt = self._confirmed_search_receipt
+        if receipt is None or receipt[0] != self._generation:
+            return False
+        raw_track = receipt[4] if len(receipt) > 4 else receipt[3][1:3]
+        return self._same_presentation(raw_track, track, receipt[2], identity)
 
     def _emit_tentative_if_ready(self, *, allow_confirmed=False):
         """Resolve ID-only metadata, even if the second vote beat the lookup."""
@@ -1394,15 +1562,45 @@ class ShazamService(QObject):
                 title, artist = metadata
         title = str(title or "").strip()
         artist = clean_artist(artist)
+        retained = candidate.get("retained_preview")
+        if retained and title:
+            candidate.pop("retained_preview", None)
+            old = retained["observation"]
+            if self._same_presentation(self._observation_track(old), (title, artist),
+                                       old.get("identity"), observation.get("identity")):
+                candidate["sequence"] = retained["sequence"]
+                candidate["entry"] = retained["entry"]
+                candidate["keywords"] = retained.get("keywords", [])
+                candidate["emitted"] = True
+                candidate["presentation_retained"] = True
+                print(f"ShazamService: Resolved title variant retained firstSeq={candidate['sequence']} "
+                      f"seq={observation['sequence']}; no repeat search or PRELOAD")
+                return True  # a completed second vote may now authorize the old cue
+            # The retained clock belongs to the OLD UI preview, not this song.
+            # A genuinely different title starts with its own observation's
+            # receipt time, never the metadata-completion time. Otherwise it can
+            # expire early (or live too long) on the previous song's 30s limit.
+            candidate.pop("preview_received_at", None)
+            self.candidate_rejected.emit(retained["sequence"], "resolved-different-title")
+            print(f"ShazamService: Different title detached preview clock "
+                  f"oldFirstSeq={retained['sequence']} newFirstSeq={candidate['sequence']}")
+            if candidate["confirmed"]:
+                self._tentative_timer.stop()
+            else:
+                # Re-arm through the normal receipt/evidence-based expiry rules.
+                # If this new first vote is already stale, do not briefly launch
+                # a YouTube search before the timer rejects it.
+                self._expire_tentative_candidate()
+                if self._tentative_candidate is not candidate:
+                    return False
         last_identity = self._last_published_identity
         this_identity = observation.get("identity")
-        same_as_published = (
-            this_identity == last_identity
-            if this_identity is not None and last_identity is not None
-            else is_same_track(self._last_track, (title, artist))
-        )
-        if not title or same_as_published:
+        same_as_published = self._same_presentation(
+            self._last_track, (title, artist), last_identity, this_identity)
+        same_as_confirmed_search = self._receipt_matches(this_identity, (title, artist))
+        if not title or same_as_published or same_as_confirmed_search:
             return False
+        title = strip_title_keywords(title, candidate.get("keywords", self.config.get(CONFIG_KEY, [])))
         entry = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), title, artist)
         candidate["entry"] = entry
         candidate["emitted"] = True
@@ -1412,12 +1610,45 @@ class ShazamService(QObject):
         return True
 
     def _start_tentative_candidate(self, observation):
+        previous = self._tentative_candidate
+        retained = (previous if previous and previous["emitted"] and not previous["confirmed"]
+                    else previous.get("retained_preview") if previous else None)
+        valid = bool(observation and not observation.get("kind"))
+        unknown_title = bool(valid and not self._observation_track(observation)[0]
+                             and observation.get("metadata_key"))
+        same_preview = bool(retained and valid and
+            self._same_presentation_observations(retained["observation"], observation))
+        if retained and (unknown_title or same_preview):
+            # Wait for exact-ID metadata before deciding whether this is merely
+            # a title variant. The retained UI row is STILL tentative: no PLAY.
+            # Unknown results never count as an extra recognition vote.
+            candidate = {"sequence": observation["sequence"], "observation": observation,
+                "emitted": False, "confirmed": False, "entry": None,
+                "keywords": normalize_keywords(self.config.get(CONFIG_KEY, [])),
+                "retained_preview": retained}
+            if same_preview:
+                candidate.update(sequence=retained["sequence"], entry=retained["entry"],
+                    keywords=retained.get("keywords", []), emitted=True,
+                    presentation_retained=True)
+                candidate.pop("retained_preview", None)
+                print(f"ShazamService: Tentative title variant retained firstSeq={candidate['sequence']} "
+                      f"seq={observation['sequence']}; no repeat search or PRELOAD")
+            self._tentative_candidate = candidate
+            # The original cue cannot be held forever by unresolved replacements.
+            received = retained.get("preview_received_at", retained["observation"].get("received_at"))
+            candidate["preview_received_at"] = received
+            age = max(0.0, time.monotonic() - received) if received is not None else 0.0
+            remaining = max(1, int((self.SHAZAM_NO_MATCH_WINDOW_SECONDS * 2 - age) * 1000) + 100)
+            self._tentative_timer.setInterval(remaining)
+            self._tentative_timer.start()
+            return
         self._reject_tentative_candidate("new-candidate")
-        if not observation or observation.get("kind"):
+        if not valid:
             return
         self._tentative_candidate = {
             "sequence": observation["sequence"], "observation": observation,
             "emitted": False, "confirmed": False, "entry": None,
+            "keywords": normalize_keywords(self.config.get(CONFIG_KEY, [])),
         }
         received_at = observation.get("received_at")
         age = max(0.0, time.monotonic() - received_at) if received_at is not None else 0.0
@@ -1428,7 +1659,16 @@ class ShazamService(QObject):
 
     def _expire_tentative_candidate(self):
         candidate = self._tentative_candidate
-        if not candidate or candidate["confirmed"]:
+        if not candidate or (candidate["confirmed"] and not candidate.get("retained_preview")):
+            return
+        original_receipt = candidate.get("preview_received_at")
+        if original_receipt is not None:
+            remaining = self.SHAZAM_NO_MATCH_WINDOW_SECONDS * 2 - (time.monotonic() - original_receipt)
+            if remaining <= 0:
+                self._reject_tentative_candidate("title-variant-preview-expired")
+            else:
+                self._tentative_timer.setInterval(max(1, int(remaining * 1000) + 100))
+                self._tentative_timer.start()
             return
         received_at = candidate["observation"].get("received_at")
         if received_at is not None:
@@ -1447,6 +1687,32 @@ class ShazamService(QObject):
                 return
         self._reject_tentative_candidate("first-vote-expired")
 
+    def _remember_confirmed_search(self, candidate):
+        """Remember the already-searched two-vote owner, not uncommitted history.
+
+        Late metadata still obeys ALL publication barriers. This small receipt
+        only prevents the same song being searched/played again after a single
+        false candidate interrupted history publication. A distinct confirmed
+        song (even without metadata yet) invalidates reuse immediately.
+        """
+        identity = candidate["observation"].get("identity")
+        receipt = self._confirmed_search_receipt
+        if not identity:
+            self._confirmed_search_receipt = None
+        elif candidate["emitted"] and candidate.get("entry"):
+            self._confirmed_search_receipt = (
+                self._generation, candidate["sequence"], identity, tuple(candidate["entry"]),
+                self._observation_track(candidate["observation"]),
+            )
+        elif receipt is not None and receipt[2] != identity:
+            if self._receipt_matches(identity, self._observation_track(candidate["observation"])):
+                # Keep the original search owner, but follow the latest confirmed
+                # variant for adjacent matching. Do not seed a cross-ID cache.
+                self._confirmed_search_receipt = (self._generation, receipt[1], identity,
+                    receipt[3], self._observation_track(candidate["observation"]))
+            else:
+                self._confirmed_search_receipt = None
+
     def _confirm_tentative_candidate(self, first, second):
         candidate = self._tentative_candidate
         if not candidate or candidate["observation"]["sequence"] != first["sequence"]:
@@ -1454,7 +1720,9 @@ class ShazamService(QObject):
         already_confirmed = candidate["confirmed"]
         candidate["confirmed"] = True
         candidate["confirmed_by"] = second["sequence"]
-        self._tentative_timer.stop()
+        if not candidate.get("retained_preview"):
+            self._tentative_timer.stop()
+        self._remember_confirmed_search(candidate)
         if candidate["emitted"] and not already_confirmed:
             print(f"ShazamService: Tentative confirmed firstSeq={candidate['sequence']} "
                   f"temporalSeq={first['sequence']} secondSeq={second['sequence']}; "
@@ -1516,7 +1784,7 @@ class ShazamService(QObject):
             candidate = self._tentative_candidate
             if (observation.pop("_retain_existing_tentative", False) and
                     candidate and
-                    self._temporal_observations_match(candidate["observation"], observation)):
+                    self._same_presentation_observations(candidate["observation"], observation)):
                 # The same first vote keeps its original UI/candidate ID. Only
                 # its temporal reference advances to the valid lookahead pair.
                 candidate["observation"] = observation
@@ -1622,6 +1890,8 @@ class ShazamService(QObject):
             newly_visible = (self._emit_tentative_if_ready(allow_confirmed=True)
                              if safe_late_vote else False)
             if newly_visible and preview["confirmed"]:
+                self._tentative_timer.stop()
+                self._remember_confirmed_search(preview)
                 print(f"ShazamService: Late ID-only metadata completed two-vote "
                       f"candidate firstSeq={preview['sequence']}; enable PLAY")
                 self.candidate_confirmed.emit(preview["sequence"], preview["entry"])
@@ -1866,11 +2136,15 @@ class ShazamService(QObject):
         # Compare successive confirmed results, including suppressed variants.
         self._last_track = track_key
         self._last_published_identity = identity
-        same_track = (
-            identity == previous_identity
-            if identity is not None and previous_identity is not None
-            else is_same_track(previous_track, track_key)
-        )
+        same_track = self._same_presentation(previous_track, track_key, previous_identity, identity)
+        owner = self._tentative_candidate
+        associated_owner = bool(owner and owner.get("confirmed") and (
+            identity is not None and owner["observation"].get("identity") == identity
+            or identity is None and is_same_track(owner["observation"]["track"], track_key)))
+        keywords = owner.get("keywords", []) if associated_owner else self.config.get(CONFIG_KEY, [])
+        title = strip_title_keywords(title, keywords)
+        if associated_owner and owner.get("presentation_retained") and owner.get("entry"):
+            title = owner["entry"][1]
         if same_track:
             self.status_changed.emit(f"Shazam: {artist} - {title}")
             return
@@ -1882,7 +2156,7 @@ class ShazamService(QObject):
         if (
             previous_track is None
             and self._history
-            and is_same_track(self._history[0][1:], track_key)
+            and is_same_track(self._history[0][1:], self._display_track(track_key))
         ):
             self._history[0] = entry
         else:
@@ -1899,7 +2173,14 @@ class ShazamService(QObject):
             identity is not None and candidate_identity == identity
             or identity is None and is_same_track(candidate["observation"]["track"], track_key)
         ))
-        self._last_publication_candidate_id = candidate["sequence"] if associated else None
+        receipt = self._confirmed_search_receipt
+        reused = bool(receipt is not None and identity is not None and
+                      self._receipt_matches(identity, track_key) and
+                      (not candidate or not candidate["emitted"]))
+        self._last_publication_search_reused = reused
+        self._last_publication_candidate_id = (
+            receipt[1] if reused else candidate["sequence"] if associated else None
+        )
         self.history_updated.emit(list(self._history))
         self.new_track_detected.emit(entry)
         candidate = self._tentative_candidate
@@ -1972,6 +2253,10 @@ class ShazamService(QObject):
                 if not timestamp or not title:
                     continue
                 entries.append((timestamp, title, artist))
+                comment = self._clean_field(item.get("comment", ""))
+                if comment:
+                    from app.services.utanet_service import track_key
+                    self._history_comments[track_key(title, artist)] = (comment, str(item.get("tieup_url", "") or ""))
         except Exception as e:
             print(f"ShazamService: Failed to load history: {e}")
         # Compact in memory only. The existing file is not rewritten merely
@@ -1982,14 +2267,49 @@ class ShazamService(QObject):
         try:
             payload = []
             for timestamp, title, artist in self._history[:self.HISTORY_LIMIT]:
-                payload.append({
+                item = {
                     "timestamp": self._clean_field(timestamp),
                     "title": self._clean_field(title),
                     "artist": self._clean_field(artist),
-                })
+                }
+                from app.services.utanet_service import track_key
+                metadata = getattr(self, "_history_comments", {}).get(track_key(title, artist))
+                if metadata and metadata[0]:
+                    item["comment"] = metadata[0]
+                    if metadata[1]:
+                        item["tieup_url"] = metadata[1]
+                payload.append(item)
 
             with open(self._history_path, "w", encoding="utf-8", newline="\n") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
                 f.write("\n")
         except Exception as e:
             print(f"ShazamService: Failed to save history: {e}")
+
+    def get_tieup_comment(self, title, artist):
+        from app.services.utanet_service import track_key
+        return getattr(self, "_history_comments", {}).get(track_key(title, artist), ("", ""))[0]
+
+    def set_tieup_comment(self, title, artist, comment, source_url=""):
+        """Main-thread metadata update; NEVER publish a new track or first vote."""
+        from app.services.utanet_service import track_key, clean_text
+        comment = clean_text(comment)[:600]
+        if not comment:
+            return False
+        if not hasattr(self, "_history_comments"):
+            self._history_comments = {}
+        key = track_key(title, artist)
+        old = self._history_comments.get(key, ("", ""))
+        if old[0] == comment:
+            return False
+        self._history_comments[key] = (comment, str(source_url or ""))
+        if len(self._history_comments) > 512:
+            preserved = {track_key(row[1], row[2]) for row in self._history}
+            for obsolete in list(self._history_comments):
+                if obsolete not in preserved and obsolete != key:
+                    del self._history_comments[obsolete]
+                    if len(self._history_comments) <= 256:
+                        break
+        if any(track_key(row[1], row[2]) == key for row in self._history):
+            self._save_history()
+        return True

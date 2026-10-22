@@ -1,7 +1,7 @@
 """Pure matching rules; no Qt, audio device or network is required."""
 import unittest
 
-from app.services.track_matching import deduplicate_history, is_same_track
+from app.services.track_matching import deduplicate_history, is_same_track, shares_title_prefix
 
 ORIGINAL = ('\u7089\u5fc3\u878d\u89e3 (feat. \u93e1\u97f3\u30ea\u30f3)', 'iroha(sasaki)')
 COVER = ('\u7089\u5fc3\u878d\u89e3(\u30ab\u30d0\u30fc)feat. \u30ea\u30c4\u30ab', 'iroha')
@@ -11,6 +11,15 @@ class TrackMatchingTests(unittest.TestCase):
     def test_original_and_cover_match_in_both_directions(self):
         self.assertTrue(is_same_track(ORIGINAL, COVER))
         self.assertTrue(is_same_track(COVER, ORIGINAL))
+
+    def test_title_prefix_helper_is_strictly_four_leading_characters(self):
+        self.assertTrue(shares_title_prefix(('GEDO (feat.鏡音レン)', 'daraku'),
+                                            ('GEDO', 'daraku & 鏡音レン')))
+        self.assertTrue(shares_title_prefix(('臨界ダイバー', 'うみろ'),
+                                            ('臨界ダイバー', 'メガテラ・ゼロ')))
+        self.assertFalse(shares_title_prefix(('ABC', 'Artist'), ('ABC (live)', 'Artist')))
+        self.assertFalse(shares_title_prefix(('Song B', 'Artist'), ('Tune C', 'Artist')))
+        self.assertFalse(shares_title_prefix(('', 'Artist'), ('ABCD', 'Artist')))
 
     def test_four_characters_are_enough_even_with_unrelated_artists(self):
         self.assertTrue(is_same_track(('ABCD original', 'Alpha'), ('ABCD cover', 'Omega')))

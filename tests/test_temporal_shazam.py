@@ -14,6 +14,7 @@ class TemporalConfirmationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.config = {
+            'shazam_lane_count': 4,
             'shazam_language': 'ja-JP',
             'shazam_endpoint_country': 'JP',
         }

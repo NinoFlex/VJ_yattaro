@@ -128,6 +128,10 @@ class FakeWorker:
     def start(self):
         self.running = True
 
+    def abort(self):
+        # A synchronous HTTP request can remain running after cancellation.
+        self.aborted = True
+
 
 class UIQueuedSearchTests(unittest.TestCase):
     def setUp(self):

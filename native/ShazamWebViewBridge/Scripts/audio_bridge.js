@@ -249,6 +249,7 @@
 
   const getAudio = async constraints => {
     getUserMediaCalls++;
+    report('audio-requested', {calls: getUserMediaCalls});
     try {
     // Never silently fall back to the OS default microphone. Python owns the selected input.
     if (!constraints || !constraints.audio || constraints.video)

@@ -69,6 +69,9 @@ class LaneCountTests(unittest.TestCase):
         for patcher in (self.config_patch, self.recognizer_patch, self.history_patch):
             patcher.start()
         self.svc = ShazamService()
+        # No real browser startup cost in this test; test_staged_lane_startup
+        # separately checks the production admission limit and spacing.
+        self.svc._lane_startup_gate.min_start_interval = 0.0
 
     def tearDown(self):
         self.svc.shutdown()
@@ -91,13 +94,13 @@ class LaneCountTests(unittest.TestCase):
     def test_normalization_bounds_and_corrupt_persisted_values(self):
         self.assertEqual((SHAZAM_MIN_LANES, SHAZAM_MAX_LANES), (4, 16))
         for value, expected in [
-            (None, 4), ('invalid', 4), (-2, 4), (3, 4), ('4', 4),
-            (8, 8), ('16', 16), (999, 16), (float('inf'), 4),
+            (None, 6), ('invalid', 6), (-2, 4), (3, 4), ('4', 4),
+            (8, 8), ('16', 16), (999, 16), (float('inf'), 6),
         ]:
             with self.subTest(value=value):
                 self.assertEqual(normalize_shazam_lane_count(value), expected)
 
-    def test_new_install_keeps_default_four_lanes(self):
+    def test_explicit_four_lanes_remain_supported(self):
         self.assertEqual(self.svc.RECOGNITION_GROUPS, 4)
         self.assertEqual(self.svc.PARALLEL_RECOGNITION_LANES, 4)
         self.assertEqual(self.svc._pool_capacity, 4)
@@ -216,7 +219,7 @@ class LaneCountTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] /
                   'ui/dialogs/settings_dialog.py').read_text(encoding='utf-8')
         self.assertIn('self.shazam_lane_count_spin.setRange(4, 16)', source)
-        self.assertIn('"WebView2レーン数:"', source)
+        self.assertIn('"レーン数 :"', source)
         self.assertIn('self.shazam_lane_count_spin.setValue(', source)
         self.assertIn('"shazam_lane_count": shazam_lane_count', source)
         self.assertIn('shazam_lane_count = int(self.shazam_lane_count_spin.value())', source)

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen
 from app.models.search_request import SearchPhase
 from app.models.shazam_state import ShazamStateMixin
+from app.models.tieup_enrichment import TieupEnrichmentMixin
 
 
 class ImeAwareLineEdit(QLineEdit):
@@ -186,6 +187,12 @@ class TitleBar(QWidget):
         self.anime_op_button.setEnabled(False)
         self.anime_op_button.toggled.connect(self._on_anime_op_toggled)
         layout.addWidget(self.anime_op_button)
+        self.tieup_button = QPushButton("\u30bf\u30a4\u30a2\u30c3\u30d7\u88dc\u5b8c OFF")
+        self.tieup_button.setObjectName("tieup_button")
+        self.tieup_button.setCheckable(True)
+        self.tieup_button.setEnabled(False)
+        self.tieup_button.toggled.connect(self._main_window.set_tieup_enabled)
+        layout.addWidget(self.tieup_button)
         self.set_auto_play_checked(False)
 
         layout.addStretch()
@@ -241,7 +248,7 @@ class TitleBar(QWidget):
             #settings_button:hover {{
                 background-color: {c['hover']};
             }}
-            #autoplay_button, #anime_op_button {{
+            #autoplay_button, #anime_op_button, #tieup_button {{
                 font-size: 11px;
                 font-weight: bold;
                 background-color: {c['input']};
@@ -252,15 +259,15 @@ class TitleBar(QWidget):
                 color: {c['text']};
                 min-width: 86px;
             }}
-            #autoplay_button:hover, #anime_op_button:hover:enabled {{
+            #autoplay_button:hover, #anime_op_button:hover:enabled, #tieup_button:hover:enabled {{
                 background-color: {c['hover']};
             }}
-            #autoplay_button:checked, #anime_op_button:checked {{
+            #autoplay_button:checked, #anime_op_button:checked, #tieup_button:checked {{
                 background-color: #1f6fb2;
                 border-color: #15598f;
                 color: white;
             }}
-            #anime_op_button:disabled {{
+            #anime_op_button:disabled, #tieup_button:disabled {{
                 background-color: {c['titlebar']};
                 border-color: {c['border_soft']};
                 color: {c['muted']};
@@ -271,6 +278,16 @@ class TitleBar(QWidget):
                 margin-left: 5px;
             }}
         """)
+
+    def set_tieup_checked(self, checked, enabled=True):
+        blocked = self.tieup_button.blockSignals(True)
+        self.tieup_button.setChecked(bool(checked))
+        self.tieup_button.setEnabled(bool(enabled))
+        self.tieup_button.setText("\u30bf\u30a4\u30a2\u30c3\u30d7\u88dc\u5b8c " + ("ON" if checked else "OFF"))
+        self.tieup_button.setToolTip(
+            "Shazam: \u6b4c\u30cd\u30c3\u30c8\u304b\u3089\u30bf\u30a4\u30a2\u30c3\u30d7\u3092HTTPS\u3067\u53d6\u5f97\u3057\u3001\u30b3\u30e1\u30f3\u30c8\u3092\u88dc\u5b8c\u3057\u3066\u518d\u691c\u7d22\u3057\u307e\u3059\u3002\n"
+            "\u904b\u55b6\u8005\u306e\u8a31\u8afe\u304c\u5fc5\u8981\u3067\u3059\u3002WebView\u306f\u4f7f\u7528\u3057\u307e\u305b\u3093\u3002")
+        self.tieup_button.blockSignals(blocked)
 
     def _on_source_toggled(self, checked):
         mode = "shazam" if checked else "rekordbox"
@@ -317,7 +334,7 @@ class TitleBar(QWidget):
         if event.button() == Qt.LeftButton:
             self.window().windowHandle().startSystemMove()
 
-class MainWindow(ShazamStateMixin, QMainWindow):
+class MainWindow(TieupEnrichmentMixin, ShazamStateMixin, QMainWindow):
     def _configure_logging(self):
         """ログレベルを設定"""
         from app.utils.logger import configure_logging, LogLevel
@@ -509,11 +526,10 @@ class MainWindow(ShazamStateMixin, QMainWindow):
 
         from app.services.shazam_service import ShazamService
         self.shazam_service = ShazamService(self)
-        self.shazam_table_model = RightTableModel(
-            self.shazam_service.get_history(),
-            headers=["認識時刻", "トラックタイトル", "アーティスト"],
-            max_rows=50,
-        )
+        from ui.widgets.shazam_history_model import ShazamHistoryModel
+        self.shazam_table_model = ShazamHistoryModel(
+            self.shazam_service.get_history(), self.shazam_service.get_tieup_comment)
+        self._init_tieup_enrichment()
 
         self.table_model = self.rekordbox_table_model
         self.right_table.setModel(self.table_model)
@@ -645,6 +661,7 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         self.title_bar.installEventFilter(self)
         for btn in [self.title_bar.settings_button, self.title_bar.source_toggle,
                    self.title_bar.autoplay_button, self.title_bar.anime_op_button,
+                   self.title_bar.tieup_button,
                    self.title_bar.min_button, self.title_bar.close_button]:
             btn.installEventFilter(self)
 
@@ -1035,6 +1052,8 @@ class MainWindow(ShazamStateMixin, QMainWindow):
     def _cancel_autoplay_recovery(self, reason=""):
         """Prevent old auto-search errors from hijacking manual/new playback."""
         if reason in ("manual preload", "manual play", "manual double-click"):
+            if hasattr(self, "_tieup_worker"):
+                self._tieup_manual_action()
             preview = getattr(self, "_shazam_preview", None)
             if preview:
                 preview.manual_override = True
@@ -1228,9 +1247,19 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             configure_logging(enabled=enable_logging, redirect=True)
 
             self.apply_theme(self.config_service.get("ui_theme", "dark"), persist=False)
+            from app.services.title_keywords import CONFIG_KEY, filter_history_rows
+            raw_history = getattr(self, "_rekordbox_raw_history", None)
+            if raw_history:
+                filtered = filter_history_rows(raw_history, self.config_service.get(CONFIG_KEY, []))
+                self._last_top_track = filtered[0]
+                self.on_history_updated(raw_history)
             self.watcher.reload_settings()
             if hasattr(self, "shazam_service"):
+                if hasattr(self, "_tieup_worker"):
+                    self._invalidate_tieup_requests()
                 self.shazam_service.reload_settings()
+                if hasattr(self, "_tieup_worker"):
+                    self._resume_tieup_after_settings()
             self.reload_hotkeys()  # ホットキーを再登録
             self.reload_midi_config() # MIDI設定を再登録
             self.apply_window_placement_mode()  # ウィンドウ配置モードを反映
@@ -1349,6 +1378,9 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         if mode not in ("rekordbox", "shazam"):
             return
 
+        if hasattr(self, "_tieup_worker"):
+            self._invalidate_tieup_requests()
+            self.title_bar.set_tieup_checked(self.tieup_enabled, enabled=mode == "shazam")
         self.source_mode = mode
 
         # タイトルバー側の状態も同期（外部から呼ばれた場合を含む）。
@@ -1401,7 +1433,9 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             # Shazam model: (timestamp, title, artist). Timestamp is display/log metadata only.
             if len(track_info) < 3:
                 return None
-            return track_info[1] or "", track_info[2] or "", ""
+            provider = getattr(self.table_model, "comment_for_row", None)
+            comment = provider(row) if callable(provider) else ""
+            return track_info[1] or "", track_info[2] or "", comment
 
         # Rekordbox model: (title, artist, comment)
         if len(track_info) < 3:
@@ -1446,6 +1480,10 @@ class MainWindow(ShazamStateMixin, QMainWindow):
                 print("UI: Window placement mode -> not always on top")
 
     def on_history_updated(self, new_history):
+        from app.services.title_keywords import CONFIG_KEY, filter_history_rows
+        self._rekordbox_raw_history = list(new_history or [])
+        new_history = filter_history_rows(
+            self._rekordbox_raw_history, self.config_service.get(CONFIG_KEY, []))
         """Watcherから新しいRekordbox履歴データを受け取った時の処理"""
         # beginResetModel()/endResetModel() はQtの選択状態を無効化するため、
         # リセットが必要な場合に備えて「更新前」に現在選択を保存する。
@@ -1565,6 +1603,9 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             return
         print(f"UI: Releasing deferred Shazam PRELOAD firstSeq={preview.id} "
               f"after confirmed playback has resolved")
+        preview.cue_from_tieup = preview.deferred_from_tieup
+        if preview.tieup_state == "found" and not preview.cue_from_tieup:
+            return
         self._start_autoplay_recovery(videos, selected_index)
         self._cue_shazam_preview_video(videos[selected_index])
 
@@ -1582,9 +1623,15 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             self.youtube_search_box.clear()
         print(f"UI: Shazam tentative row added firstSeq={candidate_id} "
               f"title={entry[1]!r} artist={entry[2]!r}; search/preload only")
-        self.search_youtube(entry[1], entry[2], "", from_list=True,
+        comment = ""  # Initial and enriched search inputs are kept separate.
+        self._shazam_preview.track_info["comment"] = comment
+        if hasattr(self, "_tieup_worker"):
+            self._prepare_tieup_candidate(self._shazam_preview)
+        self.search_youtube(entry[1], entry[2], comment, from_list=True,
                             allow_auto_play=False, source_mode="shazam",
                             shazam_candidate_id=int(candidate_id))
+        if hasattr(self, "_tieup_worker"):
+            self._request_tieup(entry, self._shazam_preview)
 
     def on_shazam_candidate_rejected(self, candidate_id, reason):
         """Remove only this uncommitted preview and suppress its late callbacks."""
@@ -1659,6 +1706,8 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         preview.play_authorized = bool(
             self.auto_play_top_result and not preview.manual_override
         )
+        if hasattr(self, "_tieup_worker"):
+            self._prioritize_confirmed_tieup_search(preview)
         self._refresh_shazam_history_view(self.shazam_service.get_history())
         # The early search may have completed while the preceding B was still
         # waiting: a genuine C confirmation now has priority and can be cued.
@@ -1675,6 +1724,16 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         if not preview or not preview.confirmed or preview.manual_override:
             return
         if not preview.play_authorized or not getattr(self, "auto_play_top_result", False):
+            return
+        if not preview.tieup_allows_play:
+            # Never arm the legacy ready->PLAY latch while metadata is pending
+            # or while a superseded initial cue is still answering.
+            if self.pending_play_video_id == preview.video_id:
+                self.pending_play_video_id = None
+            if self.pending_auto_seek_video_id == preview.video_id:
+                self.pending_auto_seek_video_id = None
+            print(f"UtanetTieup: PLAY held firstSeq={preview.id} state={preview.tieup_state} "
+                  f"cue={'tieup' if preview.cue_from_tieup else 'initial'}")
             return
         video_id = preview.video_id
         if not video_id:
@@ -1712,6 +1771,8 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             preview = getattr(self, "_shazam_preview", None)
         if not preview or not video:
             return
+        if preview.tieup_state == "found" and not preview.cue_from_tieup:
+            return
         video_id = str(video.get("video_id", "") or "")
         if not video_id:
             return
@@ -1720,6 +1781,7 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         if not self.shazam_flow.can_cue(preview.id):
             preview.deferred_videos = [video]
             preview.deferred_index = 0
+            preview.deferred_from_tieup = preview.cue_from_tieup
             print(f"UI: Deferred Shazam PRELOAD firstSeq={preview.id} "
                   f"while confirmed firstSeq={self._confirmed_shazam_awaiting_play().id} plays")
             return
@@ -1762,6 +1824,13 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             print(f"UI: Confirmed Shazam firstSeq={protected.id} still awaiting "
                   "PLAY; ignoring duplicate publication/search")
             return
+        if getattr(self.shazam_service, "_last_publication_search_reused", False) is True:
+            # Exact typed identity/generation was matched by the service; the
+            # earlier two-vote search/PLAY owner remains valid. Do not clear,
+            # PRELOAD, PLAY, or seek it again just to update the history row.
+            print(f"UI: Reused confirmed Shazam search firstSeq={publisher_id}; "
+                  "history updated without another search or PLAY")
+            return
         # ID-only confirmation can publish a NEW song while an old confirmed
         # preview is still retained in the UI. Never treat it as its search.
         if preview and preview.confirmed and not matches_publication(preview):
@@ -1770,6 +1839,13 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         if self.youtube_search_box.text().strip():
             self.youtube_search_box.clear()
         print(f"UI: Shazam detected {artist} - {track_title} at {timestamp}")
+        if hasattr(self, "_tieup_worker") and self.tieup_enabled:
+            fallback_id = publisher_id if isinstance(publisher_id, int) else -1
+            self.on_shazam_candidate_started(fallback_id, entry)
+            candidate = self._shazam_preview
+            candidate.committed = True
+            self.on_shazam_candidate_confirmed(fallback_id, entry)
+            return
         self.search_youtube(track_title or "", artist or "", "", from_list=True)
 
     def on_shazam_status_changed(self, status):
@@ -2265,6 +2341,7 @@ class MainWindow(ShazamStateMixin, QMainWindow):
     def search_youtube(
         self, track_title, artist, comment, from_list=False, allow_auto_play=True,
         source_mode=None, shazam_candidate_id=None, _queued_request=None,
+        _metadata_refresh=False,
     ):
         """YouTubeで動画を検索。
         
@@ -2281,10 +2358,15 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         from app.services.youtube_service import YouTubeService
         from app.models.search_request import SearchRequest
 
+        if from_list and shazam_candidate_id is None and _queued_request is None:
+            from app.services.title_keywords import CONFIG_KEY, strip_title_keywords
+            track_title = strip_title_keywords(track_title, self.config_service.get(CONFIG_KEY, []))
         search_source_mode = str(source_mode or getattr(self, "source_mode", "rekordbox")).lower()
         if search_source_mode not in ("rekordbox", "shazam"):
             search_source_mode = "rekordbox"
-        if shazam_candidate_id is None:
+        if shazam_candidate_id is None and not _metadata_refresh:
+            if hasattr(self, "_tieup_worker") and _queued_request is None:
+                self._tieup_manual_action()
             preview = getattr(self, "_shazam_preview", None)
             if preview:
                 preview.manual_override = True
@@ -2296,7 +2378,9 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             print(f"UI: Shazam title-only track; keeping auto-play setting: {track_title or ''}")
         
         # 新たな検索要求後は、前曲の失敗で旧結果へ戻らないようにする。
-        if not (shazam_candidate_id is not None and self._confirmed_shazam_awaiting_play()):
+        if _metadata_refresh:
+            print("UtanetTieup: YouTube refresh preserves current playback/watchdogs")
+        elif not (shazam_candidate_id is not None and self._confirmed_shazam_awaiting_play()):
             self._cancel_autoplay_recovery("new YouTube search")
         else:
             print("UI: New tentative search preserves previous confirmed PLAY")
@@ -2318,11 +2402,22 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             comment=str(comment or ""), candidate_id=shazam_candidate_id,
             source_mode=search_source_mode, allow_auto_play=bool(allow_auto_play),
             from_list=bool(from_list), confirmed=bool(candidate and candidate.confirmed),
+            metadata_refresh=bool(_metadata_refresh),
+            enrichment_epoch=getattr(self, "_tieup_epoch", 0) if _metadata_refresh else None,
+            interaction_epoch=getattr(self, "_tieup_interaction_epoch", 0) if _metadata_refresh else None,
         )
+        if _metadata_refresh and _queued_request is None and hasattr(self, "_tieup_worker"):
+            self._preempt_initial_youtube_search(shazam_candidate_id)
         # QThread may already be finished while its 'finished' callback/1s
         # queue timer is still pending. Never jump ahead of that queued B.
         search_busy = bool(self.youtube_search_thread and self.youtube_search_thread.isRunning())
         has_queued_work = bool(flow is not None and flow.queued_search is not None)
+        if (search_request.metadata_refresh and not search_busy and candidate is not None
+                and candidate.confirmed and has_queued_work
+                and not flow.queued_search.confirmed):
+            # The protected B's winning query starts now. Keep tentative C in
+            # the queue, rather than evicting it or delaying B behind it.
+            has_queued_work = False
         if _queued_request is None and (search_busy or has_queued_work):
             if flow is not None:
                 flow.queue_search(search_request)
@@ -2360,7 +2455,8 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         
         # 検索クエリを作成
         search_queries = youtube_service.create_search_queries_from_track(
-            track_title, artist, comment, source_mode=search_source_mode,
+            track_title, artist, comment,
+            source_mode="shazam_tieup" if search_request.metadata_refresh else search_source_mode,
             allow_inline_artist=not from_list,
         )
         if not search_queries:
@@ -2450,10 +2546,11 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         from app.utils.logger import info
 
         finished_thread = self.sender()
+        if hasattr(self, "_retired_youtube_threads"):
+            self._retired_youtube_threads.discard(finished_thread)
         # 古いスレッドの finished が遅れて届いても、新しい検索を消さない。
         if (
             finished_thread is not None
-            and self.youtube_search_thread is not None
             and finished_thread is not self.youtube_search_thread
         ):
             info("Ignoring stale YouTube search finished signal.", "UI")
@@ -2509,6 +2606,7 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             source_mode=request.source_mode,
             shazam_candidate_id=request.candidate_id,
             _queued_request=request,
+            _metadata_refresh=request.metadata_refresh,
         )
 
     def _auto_play_video(self, video):
@@ -2560,6 +2658,11 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             return
         candidate_id = getattr(self, "_active_search_candidate_id", None)
         active_request = self.shazam_flow.active_search
+        if (active_request is not None and active_request.metadata_refresh and
+                (active_request.enrichment_epoch != getattr(self, "_tieup_epoch", 0) or
+                 active_request.interaction_epoch != getattr(self, "_tieup_interaction_epoch", 0))):
+            print("UtanetTieup: ignored late enrichment search result")
+            return
         if (active_request is not None and active_request.candidate_id == candidate_id
                 and not active_request.valid):
             print(f"UI: Ignoring cancelled YouTube search results firstSeq={candidate_id}")
@@ -2582,7 +2685,16 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         if queued_request is None and pending_args is not None and len(pending_args) >= 7:
             pending_candidate = self.shazam_flow.find_candidate(pending_args[6])
             waiting_for_tentative = bool(pending_candidate and not pending_candidate.confirmed)
-        if (pending_args is not None and not (
+        # A found tie-up is now authoritative, not an optional list refresh.
+        if (candidate_preview is not None and candidate_preview.tieup_state == "found"
+                and not (active_request and active_request.metadata_refresh)):
+            print(f"UtanetTieup: ignored initial results after tieup firstSeq={candidate_id}")
+            return
+        same_candidate_refresh = bool(
+            queued_request is not None and queued_request.metadata_refresh
+            and queued_request.candidate_id == candidate_id
+            and active_request is not None and not active_request.metadata_refresh)
+        if (pending_args is not None and not same_candidate_refresh and not (
                 candidate_preview and candidate_preview.confirmed and waiting_for_tentative)):
             print("UI: Ignoring superseded YouTube results; newer search is queued")
             return
@@ -2597,7 +2709,18 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             self.youtube_search_box.setProperty("searchError", False)
         
         self._refresh_connection_statuses()
-        if not (candidate_id is not None and protected):
+        metadata_refresh = bool(active_request and active_request.metadata_refresh)
+        refresh_list_only = bool(metadata_refresh and (
+            candidate_preview is None or candidate_preview.playing_ack or
+            candidate_preview.play_sent or candidate_preview.manual_override))
+        if metadata_refresh and not videos:
+            print("UtanetTieup: enriched search empty; initial auto-PLAY remains suppressed")
+            self.left_pane.clear_results()
+            if candidate_preview is not None:
+                candidate_preview.deferred_videos = None
+                candidate_preview.deferred_index = None
+            return
+        if not metadata_refresh and not (candidate_id is not None and protected):
             self._cancel_autoplay_recovery("search results replaced")
 
         if not videos:
@@ -2640,7 +2763,11 @@ class MainWindow(ShazamStateMixin, QMainWindow):
         # Keep the displayed ranking unchanged; only the automatic choice differs.
         # Manual searches never start playback, regardless of either toggle.
         selected_index = 0
-        if candidate_id is not None:
+        if refresh_list_only:
+            from app.services.autoplay_selection import select_auto_play_index
+            selected_index = select_auto_play_index(initial_videos, self.anime_op_mode)
+            print("UtanetTieup: refreshed results only; no repeat PRELOAD/PLAY/seek")
+        elif candidate_id is not None:
             from app.services.autoplay_selection import select_auto_play_index
             selected_index = select_auto_play_index(initial_videos, self.anime_op_mode)
             if protected and candidate_preview is not protected:
@@ -2648,9 +2775,11 @@ class MainWindow(ShazamStateMixin, QMainWindow):
                 # and waiting. Store C's chosen video and allow its search UI.
                 candidate_preview.deferred_videos = videos
                 candidate_preview.deferred_index = selected_index
+                candidate_preview.deferred_from_tieup = metadata_refresh
                 print(f"UI: Deferred tentative PRELOAD firstSeq={candidate_id} "
                       f"until confirmed previous track starts")
             else:
+                candidate_preview.cue_from_tieup = metadata_refresh
                 self._start_autoplay_recovery(videos, selected_index)
                 self._cue_shazam_preview_video(initial_videos[selected_index],
                                                preview=candidate_preview)
@@ -2665,7 +2794,9 @@ class MainWindow(ShazamStateMixin, QMainWindow):
 
         # An enqueue failure can synchronously move to the fallback before this
         # callback finishes. Do not reselect the already-failed first result.
-        chosen_id = getattr(self, "_autoplay_active_video_id", None) or initial_videos[selected_index].get("video_id", "")
+        chosen_id = ((initial_videos[selected_index].get("video_id", "") if refresh_list_only else None)
+                     or getattr(self, "_autoplay_active_video_id", None)
+                     or initial_videos[selected_index].get("video_id", ""))
         self._select_search_video(chosen_id)
 
         # 非同期でサムネイルを読み込む（最初の5件）
@@ -2892,7 +3023,7 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             return
         if request is not None and request.candidate_id == candidate_id:
             request.phase = SearchPhase.FAILED
-        if protected and protected.id == candidate_id:
+        if protected and protected.id == candidate_id and not (request and request.metadata_refresh):
             print(f"UI: Confirmed Shazam search failed before PRELOAD firstSeq={candidate_id}")
             self._confirmed_shazam_pending = None
             self._release_deferred_shazam_cue()
@@ -3232,6 +3363,12 @@ class MainWindow(ShazamStateMixin, QMainWindow):
             if hasattr(self, 'watcher'):
                 self.watcher.shutdown()
                 print("UI: History watcher stopped")
+
+            if hasattr(self, "_tieup_worker"):
+                self._invalidate_tieup_requests()
+                self._tieup_worker.shutdown()
+                for worker in tuple(getattr(self, "_retired_youtube_threads", ())):
+                    worker.abort()
 
             # Shazamサービスの停止
             if hasattr(self, 'shazam_service'):

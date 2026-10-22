@@ -71,6 +71,8 @@ class WebViewRecognizer:
     def __init__(self, instance_id: str = "main"):
         instance_id = re.sub(r"[^A-Za-z0-9_-]", "", str(instance_id or "main"))[:32] or "main"
         self._instance_id = instance_id
+        self.require_prewarm = False
+        self.identity_probe = None
         self._lock = threading.Lock()
         self._stdin_lock = threading.Lock()
         self._process = None
@@ -119,17 +121,19 @@ class WebViewRecognizer:
             pass
 
     @staticmethod
-    def _next_message(destination, deadline, cancelled):
+    def _next_message(destination, deadline, cancelled, on_idle=None):
         while time.monotonic() < deadline:
             if cancelled.is_set():
                 raise RecognitionCancelled()
+            if on_idle is not None:
+                on_idle()
             try:
                 return destination.get(timeout=min(0.2, max(0.01, deadline - time.monotonic())))
             except queue.Empty:
                 continue
         raise TimeoutError("Shazam WebView2 did not respond before the timeout.")
 
-    def _ensure_started(self, language, cancelled):
+    def _ensure_started(self, language, cancelled, *, allow_start=True):
         language = normalize_language(language)
         if cancelled.is_set():
             raise RecognitionCancelled()
@@ -138,6 +142,9 @@ class WebViewRecognizer:
                 self._process is not None and self._process.poll() is None
                 and self._language == language
             )
+            ready = self._ready
+        if not allow_start and not (reusable and ready):
+            raise RuntimeError("Shazam helper is not prepared; managed lane recovery required.")
         if not reusable:
             self.close()
             executable = self.check_available()
@@ -165,8 +172,10 @@ class WebViewRecognizer:
                                  name="ShazamWebViewStderr", daemon=True).start()
         with self._lock:
             process, destination, ready = self._process, self._queue, self._ready
-        if process is None or destination is None or cancelled.is_set():
+        if cancelled.is_set():
             raise RecognitionCancelled()
+        if process is None or destination is None:
+            raise RuntimeError("Shazam helper became unavailable during startup.")
         if not ready:
             deadline = time.monotonic() + 65
             while True:
@@ -181,6 +190,11 @@ class WebViewRecognizer:
                     break
                 if kind in ("fatal", "eof"):
                     raise RuntimeError(message.get("error") or "Shazam helper closed during startup.")
+        with self._lock:
+            if cancelled.is_set():
+                raise RecognitionCancelled()
+            if self._process is not process or process.poll() is not None:
+                raise RuntimeError("Shazam helper exited before becoming ready.")
         return process, destination
 
     def prewarm(self, language: str, cancelled: threading.Event) -> None:
@@ -287,7 +301,8 @@ class WebViewRecognizer:
         request_id = None
         audio_queue = None
         try:
-            process, destination = self._ensure_started(language, cancelled)
+            process, destination = self._ensure_started(
+                language, cancelled, allow_start=not self.require_prewarm)
             request_id = uuid.uuid4().hex
             audio_queue = queue.Queue(maxsize=self.LIVE_AUDIO_QUEUE_MAX)
             if cancelled.is_set() or process.poll() is not None:
@@ -309,10 +324,48 @@ class WebViewRecognizer:
                 daemon=True,
             ).start()
 
+            # Metadata hints are NOT results/votes. Snapshot this cycle's
+            # callback so stop/restart cannot bind an old ID to a new generation.
+            probe = self.identity_probe
+            identity_hint = None
+            acknowledged = set()
+            probe_failed = False
+
+            def check_identity_cache():
+                nonlocal probe_failed
+                if identity_hint is None or not callable(probe) or probe_failed or cancelled.is_set():
+                    return
+                ticket = (identity_hint.get("shazamTrackId"), identity_hint.get("url"))
+                if ticket in acknowledged:
+                    return
+                try:
+                    complete = probe(identity_hint)
+                except Exception as exc:
+                    # Optional optimization failure must not destroy recognition.
+                    probe_failed = True
+                    print(f"ShazamWebView: early metadata probe unavailable instance={self._instance_id} "
+                          f"error={type(exc).__name__}")
+                    return
+                if complete is True and not cancelled.is_set():
+                    self._write_request(process, {"type": "metadata-ready", "id": request_id,
+                        "shazamTrackId": ticket[0], "url": ticket[1]})
+                    acknowledged.add(ticket)
+
             deadline = time.monotonic() + 85
             while True:
-                message = self._next_message(destination, deadline, cancelled)
+                message = (self._next_message(destination, deadline, cancelled, check_identity_cache)
+                           if identity_hint is not None else
+                           self._next_message(destination, deadline, cancelled))
                 kind = message.get("type")
+                if kind == "identity" and message.get("id") == request_id:
+                    if (callable(probe) and len(acknowledged) < 2
+                            and isinstance(message.get("shazamTrackId"), str)
+                            and re.fullmatch(r"[0-9]{6,20}", message["shazamTrackId"])
+                            and isinstance(message.get("url"), str)
+                            and 0 < len(message["url"]) <= 4096):
+                        identity_hint = dict(message)
+                        check_identity_cache()
+                    continue
                 if kind in ("fatal", "eof"):
                     raise RuntimeError(message.get("error") or "Shazam helper exited unexpectedly.")
                 if kind == "result" and message.get("id") == request_id:

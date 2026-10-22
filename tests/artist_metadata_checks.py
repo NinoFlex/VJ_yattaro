@@ -72,7 +72,8 @@ def main():
         ]
         for name, body in cases:
             check(name + ' cannot supply metadata', body, title='')
-        check('header without structured identity cannot supply metadata', hero(), title='')
+        check('header without canonical or structured identity cannot supply metadata', hero(), title='', canonical='')
+        check('canonical-bound header without JSON-LD', hero(), 'Fixture Artist', 'track-primary-header', 'Orange')
         check('exact primary JSON-LD fallback', ld(primary), 'Fixture Artist', 'jsonld', 'Orange')
         check('title-only JSON-LD without identity rejected', ld({k: v for k, v in primary.items() if k != 'url'}))
         check('different track ID rejected', ld(dict(primary, url='https://www.shazam.com/track/99999999/orange')))

@@ -19,6 +19,23 @@ def _field_matches(previous: str, current: str) -> bool:
     )
 
 
+def shares_title_prefix(previous: Track | None, current: Track | None) -> bool:
+    """Whether the normalized titles share at least four leading characters.
+
+    Artist names and Shazam IDs are deliberately not part of this *display*
+    comparison. A matched prefix must never confirm independent recognition
+    votes for two different verified IDs.
+    """
+    if not previous or not current:
+        return False
+    previous_title, current_title = _normalize(previous[0]), _normalize(current[0])
+    return (
+        len(previous_title) >= TITLE_PREFIX_LENGTH
+        and len(current_title) >= TITLE_PREFIX_LENGTH
+        and previous_title[:TITLE_PREFIX_LENGTH] == current_title[:TITLE_PREFIX_LENGTH]
+    )
+
+
 def is_same_track(previous: Track | None, current: Track | None) -> bool:
     """Compare adjacent results, not every occurrence of a track in the history.
 
@@ -34,11 +51,7 @@ def is_same_track(previous: Track | None, current: Track | None) -> bool:
     previous_title, current_title = _normalize(previous[0]), _normalize(current[0])
     if not previous_title or not current_title:
         return False
-    if (
-        len(previous_title) >= TITLE_PREFIX_LENGTH
-        and len(current_title) >= TITLE_PREFIX_LENGTH
-        and previous_title[:TITLE_PREFIX_LENGTH] == current_title[:TITLE_PREFIX_LENGTH]
-    ):
+    if shares_title_prefix(previous, current):
         return True
     if not _field_matches(previous_title, current_title):
         return False

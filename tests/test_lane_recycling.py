@@ -25,6 +25,8 @@ class LaneRecycleTests(unittest.TestCase):
              patch.object(ShazamService, '_get_history_path',
                           return_value=Path(self.tmp.name) / 'history.json'):
             self.svc = ShazamService()
+        self.svc._lane_startup_gate.min_start_interval = 0.0
+        self.svc.LANE_RECYCLE_RETRY_DELAYS_SECONDS = (0.0, 0.0)
         self.svc._active = True
         self.svc._generation = 1
         for ready in self.svc._lane_ready:
@@ -34,11 +36,11 @@ class LaneRecycleTests(unittest.TestCase):
         self.svc.shutdown()
         self.tmp.cleanup()
 
-    def test_first_audio_failure_does_not_recycle(self):
-        self.assertFalse(self.svc._record_lane_health(1, AUDIO_ERROR))
+    def test_first_audio_failure_quarantines_closed_helper(self):
+        self.assertTrue(self.svc._record_lane_health(1, AUDIO_ERROR))
         self.assertEqual(self.svc._lane_audio_request_failure_streak[1], 1)
-        self.assertTrue(self.svc._lane_ready[1].is_set())
-        self.assertFalse(self.svc._lane_recycling[1])
+        self.assertFalse(self.svc._lane_ready[1].is_set())
+        self.assertTrue(self.svc._lane_recycling[1])
 
     def test_second_consecutive_audio_failure_quarantines_only_that_lane(self):
         self.svc._record_lane_health(1, AUDIO_ERROR)
@@ -57,15 +59,15 @@ class LaneRecycleTests(unittest.TestCase):
 
     def test_non_audio_error_breaks_audio_failure_streak(self):
         self.svc._record_lane_health(0, AUDIO_ERROR)
-        self.assertFalse(self.svc._record_lane_health(0, 'navigation failed'))
+        self.assertTrue(self.svc._record_lane_health(0, 'navigation failed'))
         self.assertEqual(self.svc._lane_audio_request_failure_streak[0], 0)
-        self.assertFalse(self.svc._record_lane_health(0, AUDIO_ERROR))
+        self.assertTrue(self.svc._record_lane_health(0, AUDIO_ERROR))
 
     def test_success_or_no_match_breaks_audio_failure_streak(self):
         self.svc._record_lane_health(2, AUDIO_ERROR)
         self.assertFalse(self.svc._record_lane_health(2, ''))
         self.assertEqual(self.svc._lane_audio_request_failure_streak[2], 0)
-        self.assertFalse(self.svc._record_lane_health(2, AUDIO_ERROR))
+        self.assertTrue(self.svc._record_lane_health(2, AUDIO_ERROR))
 
     def test_recycle_replaces_and_prewarms_only_one_recognizer(self):
         created = []
@@ -97,6 +99,9 @@ class LaneRecycleTests(unittest.TestCase):
         self.assertIs(self.svc._web_recognizers[2], created[0])
         self.assertTrue(self.svc._lane_ready[2].is_set())
         self.assertFalse(self.svc._lane_recycling[2])
+        # Starting a helper alone is not proof that recognition is healthy.
+        self.assertEqual(self.svc._lane_audio_request_failure_streak[2], 2)
+        self.svc._record_lane_health(2, '')
         self.assertEqual(self.svc._lane_audio_request_failure_streak[2], 0)
         self.assertEqual(self.svc._lane_recycle_count[2], 1)
         for lane in (0, 1, 3):
@@ -137,6 +142,7 @@ class LaneRecycleTests(unittest.TestCase):
         class FakeRecognizer:
             def __init__(self, instance_id): pass
             def prewarm(self, language, cancelled):
+                cancelled.set()
                 raise RecognitionCancelled()
             def close(self): pass
 
@@ -158,7 +164,7 @@ class LaneRecycleTests(unittest.TestCase):
         self.assertFalse(self.svc._lane_ready[1].is_set())
         self.assertEqual(self.svc._lane_recycle_count[1], 0)
 
-    def test_worker_triggers_recycle_after_two_consecutive_audio_failures(self):
+    def test_worker_triggers_recycle_on_each_closed_helper(self):
         class FailingRecognizer:
             def recognize_live(self, *args, **kwargs):
                 raise RuntimeError(AUDIO_ERROR)
@@ -183,11 +189,11 @@ class LaneRecycleTests(unittest.TestCase):
         worker.join(timeout=2)
 
         self.assertFalse(worker.is_alive())
-        recycle.assert_called_once()
+        self.assertEqual(recycle.call_count, 2)
         self.assertFalse(self.svc._lane_ready[lane].is_set())
         self.assertEqual(self.svc._lane_audio_request_failure_streak[lane], 2)
 
-    def test_worker_does_not_recycle_when_success_breaks_streak(self):
+    def test_success_breaks_streak_but_each_transport_error_recovers(self):
         class AlternatingRecognizer:
             def __init__(self): self.calls = 0
             def recognize_live(self, *args, **kwargs):
@@ -202,7 +208,7 @@ class LaneRecycleTests(unittest.TestCase):
         self.svc._work_queues[lane] = work_queue
         self.svc._web_recognizers[lane] = AlternatingRecognizer()
         self.svc._recognition_finished.handlers = []
-        self.svc._recycle_lane_recognizer = Mock()
+        self.svc._recycle_lane_recognizer = Mock(return_value=self.svc._web_recognizers[lane])
         cancelled = threading.Event()
 
         worker = threading.Thread(target=self.svc._worker_main, args=(lane,), daemon=True)
@@ -213,7 +219,7 @@ class LaneRecycleTests(unittest.TestCase):
         worker.join(timeout=2)
 
         self.assertFalse(worker.is_alive())
-        self.svc._recycle_lane_recognizer.assert_not_called()
+        self.assertEqual(self.svc._recycle_lane_recognizer.call_count, 2)
         self.assertEqual(self.svc._lane_audio_request_failure_streak[lane], 1)
 
 

@@ -158,9 +158,18 @@ class YouTubeSearchThread(QThread):
             if not self._is_aborted:
                 self.search_error.emit(str(e))
 
-    def stop_search(self):
-        """検索を停止"""
+    def abort(self):
+        """Invalidate this lookup immediately; never wait on the GUI thread.
+
+        An already-sent requests.get can finish up to its timeout, but cannot
+        publish results, issue another fallback, or switch the shared API key.
+        """
         self._is_aborted = True
+        self.requestInterruption()
+
+    def stop_search(self):
+        """Cooperative shutdown; only the application cleanup path may wait."""
+        self.abort()
         # terminate() は危険なので使用せず、フラグで停止させてから待機
         if self.isRunning():
             self.quit()
@@ -200,6 +209,8 @@ class YouTubeSearchThread(QThread):
             try:
                 return self._search_youtube(query)
             except YouTubeQuotaExceededError as e:
+                if self._is_aborted:
+                    return []
                 attempted += 1
                 print(
                     f"YouTubeSearchThread: API key #{current_no} reached quota "
@@ -566,6 +577,8 @@ class YouTubeSearchThread(QThread):
         try:
             self._last_http_probe = None
             data = self._request_json(base_url, params, headers, timeout=10)
+            if self._is_aborted:
+                return []
             self._last_filter_probe = {
                 'issue': self._last_http_probe[1]['issue']
                 if self._last_http_probe else 'unknown',
@@ -832,7 +845,7 @@ class YouTubeService(QObject):
         # テンプレート変数を置換
         result = template
         for var, value in variables.items():
-            result = result.replace(var, value)
+            result = result.replace(var, str(value or ""))
 
         # テンプレート展開・検索用正規化後の最終クエリを100文字以内に制限する。
         # Pythonの文字列スライスなので、日本語などのマルチバイト文字も文字単位で扱われる。
@@ -846,6 +859,10 @@ class YouTubeService(QObject):
     def get_search_template(self, source_mode: str = "rekordbox") -> str:
         """入力ソースごとの検索テンプレートを取得する。"""
         mode = str(source_mode or "rekordbox").strip().lower()
+        if mode == "shazam_tieup":
+            return self.config_service.get(
+                "youtube_search_template_shazam_tieup", "%tracktitle% %comment%"
+            )
         if mode == "shazam":
             return self.config_service.get(
                 "youtube_search_template_shazam", "%tracktitle% %artist%"

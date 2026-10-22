@@ -504,6 +504,7 @@ class SearchFallbackWiringTests(unittest.TestCase):
         fake_logger.info, fake_logger.error = Mock(), Mock()
         window = types.SimpleNamespace(
             source_mode=source_mode, youtube_search_thread=None,
+            config_service=service.config_service,
             _set_searching_state=Mock(), _set_youtube_search_error=Mock(),
             _refresh_connection_statuses=Mock(),
             _cancel_autoplay_recovery=Mock(),

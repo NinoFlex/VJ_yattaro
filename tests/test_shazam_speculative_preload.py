@@ -70,20 +70,25 @@ class ServiceVoteTests(unittest.TestCase):
         self.assertEqual(len(self.svc.new_track_detected.calls), 1)
 
     def test_false_b_first_vote_removed_on_c(self):
+        # Genuine alternatives need distinct four-character prefixes.
+        self.b = raw_song('22222222', title='Other B', artist='Artist B')
+        self.c = raw_song('33333333', title='Third C', artist='Artist C')
         self.vote(0, self.a); self.vote(1, self.a)
         self.vote(2, self.b)
-        self.assertEqual(self.svc.candidate_started.calls[-1][1][1], 'Song B')
+        self.assertEqual(self.svc.candidate_started.calls[-1][1][1], 'Other B')
         self.vote(3, self.c)
         self.assertIn((2, 'new-candidate'), self.svc.candidate_rejected.calls)
-        self.assertEqual(self.svc.candidate_started.calls[-1][1][1], 'Song C')
+        self.assertEqual(self.svc.candidate_started.calls[-1][1][1], 'Third C')
         self.assertEqual([x[1] for x in self.svc.get_history()], ['Song A'])
         self.vote(4, self.c)
-        self.assertEqual([x[1] for x in self.svc.get_history()], ['Song C', 'Song A'])
+        self.assertEqual([x[1] for x in self.svc.get_history()], ['Third C', 'Song A'])
 
     def test_wrong_b_replaced_by_original_a_removes_preview_without_new_a(self):
+        # Song A / Song B are now *deliberately* one presentation by prefix.
+        self.b = raw_song('22222222', title='Other B', artist='Artist B')
         self.vote(0, self.a); self.vote(1, self.a)
         self.vote(2, self.b)
-        self.assertEqual(self.svc.candidate_started.calls[-1][1][1], 'Song B')
+        self.assertEqual(self.svc.candidate_started.calls[-1][1][1], 'Other B')
         prior_starts = len(self.svc.candidate_started.calls)
         self.vote(3, self.a)
         self.assertIn((2, 'new-candidate'), self.svc.candidate_rejected.calls)

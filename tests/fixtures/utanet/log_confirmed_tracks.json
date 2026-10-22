@@ -1,0 +1,892 @@
+[
+  {
+    "session": 1,
+    "seq": 1,
+    "title": "ユメヲカケル!",
+    "artist": "スペシャルウィーク (CV. 和氣あず未), サイレンススズカ (CV. 高野麻里佳), トウカイテイオー (CV. Machico), ウオッカ (CV. 大橋彩香), ダイワスカーレット (CV. 木村千咲), ゴールドシップ (CV. 上田 瞳) & メジロマックイーン (CV. 大西沙織)",
+    "log": "vj_yattaro.log(1).2",
+    "line": 127,
+    "time": "2026-10-20 19:30:36.243",
+    "confirmed_at": "2026-10-20 19:30:36.247"
+  },
+  {
+    "session": 1,
+    "seq": 13,
+    "title": "courage",
+    "artist": "戸松遥",
+    "log": "vj_yattaro.log(1).2",
+    "line": 286,
+    "time": "2026-10-20 19:31:11.914",
+    "confirmed_at": "2026-10-20 19:31:11.924"
+  },
+  {
+    "session": 1,
+    "seq": 21,
+    "title": "プリンシプル",
+    "artist": "洲崎綾",
+    "log": "vj_yattaro.log(1).2",
+    "line": 442,
+    "time": "2026-10-20 19:31:44.763",
+    "confirmed_at": "2026-10-20 19:31:44.769"
+  },
+  {
+    "session": 1,
+    "seq": 31,
+    "title": "意解けない",
+    "artist": "ammo",
+    "log": "vj_yattaro.log(1).2",
+    "line": 603,
+    "time": "2026-10-20 19:32:19.106",
+    "confirmed_at": "2026-10-20 19:32:19.109"
+  },
+  {
+    "session": 1,
+    "seq": 38,
+    "title": "日曜日の太陽",
+    "artist": "THE NEUTRAL",
+    "log": "vj_yattaro.log(1).2",
+    "line": 804,
+    "time": "2026-10-20 19:33:09.539",
+    "confirmed_at": "2026-10-20 19:33:09.548"
+  },
+  {
+    "session": 1,
+    "seq": 41,
+    "title": "もどかしい世界の上で",
+    "artist": "牧野由依",
+    "log": "vj_yattaro.log(1).2",
+    "line": 867,
+    "time": "2026-10-20 19:33:14.647",
+    "confirmed_at": "2026-10-20 19:33:14.656"
+  },
+  {
+    "session": 1,
+    "seq": 53,
+    "title": "Dive in the Sky",
+    "artist": "酒井ミキオ",
+    "log": "vj_yattaro.log(1).2",
+    "line": 1048,
+    "time": "2026-10-20 19:33:49.121",
+    "confirmed_at": "2026-10-20 19:33:49.161"
+  },
+  {
+    "session": 1,
+    "seq": 65,
+    "title": "Shine",
+    "artist": "Mr. Big",
+    "log": "vj_yattaro.log(1).2",
+    "line": 1275,
+    "time": "2026-10-20 19:34:28.981",
+    "confirmed_at": "2026-10-20 19:34:31.913"
+  },
+  {
+    "session": 1,
+    "seq": 77,
+    "title": "ラプス",
+    "artist": "Homecomings",
+    "log": "vj_yattaro.log(1).2",
+    "line": 1485,
+    "time": "2026-10-20 19:35:03.878",
+    "confirmed_at": "2026-10-20 19:35:03.886"
+  },
+  {
+    "session": 1,
+    "seq": 85,
+    "title": "リテラチュア",
+    "artist": "上田麗奈",
+    "log": "vj_yattaro.log(1).2",
+    "line": 1628,
+    "time": "2026-10-20 19:35:27.208",
+    "confirmed_at": "2026-10-20 19:35:27.221"
+  },
+  {
+    "session": 1,
+    "seq": 97,
+    "title": "わたしの名はブルー",
+    "artist": "Have a Nice Day!",
+    "log": "vj_yattaro.log(1).2",
+    "line": 1848,
+    "time": "2026-10-20 19:36:08.192",
+    "confirmed_at": "2026-10-20 19:36:08.199"
+  },
+  {
+    "session": 1,
+    "seq": 108,
+    "title": "Pure Blue(チャンストライアングルセッション/SILVER)",
+    "artist": "飯島雅弓",
+    "log": "vj_yattaro.log(1).2",
+    "line": 2009,
+    "time": "2026-10-20 19:36:43.865",
+    "confirmed_at": "2026-10-20 19:37:00.065"
+  },
+  {
+    "session": 1,
+    "seq": 116,
+    "title": "Shadow and Truth",
+    "artist": "ONE III NOTES",
+    "log": "vj_yattaro.log(1).2",
+    "line": 2171,
+    "time": "2026-10-20 19:37:15.009",
+    "confirmed_at": "2026-10-20 19:37:15.020"
+  },
+  {
+    "session": 1,
+    "seq": 129,
+    "title": "贄-nie-",
+    "artist": "吉乃",
+    "log": "vj_yattaro.log(1).2",
+    "line": 2384,
+    "time": "2026-10-20 19:37:49.306",
+    "confirmed_at": "2026-10-20 19:37:49.315"
+  },
+  {
+    "session": 1,
+    "seq": 135,
+    "title": "アイデンティティ",
+    "artist": "酒井ミキオ",
+    "log": "vj_yattaro.log(1).2",
+    "line": 2498,
+    "time": "2026-10-20 19:38:05.249",
+    "confirmed_at": "2026-10-20 19:38:07.497"
+  },
+  {
+    "session": 1,
+    "seq": 146,
+    "title": "ハイライト・ハイライト",
+    "artist": "the peggies",
+    "log": "vj_yattaro.log(1).2",
+    "line": 2705,
+    "time": "2026-10-20 19:38:41.721",
+    "confirmed_at": "2026-10-20 19:38:41.728"
+  },
+  {
+    "session": 1,
+    "seq": 160,
+    "title": "わたしをみて",
+    "artist": "長谷川白紙",
+    "log": "vj_yattaro.log(1).2",
+    "line": 2928,
+    "time": "2026-10-20 19:39:31.960",
+    "confirmed_at": "2026-10-20 19:39:33.516"
+  },
+  {
+    "session": 1,
+    "seq": 165,
+    "title": "燈",
+    "artist": "崎山蒼志",
+    "log": "vj_yattaro.log(1).2",
+    "line": 3024,
+    "time": "2026-10-20 19:39:44.763",
+    "confirmed_at": "2026-10-20 19:39:46.254"
+  },
+  {
+    "session": 1,
+    "seq": 181,
+    "title": "たった1つの想い",
+    "artist": "KOKIA",
+    "log": "vj_yattaro.log(1).2",
+    "line": 3269,
+    "time": "2026-10-20 19:40:23.762",
+    "confirmed_at": "2026-10-20 19:40:26.773"
+  },
+  {
+    "session": 1,
+    "seq": 192,
+    "title": "LIKE YOU o(>< = ><)o LOVE YOU?",
+    "artist": "紫雲寺家の子供たち",
+    "log": "vj_yattaro.log(1).2",
+    "line": 3470,
+    "time": "2026-10-20 19:41:01.541",
+    "confirmed_at": "2026-10-20 19:41:01.561"
+  },
+  {
+    "session": 1,
+    "seq": 207,
+    "title": "Dolphin☆jet",
+    "artist": "彩音",
+    "log": "vj_yattaro.log(1).2",
+    "line": 3705,
+    "time": "2026-10-20 19:41:47.199",
+    "confirmed_at": "2026-10-20 19:41:50.347"
+  },
+  {
+    "session": 1,
+    "seq": 220,
+    "title": "綺麗。",
+    "artist": "ゆう。",
+    "log": "vj_yattaro.log(1).2",
+    "line": 3919,
+    "time": "2026-10-20 19:42:25.430",
+    "confirmed_at": "2026-10-20 19:42:30.814"
+  },
+  {
+    "session": 1,
+    "seq": 230,
+    "title": "群青",
+    "artist": "神山羊",
+    "log": "vj_yattaro.log(1).2",
+    "line": 4099,
+    "time": "2026-10-20 19:42:59.218",
+    "confirmed_at": "2026-10-20 19:43:01.344"
+  },
+  {
+    "session": 1,
+    "seq": 239,
+    "title": "君に恋を結んで",
+    "artist": "甘神三姉妹",
+    "log": "vj_yattaro.log(1).2",
+    "line": 4276,
+    "time": "2026-10-20 19:43:26.589",
+    "confirmed_at": "2026-10-20 19:43:26.600"
+  },
+  {
+    "session": 1,
+    "seq": 251,
+    "title": "Glow at the Velocity of Light",
+    "artist": "安月名莉子",
+    "log": "vj_yattaro.log(1).2",
+    "line": 4468,
+    "time": "2026-10-20 19:43:59.175",
+    "confirmed_at": "2026-10-20 19:44:02.004"
+  },
+  {
+    "session": 1,
+    "seq": 261,
+    "title": "Stay",
+    "artist": "天王寺璃奈 (CV.田中ちえ美)",
+    "log": "vj_yattaro.log(1).2",
+    "line": 4640,
+    "time": "2026-10-20 19:44:32.760",
+    "confirmed_at": "2026-10-20 19:44:35.441"
+  },
+  {
+    "session": 1,
+    "seq": 273,
+    "title": "17才",
+    "artist": "ハルカトミユキ",
+    "log": "vj_yattaro.log(1).2",
+    "line": 4841,
+    "time": "2026-10-20 19:45:08.174",
+    "confirmed_at": "2026-10-20 19:45:13.060"
+  },
+  {
+    "session": 1,
+    "seq": 283,
+    "title": "キラキラの灰",
+    "artist": "リーガルリリー",
+    "log": "vj_yattaro.log(1).2",
+    "line": 5037,
+    "time": "2026-10-20 19:45:41.027",
+    "confirmed_at": "2026-10-20 19:45:41.034"
+  },
+  {
+    "session": 1,
+    "seq": 293,
+    "title": "Love? Reason why!!",
+    "artist": "鈴木このみ",
+    "log": "vj_yattaro.log(1).2",
+    "line": 5212,
+    "time": "2026-10-20 19:46:07.612",
+    "confirmed_at": "2026-10-20 19:46:16.662"
+  },
+  {
+    "session": 1,
+    "seq": 303,
+    "title": "SELF PRODUCER",
+    "artist": "茅原実里",
+    "log": "vj_yattaro.log(1).2",
+    "line": 5375,
+    "time": "2026-10-20 19:46:38.393",
+    "confirmed_at": "2026-10-20 19:46:41.046"
+  },
+  {
+    "session": 1,
+    "seq": 311,
+    "title": "Toki Wo Kizamu Uta",
+    "artist": "Lia & VISUAL ARTS / Key",
+    "log": "vj_yattaro.log(1).2",
+    "line": 5528,
+    "time": "2026-10-20 19:47:05.588",
+    "confirmed_at": "2026-10-20 19:47:05.600"
+  },
+  {
+    "session": 1,
+    "seq": 321,
+    "title": "Sociometry",
+    "artist": "KOTOKO",
+    "log": "vj_yattaro.log(1).2",
+    "line": 5693,
+    "time": "2026-10-20 19:47:33.578",
+    "confirmed_at": "2026-10-20 19:47:39.802"
+  },
+  {
+    "session": 1,
+    "seq": 330,
+    "title": "stone cold",
+    "artist": "FictionJunction",
+    "log": "vj_yattaro.log(1).2",
+    "line": 5867,
+    "time": "2026-10-20 19:48:06.583",
+    "confirmed_at": "2026-10-20 19:48:06.598"
+  },
+  {
+    "session": 1,
+    "seq": 339,
+    "title": "ステラブリーズ (Instrumental)",
+    "artist": "春奈るな",
+    "log": "vj_yattaro.log(1).2",
+    "line": 6019,
+    "time": "2026-10-20 19:48:31.987",
+    "confirmed_at": "2026-10-20 19:48:34.814"
+  },
+  {
+    "session": 1,
+    "seq": 351,
+    "title": "Choose me♡ダーリン",
+    "artist": "StylipS",
+    "log": "vj_yattaro.log(1).2",
+    "line": 6233,
+    "time": "2026-10-20 19:49:06.523",
+    "confirmed_at": "2026-10-20 19:49:08.639"
+  },
+  {
+    "session": 1,
+    "seq": 361,
+    "title": "テレスコープ",
+    "artist": "Sleepin’ JohnnyFish",
+    "log": "vj_yattaro.log(1).2",
+    "line": 6434,
+    "time": "2026-10-20 19:49:45.951",
+    "confirmed_at": "2026-10-20 19:49:48.183"
+  },
+  {
+    "session": 1,
+    "seq": 368,
+    "title": "Affection",
+    "artist": "Another Infinity",
+    "log": "vj_yattaro.log(1).2",
+    "line": 6537,
+    "time": "2026-10-20 19:49:59.346",
+    "confirmed_at": "2026-10-20 19:49:59.356"
+  },
+  {
+    "session": 1,
+    "seq": 374,
+    "title": "すーぱーびっぐらぶ!",
+    "artist": "天狼群",
+    "log": "vj_yattaro.log(1).2",
+    "line": 6658,
+    "time": "2026-10-20 19:50:34.526",
+    "confirmed_at": "2026-10-20 19:50:34.541"
+  },
+  {
+    "session": 1,
+    "seq": 381,
+    "title": "Shape My Story",
+    "artist": "やのあんな",
+    "log": "vj_yattaro.log(1).2",
+    "line": 6789,
+    "time": "2026-10-20 19:50:53.993",
+    "confirmed_at": "2026-10-20 19:50:54.021"
+  },
+  {
+    "session": 1,
+    "seq": 389,
+    "title": "らしさ",
+    "artist": "Official髭男dism",
+    "log": "vj_yattaro.log(1).2",
+    "line": 6915,
+    "time": "2026-10-20 19:51:20.297",
+    "confirmed_at": "2026-10-20 19:51:20.313"
+  },
+  {
+    "session": 1,
+    "seq": 400,
+    "title": "I swear",
+    "artist": "sweet ARMS",
+    "log": "vj_yattaro.log(1).2",
+    "line": 7135,
+    "time": "2026-10-20 19:51:56.340",
+    "confirmed_at": "2026-10-20 19:51:56.349"
+  },
+  {
+    "session": 1,
+    "seq": 411,
+    "title": "薔薇色の世界 (Bonus Track)",
+    "artist": "PIERROT",
+    "log": "vj_yattaro.log(2).1",
+    "line": 28,
+    "time": "2026-10-20 19:52:31.445",
+    "confirmed_at": "2026-10-20 19:52:31.454"
+  },
+  {
+    "session": 1,
+    "seq": 419,
+    "title": "ココ",
+    "artist": "たむらぱん",
+    "log": "vj_yattaro.log(2).1",
+    "line": 200,
+    "time": "2026-10-20 19:52:59.035",
+    "confirmed_at": "2026-10-20 19:52:59.051"
+  },
+  {
+    "session": 1,
+    "seq": 431,
+    "title": "乙女どもよ。",
+    "artist": "CHiCO with HoneyWorks",
+    "log": "vj_yattaro.log(2).1",
+    "line": 402,
+    "time": "2026-10-20 19:53:32.552",
+    "confirmed_at": "2026-10-20 19:53:34.691"
+  },
+  {
+    "session": 1,
+    "seq": 439,
+    "title": "最高速 Fall in Love",
+    "artist": "ミーア、パピ、セントレア、スー、メロ、ラクネラ, ハピ, セントレア, スー(CV:野村真悠華), メロ & ラクネラ",
+    "log": "vj_yattaro.log(2).1",
+    "line": 547,
+    "time": "2026-10-20 19:53:52.913",
+    "confirmed_at": "2026-10-20 19:53:55.350"
+  },
+  {
+    "session": 1,
+    "seq": 450,
+    "title": "You Gotta Love Me!",
+    "artist": "かと*ふく",
+    "log": "vj_yattaro.log(2).1",
+    "line": 739,
+    "time": "2026-10-20 19:54:29.061",
+    "confirmed_at": "2026-10-20 19:54:29.071"
+  },
+  {
+    "session": 1,
+    "seq": 465,
+    "title": "暁ノ空ヲ翔ル",
+    "artist": "佐藤裕美",
+    "log": "vj_yattaro.log(2).1",
+    "line": 979,
+    "time": "2026-10-20 19:55:23.626",
+    "confirmed_at": "2026-10-20 19:55:25.131"
+  },
+  {
+    "session": 1,
+    "seq": 473,
+    "title": "明日の君さえいればいい。",
+    "artist": "ChouCho",
+    "log": "vj_yattaro.log(2).1",
+    "line": 1131,
+    "time": "2026-10-20 19:55:46.147",
+    "confirmed_at": "2026-10-20 19:55:46.160"
+  },
+  {
+    "session": 1,
+    "seq": 490,
+    "title": "FLAT (adding Yuuki Ozaki (from Galileo Galilei))",
+    "artist": "livetune, Yuuki Ozaki & Galileo Galilei",
+    "log": "vj_yattaro.log(2).1",
+    "line": 1371,
+    "time": "2026-10-20 19:56:28.395",
+    "confirmed_at": "2026-10-20 19:56:30.896"
+  },
+  {
+    "session": 1,
+    "seq": 500,
+    "title": "Tiny Tiny",
+    "artist": "村川梨衣",
+    "log": "vj_yattaro.log(2).1",
+    "line": 1563,
+    "time": "2026-10-20 19:57:08.634",
+    "confirmed_at": "2026-10-20 19:57:08.642"
+  },
+  {
+    "session": 1,
+    "seq": 514,
+    "title": "Perfect-area complete!",
+    "artist": "麻生夏子",
+    "log": "vj_yattaro.log(2).1",
+    "line": 1790,
+    "time": "2026-10-20 19:57:45.482",
+    "confirmed_at": "2026-10-20 19:57:45.497"
+  },
+  {
+    "session": 1,
+    "seq": 526,
+    "title": "Tears Infection",
+    "artist": "KAORI",
+    "log": "vj_yattaro.log(2).1",
+    "line": 1984,
+    "time": "2026-10-20 19:58:21.859",
+    "confirmed_at": "2026-10-20 19:58:21.910"
+  },
+  {
+    "session": 1,
+    "seq": 537,
+    "title": "AMBITIOUS GOAL",
+    "artist": "小林愛香",
+    "log": "vj_yattaro.log(2).1",
+    "line": 2170,
+    "time": "2026-10-20 19:59:01.871",
+    "confirmed_at": "2026-10-20 19:59:04.884"
+  },
+  {
+    "session": 1,
+    "seq": 545,
+    "title": "サウンドスケープ",
+    "artist": "TRUE",
+    "log": "vj_yattaro.log(2).1",
+    "line": 2296,
+    "time": "2026-10-20 19:59:21.653",
+    "confirmed_at": "2026-10-20 19:59:21.662"
+  },
+  {
+    "session": 1,
+    "seq": 559,
+    "title": "Reason!!",
+    "artist": "315 ALLSTARS",
+    "log": "vj_yattaro.log(2).1",
+    "line": 2520,
+    "time": "2026-10-20 20:00:03.032",
+    "confirmed_at": "2026-10-20 20:00:05.418"
+  },
+  {
+    "session": 1,
+    "seq": 567,
+    "title": "六等星",
+    "artist": "ざらめ",
+    "log": "vj_yattaro.log(2).1",
+    "line": 2680,
+    "time": "2026-10-20 20:00:31.989",
+    "confirmed_at": "2026-10-20 20:00:32.007"
+  },
+  {
+    "session": 1,
+    "seq": 583,
+    "title": "ねぇ",
+    "artist": "藤田麻衣子",
+    "log": "vj_yattaro.log(2).1",
+    "line": 2927,
+    "time": "2026-10-20 20:01:18.838",
+    "confirmed_at": "2026-10-20 20:01:18.999"
+  },
+  {
+    "session": 1,
+    "seq": 592,
+    "title": "いつかの、いくつかのきみとのせかい",
+    "artist": "fhána",
+    "log": "vj_yattaro.log(2).1",
+    "line": 3096,
+    "time": "2026-10-20 20:01:50.974",
+    "confirmed_at": "2026-10-20 20:01:50.982"
+  },
+  {
+    "session": 1,
+    "seq": 605,
+    "title": "ドラマチック",
+    "artist": "佐藤ミキ",
+    "log": "vj_yattaro.log(2).1",
+    "line": 3300,
+    "time": "2026-10-20 20:02:24.303",
+    "confirmed_at": "2026-10-20 20:02:35.469"
+  },
+  {
+    "session": 1,
+    "seq": 618,
+    "title": "ココロの跡",
+    "artist": "小坂 りゆ",
+    "log": "vj_yattaro.log(2).1",
+    "line": 3481,
+    "time": "2026-10-20 20:03:10.369",
+    "confirmed_at": "2026-10-20 20:03:26.721"
+  },
+  {
+    "session": 1,
+    "seq": 622,
+    "title": "ネモフィラ",
+    "artist": "コアラモード.",
+    "log": "vj_yattaro.log(2).1",
+    "line": 3622,
+    "time": "2026-10-20 20:03:34.986",
+    "confirmed_at": "2026-10-20 20:03:34.991"
+  },
+  {
+    "session": 1,
+    "seq": 635,
+    "title": "わがまま-Instrumental-",
+    "artist": "瀧川 ありさ",
+    "log": "vj_yattaro.log(2).1",
+    "line": 3832,
+    "time": "2026-10-20 20:04:08.358",
+    "confirmed_at": "2026-10-20 20:04:12.947"
+  },
+  {
+    "session": 1,
+    "seq": 645,
+    "title": "VOODOO KINGDOM",
+    "artist": "SOUL'd OUT",
+    "log": "vj_yattaro.log(2).1",
+    "line": 4011,
+    "time": "2026-10-20 20:04:40.161",
+    "confirmed_at": "2026-10-20 20:04:40.574"
+  },
+  {
+    "session": 1,
+    "seq": 652,
+    "title": "Jolly Jolly",
+    "artist": "JiLL-Decoy association",
+    "log": "vj_yattaro.log(2).1",
+    "line": 4142,
+    "time": "2026-10-20 20:05:08.549",
+    "confirmed_at": "2026-10-20 20:05:11.563"
+  },
+  {
+    "session": 1,
+    "seq": 661,
+    "title": "ミスター・ムーンライト",
+    "artist": "imase",
+    "log": "vj_yattaro.log(2).1",
+    "line": 4317,
+    "time": "2026-10-20 20:05:37.371",
+    "confirmed_at": "2026-10-20 20:05:37.377"
+  },
+  {
+    "session": 1,
+    "seq": 674,
+    "title": "禁じられた遊び",
+    "artist": "ALI PROJECT",
+    "log": "vj_yattaro.log(2).1",
+    "line": 4496,
+    "time": "2026-10-20 20:06:09.009",
+    "confirmed_at": "2026-10-20 20:06:12.229"
+  },
+  {
+    "session": 1,
+    "seq": 685,
+    "title": "懐かしい宇宙",
+    "artist": "新居昭乃",
+    "log": "vj_yattaro.log(2).1",
+    "line": 4696,
+    "time": "2026-10-20 20:06:50.840",
+    "confirmed_at": "2026-10-20 20:06:52.613"
+  },
+  {
+    "session": 1,
+    "seq": 694,
+    "title": "Feel",
+    "artist": "羊文学",
+    "log": "vj_yattaro.log(2).1",
+    "line": 4838,
+    "time": "2026-10-20 20:07:14.994",
+    "confirmed_at": "2026-10-20 20:07:18.030"
+  },
+  {
+    "session": 1,
+    "seq": 711,
+    "title": "Farewell song",
+    "artist": "Lia & VISUAL ARTS / Key",
+    "log": "vj_yattaro.log(2).1",
+    "line": 5108,
+    "time": "2026-10-20 20:08:02.905",
+    "confirmed_at": "2026-10-20 20:08:02.986"
+  },
+  {
+    "session": 1,
+    "seq": 720,
+    "title": "約束の場所へ",
+    "artist": "米倉千尋",
+    "log": "vj_yattaro.log(2).1",
+    "line": 5282,
+    "time": "2026-10-20 20:08:32.064",
+    "confirmed_at": "2026-10-20 20:08:32.071"
+  },
+  {
+    "session": 1,
+    "seq": 736,
+    "title": "and then,",
+    "artist": "橋本みゆき",
+    "log": "vj_yattaro.log(2).1",
+    "line": 5552,
+    "time": "2026-10-20 20:09:34.492",
+    "confirmed_at": "2026-10-20 20:09:34.899"
+  },
+  {
+    "session": 1,
+    "seq": 747,
+    "title": "Precious You☆",
+    "artist": "システィーナ=フィーベル(CV:藤田 茜)、ルミア=ティンジェル(CV:宮本侑芽)、リィエル=レイフォード(CV:小澤亜李)",
+    "log": "vj_yattaro.log(2).1",
+    "line": 5713,
+    "time": "2026-10-20 20:10:04.048",
+    "confirmed_at": "2026-10-20 20:10:05.585"
+  },
+  {
+    "session": 1,
+    "seq": 764,
+    "title": "虹のかけら",
+    "artist": "昆夏美",
+    "log": "vj_yattaro.log(2).1",
+    "line": 5974,
+    "time": "2026-10-20 20:10:47.220",
+    "confirmed_at": "2026-10-20 20:10:50.072"
+  },
+  {
+    "session": 1,
+    "seq": 774,
+    "title": "RIGHT LIGHT RISE",
+    "artist": "分島花音",
+    "log": "vj_yattaro.log(2).1",
+    "line": 6160,
+    "time": "2026-10-20 20:11:23.919",
+    "confirmed_at": "2026-10-20 20:11:23.927"
+  },
+  {
+    "session": 1,
+    "seq": 786,
+    "title": "#夢は短し恋せよ乙女",
+    "artist": "夏川愛華(CV:涼本あきほ)",
+    "log": "vj_yattaro.log(2).1",
+    "line": 6356,
+    "time": "2026-10-20 20:11:57.968",
+    "confirmed_at": "2026-10-20 20:11:58.128"
+  },
+  {
+    "session": 1,
+    "seq": 798,
+    "title": "いつか世界が変わるまで",
+    "artist": "飯田里穂",
+    "log": "vj_yattaro.log(2).1",
+    "line": 6558,
+    "time": "2026-10-20 20:12:40.551",
+    "confirmed_at": "2026-10-20 20:12:43.949"
+  },
+  {
+    "session": 1,
+    "seq": 811,
+    "title": "水彩キャンディー",
+    "artist": "marble",
+    "log": "vj_yattaro.log(2).1",
+    "line": 6762,
+    "time": "2026-10-20 20:13:21.212",
+    "confirmed_at": "2026-10-20 20:13:27.615"
+  },
+  {
+    "session": 1,
+    "seq": 820,
+    "title": "潮風のハーモニー",
+    "artist": "白浜坂高校合唱部",
+    "log": "vj_yattaro.log(2).1",
+    "line": 6906,
+    "time": "2026-10-20 20:13:48.208",
+    "confirmed_at": "2026-10-20 20:13:48.539"
+  },
+  {
+    "session": 1,
+    "seq": 831,
+    "title": "太陽の楽園~Promised Land~",
+    "artist": "神戸みゆき",
+    "log": "vj_yattaro(9).log",
+    "line": 37,
+    "time": "2026-10-20 20:14:18.735",
+    "confirmed_at": "2026-10-20 20:14:18.747"
+  },
+  {
+    "session": 1,
+    "seq": 841,
+    "title": "ウィニング・ラン! -風になりたい-(テレビ東京系アニメ「爆走兄弟レッツ&ゴー!!」オープニングテーマ)",
+    "artist": "山形ユキオ",
+    "log": "vj_yattaro(9).log",
+    "line": 211,
+    "time": "2026-10-20 20:14:44.420",
+    "confirmed_at": "2026-10-20 20:14:46.559"
+  },
+  {
+    "session": 1,
+    "seq": 851,
+    "title": "エブリデイワールド",
+    "artist": "雪ノ下雪乃(CV.早見沙織) & 由比ヶ浜結衣(CV.東山奈央)",
+    "log": "vj_yattaro(9).log",
+    "line": 381,
+    "time": "2026-10-20 20:15:16.678",
+    "confirmed_at": "2026-10-20 20:15:16.688"
+  },
+  {
+    "session": 1,
+    "seq": 861,
+    "title": "サタデー・ナイト・クエスチョン",
+    "artist": "中島愛",
+    "log": "vj_yattaro(9).log",
+    "line": 558,
+    "time": "2026-10-20 20:15:46.502",
+    "confirmed_at": "2026-10-20 20:15:47.645"
+  },
+  {
+    "session": 1,
+    "seq": 870,
+    "title": "明日へのキズナ",
+    "artist": "HIMEKA",
+    "log": "vj_yattaro(9).log",
+    "line": 732,
+    "time": "2026-10-20 20:16:23.314",
+    "confirmed_at": "2026-10-20 20:16:25.228"
+  },
+  {
+    "session": 1,
+    "seq": 875,
+    "title": "Can now, Can now",
+    "artist": "Study",
+    "log": "vj_yattaro(9).log",
+    "line": 838,
+    "time": "2026-10-20 20:16:37.152",
+    "confirmed_at": "2026-10-20 20:16:39.801"
+  },
+  {
+    "session": 1,
+    "seq": 887,
+    "title": "夢路らびりんす",
+    "artist": "らびりんず 千矢(CV.原田彩楓)&紺(CV.本渡 楓)&小梅(CV.久保ユリカ)&ノノ(CV.佳村はるか)",
+    "log": "vj_yattaro(9).log",
+    "line": 1025,
+    "time": "2026-10-20 20:17:04.721",
+    "confirmed_at": "2026-10-20 20:17:06.236"
+  },
+  {
+    "session": 1,
+    "seq": 895,
+    "title": "LEO",
+    "artist": "tacica",
+    "log": "vj_yattaro(9).log",
+    "line": 1176,
+    "time": "2026-10-20 20:17:31.177",
+    "confirmed_at": "2026-10-20 20:17:31.185"
+  },
+  {
+    "session": 1,
+    "seq": 905,
+    "title": "Treasure Chest",
+    "artist": "田中有紀",
+    "log": "vj_yattaro(9).log",
+    "line": 1339,
+    "time": "2026-10-20 20:17:58.839",
+    "confirmed_at": "2026-10-20 20:18:01.723"
+  },
+  {
+    "session": 1,
+    "seq": 921,
+    "title": "センチメンタルクライシス instrumental",
+    "artist": "halca",
+    "log": "vj_yattaro(9).log",
+    "line": 1594,
+    "time": "2026-10-20 20:18:49.194",
+    "confirmed_at": "2026-10-20 20:18:51.256"
+  },
+  {
+    "session": 1,
+    "seq": 931,
+    "title": "花の塔",
+    "artist": "さユり",
+    "log": "vj_yattaro(9).log",
+    "line": 1780,
+    "time": "2026-10-20 20:19:19.720",
+    "confirmed_at": "2026-10-20 20:19:21.646"
+  }
+]

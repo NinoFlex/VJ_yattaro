@@ -67,7 +67,8 @@ class ShazamPrimaryPageArtistTests(unittest.TestCase):
             self.assertEqual(resolver.resolve(result, 'ja-JP', 'JP'), ('Ray Of Bullet', ARTIST))
             self.assertEqual(len(requested), before, 'identical candidate should use result cache')
         self.assertIn(FALLBACK, requested)
-        self.assertNotIn(ROUTE, requested, 'do not visit known redirect-prone slug after exact page succeeds')
+        self.assertEqual(requested.count(ROUTE), 1)
+        self.assertLess(requested.index(ROUTE), requested.index(FALLBACK))
 
     def test_original_url_is_tried_if_id_bound_page_fails(self):
         source = FIXTURE.read_text(encoding='utf-8')
@@ -88,7 +89,7 @@ class ShazamPrimaryPageArtistTests(unittest.TestCase):
                 {'url': ROUTE, 'shazamTrackId': '228936711', 'source': 'shazam-route'},
                 'ja-JP', 'JP'), ('Ray Of Bullet', ARTIST))
         self.assertIn(ROUTE, requested)
-        self.assertLess(requested.index(FALLBACK), requested.index(ROUTE))
+        self.assertNotIn(FALLBACK, requested, 'valid original avoids extra recovery URL')
 
     def test_unrelated_id_never_supplies_artist_even_with_same_title(self):
         bad = FIXTURE.read_text(encoding='utf-8').replace('228936711', '99999999')

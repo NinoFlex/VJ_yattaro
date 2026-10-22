@@ -29,6 +29,19 @@ class TrackCandidate(MutableMapping[str, Any]):
     deferred_index: int | None = None
     search: SearchRequest | None = None
     attempt: PlaybackAttempt | None = None
+    # Recognition confirmation and tie-up selection are independent gates.
+    # pending: initial search may PRELOAD, but must not PLAY.
+    # found: only the enriched search may PLAY. empty/off: use initial results.
+    tieup_state: str = "off"
+    tieup_status: str = ""
+    tieup_generation: int | None = None
+    cue_from_tieup: bool = False
+    deferred_from_tieup: bool = False
+
+    @property
+    def tieup_allows_play(self) -> bool:
+        return (self.tieup_state in ("off", "empty") or
+                self.tieup_state == "found" and self.cue_from_tieup)
 
     @classmethod
     def from_vote(cls, candidate_id: int, entry: tuple[str, str, str]) -> "TrackCandidate":

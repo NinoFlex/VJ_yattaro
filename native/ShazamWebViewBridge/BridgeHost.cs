@@ -31,7 +31,25 @@ internal sealed class BridgeHost : Form
     // Legacy /track pages often need additional time to paint their exact
     // title/artist header. /song (Apple-backed) fast recognition is unchanged.
     // Only an ID-only result waits; complete metadata still returns immediately.
+    // A cycle-scoped complete-cache ACK can end the extra grace early; otherwise
+    // the full three-second DOM collection opportunity remains unchanged.
     private static readonly TimeSpan VerifiedLegacyTrackIdentityGrace = TimeSpan.FromMilliseconds(3000);
+
+    private static readonly TimeSpan HomeNavigationSettle = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan HomeButtonSampleInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan AudioRetryDelay = TimeSpan.FromMilliseconds(2500);
+    private static readonly TimeSpan AudioRequestDeadline = TimeSpan.FromSeconds(10);
+
+    // UI-thread-only page generation. SourceChanged also covers SPA transitions;
+    // a route which leaves home and returns cannot reuse an old retry decision.
+    private long _pageEpoch;
+    private ulong? _navigationId;
+    private bool _navigationInProgress;
+    private long _homeCompletedAt;
+    private long _stableHomeEpoch = -1;
+    private bool _audioRequested;
+    private int _audioRetryAttempts;
+    private long _firstClickAt;
 
     private readonly string _language;
     private readonly bool _debug;
@@ -60,6 +78,7 @@ internal sealed class BridgeHost : Form
     private CancellationTokenSource? _currentRecognitionCancellation;
     private string _currentRecognitionId = "";
     private string _currentCancelReason = "";
+    private string _metadataReadyRoute = "";
     private string Home => "https://www.shazam.com/" + _language.ToLowerInvariant();
 
     public BridgeHost(string language, bool debug, string instanceId)
@@ -132,21 +151,41 @@ internal sealed class BridgeHost : Form
             core.WebMessageReceived += OnWebMessage;
             core.WebResourceResponseReceived += OnWebResourceResponseReceived;
             core.NavigationStarting += OnNavigationStarting;
-            core.SourceChanged += (_, _) => CaptureRoute(core.Source);
+            core.SourceChanged += (_, _) =>
+            {
+                _pageEpoch++;
+                _stableHomeEpoch = -1;
+                _homeCompletedAt = !_navigationInProgress && IsHomeUrl(core.Source)
+                    ? Stopwatch.GetTimestamp() : 0;
+                CaptureRoute(core.Source);
+            };
             core.NavigationCompleted += (_, args) =>
+            {
+                if (_navigationId == args.NavigationId)
+                {
+                    _navigationInProgress = false;
+                    _stableHomeEpoch = -1;
+                    _homeCompletedAt = args.IsSuccess && args.HttpStatusCode < 400 && IsHomeUrl(core.Source)
+                        ? Stopwatch.GetTimestamp() : 0;
+                }
                 Program.Log($"Navigation success={args.IsSuccess} status={args.HttpStatusCode} uri={core.Source}");
+            };
             core.ProcessFailed += (_, args) =>
             {
                 Program.Send(new { type = "fatal", error = "WebView2 process failed: " + args.ProcessFailedKind });
                 Close();
             };
+            // Register the retry capture guard before the site and audio click
+            // observer. It does nothing until a single retry is explicitly armed.
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(Script("audio_retry.js")
+                .Replace("__VJ_FIND_BUTTON__", Script("find_button.js"), StringComparison.Ordinal));
             await core.AddScriptToExecuteOnDocumentCreatedAsync(Script("audio_bridge.js"));
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
                 Script("metadata_fields.js") + "\n" + Script("result_observer.js"));
             await PrepareHomeAsync(_lifetime.Token);
             _ready = true;
-            Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-live-pcm; extraction=primary-structure-v1; latency=idle-home-prefetch-v1");
-            Program.Send(new { type = "ready", protocol = 2, version = "1.5.0-idle-home-prefetch" });
+            Program.Log($"Ready; WebView2={environment.BrowserVersionString}; locale={_language}; instance={_instanceId}; input=app-live-pcm; extraction=primary-structure-v3-plain-artist; latency=identity-overlap-v1; audioStart=guarded-retry-v1");
+            Program.Send(new { type = "ready", protocol = 2, version = "1.7.0-guarded-audio-start" });
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -212,6 +251,20 @@ internal sealed class BridgeHost : Form
                 }
                 return;
             }
+            if (type == "metadata-ready")
+            {
+                // This ACK contains NO title/artist. It can only end the extra
+                // legacy rendering grace for the same active, committed ID.
+                var url = ReadString(root, "url");
+                var trackId = ReadString(root, "shazamTrackId");
+                if (_busy && _cycle == id && _currentRecognitionId == id &&
+                    TryParseShazamRoute(url, out var hintId) && hintId == trackId &&
+                    _webView.CoreWebView2 is not null &&
+                    TryParseShazamRoute(_webView.CoreWebView2.Source, out var currentId) &&
+                    currentId == hintId && SameShazamRouteKind(_webView.CoreWebView2.Source, url))
+                    _metadataReadyRoute = url;
+                return;
+            }
             if (type == "audio")
             {
                 if (!Regex.IsMatch(id, @"\A[a-f0-9]{32}\z"))
@@ -243,6 +296,7 @@ internal sealed class BridgeHost : Form
             _currentRecognitionId = id;
             _currentRecognitionCancellation = deadline;
             _currentCancelReason = "";
+            _metadataReadyRoute = "";
             result = await RecognizeAsync(id, sampleRate, deadline.Token);
             shouldSend = true;
         }
@@ -265,6 +319,7 @@ internal sealed class BridgeHost : Form
             if (ownsCycle)
             {
                 _cycle = null;
+                _metadataReadyRoute = "";
                 if (string.Equals(_currentRecognitionId, id, StringComparison.Ordinal))
                 {
                     _currentRecognitionId = "";
@@ -275,7 +330,8 @@ internal sealed class BridgeHost : Form
                 {
                     if (!IsDisposed && _webView.CoreWebView2 is not null)
                         await _webView.CoreWebView2.ExecuteScriptAsync(
-                            "window.__vjResults?.stop(); window.__vjAudioBridge?.stop();");
+                            "window.__vjResults?.stop(); window.__vjAudioBridge?.stop();" +
+                            "window.__vjAudioRetry?.finish(" + JsonSerializer.Serialize(id) + ");");
                 }
                 catch (Exception) { }
                 // IMPORTANT: mark the helper idle before notifying Python. Python queues
@@ -362,11 +418,15 @@ internal sealed class BridgeHost : Form
         // Never reuse old button coordinates or assume a completed warm-up is
         // still valid: recheck the exact home URL, JS bridges and live button.
         var button = await PrepareHomeAsync(token);
+        var recognitionPageEpoch = _pageEpoch;
         Program.Log($"Recognition page ready id={id} prepareWaitMs={preparationWatch.ElapsedMilliseconds}");
         var baselineTrackIds = await GetAppleTrackIdsAsync(token);
         _best = null;
         _audioError = null;
         _audioStarted = false;
+        _audioRequested = false;
+        _audioRetryAttempts = 0;
+        _firstClickAt = 0;
         _audioBridgeArmed = false;
         _pcmDataArrived = false;
         _firstPcmPeak = 0;
@@ -384,10 +444,13 @@ internal sealed class BridgeHost : Form
             ");return true;})()";
         await EvaluateAsync(load, token);
         button = await WaitForButtonAsync(token);
+        if (_navigationInProgress || recognitionPageEpoch != _pageEpoch)
+            throw new InvalidOperationException("Shazam page changed while arming recognition");
         Program.Log($"Recognition start id={id} label={button.Label} baselineAppleIds={baselineTrackIds.Count}");
+        _firstClickAt = Stopwatch.GetTimestamp();
+        var watch = Stopwatch.StartNew(); // Never reset on retry; first-click deadlines are unchanged.
         await ClickAsync(button.X, button.Y, token);
-
-        var watch = Stopwatch.StartNew();
+        bool audioRetryConsidered = false;
         string routeEvidenceAttemptedFor = "";
         while (watch.Elapsed < TimeSpan.FromSeconds(15))
         {
@@ -453,16 +516,183 @@ internal sealed class BridgeHost : Form
             try { await _webView.CoreWebView2.ExecuteScriptAsync("window.__vjResults?.scan();"); }
             catch (Exception) { /* Navigation may be in progress. Route capture remains active. */ }
             await Task.Delay(100, token);
-            if (!_audioStarted && watch.Elapsed > TimeSpan.FromSeconds(10))
+            if (!_audioStarted && watch.Elapsed > AudioRequestDeadline)
             {
                 // Always preserve a bounded diagnostic snapshot BEFORE the helper is
                 // closed by Python. Normal recognition and no-match paths are unchanged.
                 await LogAudioRequestFailureAsync(id, button, watch.ElapsedMilliseconds, token);
                 throw new InvalidOperationException("The Shazam button did not request the supplied audio. Use VJ_SHAZAM_DEBUG=1 to inspect the page/consent dialog.");
             }
+            if (!audioRetryConsidered && !_audioStarted && watch.Elapsed >= AudioRetryDelay)
+            {
+                // One decision per recognition. Uncertain/busy states do not turn
+                // into repeated polling, repeated clicks, or a longer deadline.
+                audioRetryConsidered = true;
+                var retried = await TryAudioRetryAsync(id, button, recognitionPageEpoch, watch, token);
+                if (retried is not null) button = retried.Value;
+            }
         }
         Program.Log("Recognition finished with no usable match (15 second safety deadline).");
         return null;
+    }
+
+    private string? AudioRetryStopReason(string id, long pageEpoch, Stopwatch watch)
+    {
+        if (_cycle != id || _currentRecognitionId != id) return "cycle-changed";
+        if (_audioStarted || _audioRequested || _audioError is not null) return "audio-already-requested";
+        if (_best is not null || _definiteNoMatch || _tagResponses != 0) return "recognition-progress";
+        if (_nativePermissionsDenied != 0) return "native-permission-request";
+        if (_navigationInProgress || _pageEpoch != pageEpoch || !IsHomeUrl(_webView.CoreWebView2.Source))
+            return "page-changed";
+        if (!_audioBridgeArmed || !_pcmDataArrived) return "audio-not-ready";
+        if (_audioRetryAttempts != 0) return "retry-already-attempted";
+        // Leave ample room for the bounded (2s) decision and input dispatch.
+        if (watch.Elapsed >= AudioRequestDeadline - TimeSpan.FromSeconds(3)) return "deadline-near";
+        return null;
+    }
+
+    private async Task<JsonElement> ProbeAudioRetryAsync(
+        string method, string id, Button original, CancellationToken token)
+    {
+        var expression = "window.__vjAudioRetry?." + method + "(" +
+            JsonSerializer.Serialize(id) + "," + JsonSerializer.Serialize(Home) + "," +
+            JsonSerializer.Serialize(original.Key) + ")";
+        var json = await _webView.CoreWebView2.ExecuteScriptAsync(expression)
+            .WaitAsync(TimeSpan.FromMilliseconds(500), token);
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
+    private static bool RetryAllowed(JsonElement probe) => probe.ValueKind == JsonValueKind.Object &&
+        probe.TryGetProperty("allowed", out var allowed) && allowed.ValueKind == JsonValueKind.True;
+
+    private static string RetryProbeReason(JsonElement probe) => probe.ValueKind == JsonValueKind.Object
+        ? ReadString(probe, "reason") : "probe-unavailable";
+
+    private async Task<Button?> TryAudioRetryAsync(
+        string id, Button original, long pageEpoch, Stopwatch watch, CancellationToken token)
+    {
+        void Skip(string reason) => Program.Log($"Audio retry skipped id={id} instance={_instanceId} " +
+            $"afterClickMs={watch.ElapsedMilliseconds} reason={reason}");
+        var reason = AudioRetryStopReason(id, pageEpoch, watch);
+        if (reason is not null) { Skip(reason); return null; }
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
+        budget.CancelAfter(TimeSpan.FromSeconds(2));
+        bool dispatchStarted = false;
+        bool guardMayBeArmed = false;
+        try
+        {
+            var first = await ProbeAudioRetryAsync("probe", id, original, budget.Token);
+            if (!RetryAllowed(first)) { Skip(RetryProbeReason(first)); return null; }
+            var firstButton = first.TryGetProperty("button", out var b) ? ReadButton(b) : null;
+            if (firstButton is null) { Skip("invalid-button"); return null; }
+            await Task.Delay(HomeButtonSampleInterval, budget.Token);
+            reason = AudioRetryStopReason(id, pageEpoch, watch);
+            if (reason is not null) { Skip(reason); return null; }
+            // arm() repeats the entire JS-side probe immediately before installing
+            // the event guard. No cached coordinates or one-sided host decision.
+            guardMayBeArmed = true;
+            var second = await ProbeAudioRetryAsync("arm", id, original, budget.Token);
+            if (!RetryAllowed(second)) { Skip(RetryProbeReason(second)); return null; }
+            var button = second.TryGetProperty("button", out b) ? ReadButton(b) : null;
+            if (button is null || !SameButton(firstButton.Value, button.Value))
+            { Skip("button-unstable"); return null; }
+            reason = AudioRetryStopReason(id, pageEpoch, watch);
+            if (reason is not null) { Skip(reason); return null; }
+            budget.Token.ThrowIfCancellationRequested();
+            _audioRetryAttempts = 1;
+            dispatchStarted = true;
+            Program.Log($"Audio retry attempt id={id} instance={_instanceId} attempt=1 " +
+                $"afterClickMs={watch.ElapsedMilliseconds} idleEvidence={ReadString(second, "reason")} " +
+                $"pageEpoch={pageEpoch} label={button.Value.Label}");
+            await ClickAudioRetryAsync(id, button.Value, pageEpoch, budget.Token);
+            return button;
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested && !dispatchStarted)
+        {
+            Skip("probe-budget-exceeded");
+            return null;
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            // A timed-out CDP command may still be queued. Do not retry or keep
+            // this helper alive as if the mouse input had completed normally.
+            throw new InvalidOperationException("Shazam guarded audio retry dispatch timed out");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && !dispatchStarted)
+        {
+            Skip("probe-unavailable-" + ex.GetType().Name);
+            return null;
+        }
+        finally
+        {
+            if (guardMayBeArmed)
+            {
+                try
+                {
+                    var json = await _webView.CoreWebView2.ExecuteScriptAsync(
+                        "window.__vjAudioRetry?.finish(" + JsonSerializer.Serialize(id) + ");")
+                        .WaitAsync(TimeSpan.FromMilliseconds(500));
+                    if (dispatchStarted)
+                        Program.Log($"Audio retry dispatch id={id} instance={_instanceId} details={json}");
+                }
+                catch (Exception ex)
+                {
+                    Program.Log($"Audio retry guard cleanup unavailable id={id} reason={ex.GetType().Name}");
+                }
+            }
+        }
+    }
+
+    private async Task ClickAudioRetryAsync(string id, Button button, long pageEpoch, CancellationToken token)
+    {
+        var core = _webView.CoreWebView2;
+        bool pressed = false;
+        async Task Send(string type, CancellationToken cancellation)
+        {
+            var data = new { type, x = button.X, y = button.Y,
+                button = type == "mouseMoved" ? "none" : "left",
+                buttons = type == "mousePressed" ? 1 : 0, clickCount = type == "mouseMoved" ? 0 : 1 };
+            await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", JsonSerializer.Serialize(data))
+                .WaitAsync(TimeSpan.FromMilliseconds(500), cancellation);
+        }
+        try
+        {
+            foreach (var type in new[] { "mouseMoved", "mousePressed", "mouseReleased" })
+            {
+                token.ThrowIfCancellationRequested();
+                // JS revalidates again in capture phase, including progress which
+                // has not yet reached C# as a WebMessage.
+                if (_cycle != id || _navigationInProgress || _pageEpoch != pageEpoch ||
+                    _audioRequested || _audioStarted || _audioError is not null || _best is not null ||
+                    _tagResponses != 0 || _definiteNoMatch || _nativePermissionsDenied != 0)
+                {
+                    await core.ExecuteScriptAsync("window.__vjAudioRetry?.cancel(" + JsonSerializer.Serialize(id) + ");")
+                        .WaitAsync(TimeSpan.FromMilliseconds(500), token);
+                    if (pressed) { await Send("mouseReleased", token); pressed = false; }
+                    return;
+                }
+                // Mark before dispatch: cancellation cannot prove a queued press
+                // never arrived. Release it under the blocked JS guard in finally.
+                if (type == "mousePressed") pressed = true;
+                await Send(type, token);
+                if (type == "mouseReleased") pressed = false;
+                if (type == "mousePressed") await Task.Delay(50, token);
+            }
+        }
+        finally
+        {
+            if (pressed)
+            {
+                try
+                {
+                    await core.ExecuteScriptAsync("window.__vjAudioRetry?.cancel(" + JsonSerializer.Serialize(id) + ");")
+                        .WaitAsync(TimeSpan.FromMilliseconds(500));
+                    await Send("mouseReleased", CancellationToken.None);
+                }
+                catch (Exception) { /* Recognition failure closes/recycles this helper. */ }
+            }
+        }
     }
 
     private async Task LogAudioRequestFailureAsync(
@@ -473,7 +703,8 @@ internal sealed class BridgeHost : Form
             $"afterClickMs={elapsedMs} buttonLabel={button.Label} " +
             $"bridgeArmed={_audioBridgeArmed} pcmReached={_pcmDataArrived} " +
             $"firstPeak={_firstPcmPeak:F4} firstRms={_firstPcmRms:F4} " +
-            $"streamStarted={_audioStarted} tagResponses={_tagResponses} " +
+            $"audioRequested={_audioRequested} streamStarted={_audioStarted} " +
+            $"retryAttempts={_audioRetryAttempts} pageEpoch={_pageEpoch} tagResponses={_tagResponses} " +
             $"lastTagStatus={_lastTagStatus} nativePermissionsDenied={_nativePermissionsDenied} " +
             $"lastPermissionKind={_lastNativePermissionKind}");
         try
@@ -486,7 +717,7 @@ internal sealed class BridgeHost : Form
             var snapshot = await _webView.CoreWebView2.ExecuteScriptAsync(script)
                 .WaitAsync(TimeSpan.FromSeconds(2), token);
             Program.Log($"Audio request page snapshot id={id} instance={_instanceId} " +
-                $"details={snapshot[..Math.Min(snapshot.Length, 1800)]}");
+                $"details={snapshot[..Math.Min(snapshot.Length, 3600)]}");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -526,6 +757,7 @@ internal sealed class BridgeHost : Form
         var script = Script("metadata_fields.js") + "\n" + Script("route_evidence.js").Replace(
             "__BASELINE_TRACK_IDS__", JsonSerializer.Serialize(baselineTrackIds), StringComparison.Ordinal);
 
+        bool identityHintSent = false;
         while (deadline.Elapsed < RouteEvidenceWindow)
         {
             token.ThrowIfCancellationRequested();
@@ -583,7 +815,7 @@ internal sealed class BridgeHost : Form
                  string.IsNullOrWhiteSpace(liveRouteBest?.Artist))
                 ? VerifiedLegacyTrackIdentityGrace : VerifiedRouteIdentityGrace;
             if (_audioStarted && !_definiteNoMatch &&
-                deadline.Elapsed >= identityGrace &&
+                deadline.Elapsed >= VerifiedRouteIdentityGrace &&
                 TryParseShazamRoute(_webView.CoreWebView2.Source, out var liveRouteId) &&
                 string.Equals(liveRouteId, routeCandidate.ShazamTrackId, StringComparison.Ordinal) &&
                 // A /song ID and a /track ID have different identities even when
@@ -593,11 +825,25 @@ internal sealed class BridgeHost : Form
                 string.Equals(liveRouteBest.ShazamTrackId, liveRouteId, StringComparison.Ordinal))
             {
                 var result = Better(best, liveRouteBest);
-                Program.Log($"Verified route ID-only early return id={liveRouteId} " +
-                    $"elapsedMs={deadline.ElapsedMilliseconds} source={result.Evidence} " +
-                    $"titlePresent={!string.IsNullOrWhiteSpace(result.Title)} " +
-                    $"artistPresent={!string.IsNullOrWhiteSpace(result.Artist)}");
-                return result;
+                if (IsLegacyTrackRoute(routeCandidate.Url) && !identityHintSent)
+                {
+                    // Not a recognition result: Python can warm/check its
+                    // shared exact-ID metadata cache while DOM keeps painting.
+                    identityHintSent = true;
+                    Program.Send(new { type = "identity", id = _cycle,
+                        shazamTrackId = liveRouteId, url = routeCandidate.Url,
+                        source = "shazam-route" });
+                }
+                bool metadataReady = TryParseShazamRoute(_metadataReadyRoute, out var cachedId) &&
+                    cachedId == liveRouteId && SameShazamRouteKind(_metadataReadyRoute, routeCandidate.Url);
+                if (deadline.Elapsed >= identityGrace || metadataReady)
+                {
+                    Program.Log($"Verified route ID-only early return id={liveRouteId} " +
+                        $"elapsedMs={deadline.ElapsedMilliseconds} source={result.Evidence} " +
+                        $"titlePresent={!string.IsNullOrWhiteSpace(result.Title)} " +
+                        $"artistPresent={!string.IsNullOrWhiteSpace(result.Artist)} metadataReady={metadataReady}");
+                    return result;
+                }
             }
             await Task.Delay(75, token);
         }
@@ -618,7 +864,8 @@ internal sealed class BridgeHost : Form
         token.ThrowIfCancellationRequested();
         try
         {
-            if (!IsHomeUrl(_webView.CoreWebView2.Source)) return null;
+            if (_navigationInProgress || !IsHomeUrl(_webView.CoreWebView2.Source)) return null;
+            var epoch = _pageEpoch;
             var script = "(()=>{if(document.readyState==='loading'||!document.body||" +
                 "typeof window.__vjAudioBridge?.startLive!=='function'||" +
                 "typeof window.__vjAudioBridge?.stop!=='function'||" +
@@ -628,12 +875,11 @@ internal sealed class BridgeHost : Form
                 Script("find_button.js") + ";})()";
             var json = await _webView.CoreWebView2.ExecuteScriptAsync(script)
                 .WaitAsync(TimeSpan.FromSeconds(5), token);
-            if (!IsHomeUrl(_webView.CoreWebView2.Source) ||
+            if (_navigationInProgress || epoch != _pageEpoch || !IsHomeUrl(_webView.CoreWebView2.Source) ||
                 json == "null" || string.IsNullOrWhiteSpace(json)) return null;
             using var doc = JsonDocument.Parse(json);
             var r = doc.RootElement;
-            if (r.ValueKind == JsonValueKind.Object && r.TryGetProperty("x", out var x))
-                return new Button(x.GetDouble(), r.GetProperty("y").GetDouble(), ReadString(r, "label"));
+            return ReadButton(r);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -650,10 +896,43 @@ internal sealed class BridgeHost : Form
         if (IsHomeUrl(_webView.CoreWebView2.Source))
         {
             var existing = await FindButtonOnceAsync(token);
-            if (existing is not null) return existing.Value;
+            if (existing is not null) return await StabilizeHomeButtonAsync(existing.Value, token);
         }
         await NavigateHomeAsync(token);
-        return await WaitForButtonAsync(token);
+        return await StabilizeHomeButtonAsync(await WaitForButtonAsync(token), token);
+    }
+
+    private async Task<Button> StabilizeHomeButtonAsync(Button button, CancellationToken token)
+    {
+        // An already prepared document gets NO per-recognition sleep. First use
+        // after navigation requires >=400ms since completion and two stable DOM
+        // samples 100ms apart. This is a mitigation, not proof of site hydration.
+        if (!_navigationInProgress && _stableHomeEpoch == _pageEpoch) return button;
+        var watch = Stopwatch.StartNew();
+        Button? previous = null;
+        long previousEpoch = -1;
+        while (watch.Elapsed < TimeSpan.FromSeconds(12))
+        {
+            token.ThrowIfCancellationRequested();
+            if (!_navigationInProgress && IsHomeUrl(_webView.CoreWebView2.Source) &&
+                _homeCompletedAt != 0 && Stopwatch.GetElapsedTime(_homeCompletedAt) >= HomeNavigationSettle)
+            {
+                var current = await FindButtonOnceAsync(token);
+                if (current is not null && previous is not null && previousEpoch == _pageEpoch &&
+                    SameButton(previous.Value, current.Value))
+                {
+                    _stableHomeEpoch = _pageEpoch;
+                    Program.Log($"Home button stabilized pageEpoch={_pageEpoch} waitMs={watch.ElapsedMilliseconds} " +
+                        $"navigationAgeMs={(long)Stopwatch.GetElapsedTime(_homeCompletedAt).TotalMilliseconds} samples=2");
+                    return current.Value;
+                }
+                previous = current;
+                previousEpoch = _pageEpoch;
+            }
+            else previous = null;
+            await Task.Delay(HomeButtonSampleInterval, token);
+        }
+        throw new InvalidOperationException("Shazam homepage button did not stabilize after navigation");
     }
 
     private async Task NavigateHomeAsync(CancellationToken token)
@@ -696,7 +975,21 @@ internal sealed class BridgeHost : Form
         }
     }
 
-    private readonly record struct Button(double X, double Y, string Label);
+    private readonly record struct Button(double X, double Y, string Label, string Key);
+
+    private static Button? ReadButton(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object ||
+            !value.TryGetProperty("x", out var x) || !value.TryGetProperty("y", out var y) ||
+            x.ValueKind != JsonValueKind.Number || y.ValueKind != JsonValueKind.Number ||
+            !x.TryGetDouble(out var px) || !y.TryGetDouble(out var py) ||
+            !double.IsFinite(px) || !double.IsFinite(py) || px < 0 || py < 0) return null;
+        var key = ReadString(value, "key");
+        return key.Length == 0 ? null : new Button(px, py, ReadString(value, "label"), key);
+    }
+
+    private static bool SameButton(Button a, Button b) => a.Key == b.Key &&
+        Math.Abs(a.X - b.X) <= 2 && Math.Abs(a.Y - b.Y) <= 2;
     private async Task<Button> WaitForButtonAsync(CancellationToken token)
     {
         var deadline = Stopwatch.StartNew();
@@ -740,6 +1033,11 @@ internal sealed class BridgeHost : Form
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
     {
         if (!IsShazam(args.Uri)) { args.Cancel = true; return; }
+        _pageEpoch++;
+        _navigationId = args.NavigationId;
+        _navigationInProgress = true;
+        _homeCompletedAt = 0;
+        _stableHomeEpoch = -1;
         // Do NOT cancel the recognized song/track route. v1.2 briefly lets the exact
         // live result render so Japanese title/artist and the real Apple Music link
         // can be collected before the next recognition returns home.
@@ -804,7 +1102,13 @@ internal sealed class BridgeHost : Form
                     var c = JsonSerializer.Deserialize<Candidate>(args.WebMessageAsJson, Program.JsonOptions);
                     if (c is not null) Accept(c);
                     break;
+                case "audio-requested":
+                    _audioRequested = true;
+                    break;
                 case "audio-stream-started":
+                    if (!_audioStarted && _audioRetryAttempts > 0)
+                        Program.Log($"Audio request started after retry id={_cycle} instance={_instanceId} " +
+                            $"retryAttempts={_audioRetryAttempts} afterClickMs={(long)Stopwatch.GetElapsedTime(_firstClickAt).TotalMilliseconds}");
                     _audioStarted = true;
                     Program.Log("Official page requested app-supplied audio; stream running.");
                     break;

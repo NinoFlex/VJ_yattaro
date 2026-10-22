@@ -13,6 +13,7 @@ const sandbox = {
   YT: {PlayerState: {CUED: 5, PLAYING: 1, PAUSED: 2}},
   setTimeout(fn, ms) { callbacks.push({fn, ms}); return callbacks.length; },
   window: {addEventListener() {}},
+  document: {getElementById() { return null; }},
 };
 vm.createContext(sandbox);
 vm.runInContext(code + '\nwindow.__TestVJPlayer = VJPlayer;', sandbox, {filename: 'player.js'});
@@ -36,6 +37,9 @@ function createPlayer() {
   p.isReady = {B: false};
   p._lastPlayerState = {B: -1};
   p._preloadRequestSerial = 0;
+  // The same-video fast path reuses an actual earlier physical cue.
+  p._preloadRequestByPlayer = {B: {serial: 0, videoId: 'rank1', requestId: 'existing-cue'}};
+  p._verifiedCueSerial = {B: null};
   p.clearPlaybackError = () => {};
   p.sendFeedback = (state, id) => reports.push([state, id]);
   p.sendPlayerSnapshot = () => reports.push(['snapshot', p.nextVideoId]);
