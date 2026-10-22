@@ -1,6 +1,6 @@
 # Source layout and maintenance boundaries
 
-Release: `2026-10-21-stable-v1`.
+Release: `2026-10-22-stable-v2`.
 
 | Path | Responsibility |
 |---|---|
@@ -29,13 +29,22 @@ confirmed-metadata-pending label are recognized (their UI text is Japanese).
 presentation label. The model does not mutate the source tuple or add timers.
 `refresh_comments()` updates the comment cells without resetting row selection.
 
-## Unchanged runtime components
+## Runtime changes in stable-v2
 
-Compared with the base ZIP, application runtime changes are limited to
-`ui/widgets/shazam_history_model.py` and `app/version.py`. `main.py`, the candidate
-state machines, network clients, all C# and JavaScript, requirements, icons,
-PyInstaller specification and existing build scripts are byte-identical to base.
-The standalone integrity checker is new and is not part of application startup.
+`app/services/youtube_service.py` builds a three-stage `shazam_tieup` query plan:
+first the enriched template, next the independent Shazam template, then its
+artist-free query. The same `YouTubeSearchThread` executes these in order, after
+an empty or filtered-empty response. It stops on the first usable set of videos.
+The cap of three requests (excluding quota-key retries) and deduplication are
+unchanged. The normal Shazam/Rekordbox builders and the GUI orchestration stay
+unchanged. This does not resurrect any aborted initial search worker or the
+initial player's PRELOAD/PLAY cue; the active SearchRequest still has
+`metadata_refresh=True` and the usual two-vote and readiness gates.
+
+Relative to stable-v1, only the query planner, source-build tag, tests and
+release documentation are changed. The state machines, other network clients,
+C#, JavaScript, dependency pins, icons, specification and build scripts are
+unchanged. The integrity checker is not invoked by application startup.
 
 Confirmation, tie-up selection and browser readiness remain separate gates.
 Different known Shazam IDs cannot certify each other as the two required votes.

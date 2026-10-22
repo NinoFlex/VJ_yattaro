@@ -477,9 +477,9 @@ class IndependentTemplateTests(unittest.TestCase):
         self.assertEqual(s.create_search_query_from_track('Song','Artist','Anime',source_mode='shazam_tieup'),'Anime Song')
     def test_enriched_artist_fallback_preserves_comment(self):
         s=self.service({'youtube_search_template_shazam_tieup':'%tracktitle% %comment% %artist%'})
-        self.assertEqual(s.create_search_queries_from_track('Song','Artist','Anime',source_mode='shazam_tieup'),['Song Anime Artist','Song Anime'])
-    def test_default_tieup_template_does_not_add_artist(self):
-        self.assertEqual(self.service().create_search_queries_from_track('Song','Artist','Anime',source_mode='shazam_tieup'),['Song Anime'])
+        self.assertEqual(s.create_search_queries_from_track('Song','Artist','Anime',source_mode='shazam_tieup'),['Song Anime Artist','Song Artist','Song'])
+    def test_default_tieup_template_falls_back_to_initial_then_title_only(self):
+        self.assertEqual(self.service().create_search_queries_from_track('Song','Artist','Anime',source_mode='shazam_tieup'),['Song Anime','Song Artist','Song'])
     def test_blank_comment_has_no_literal_placeholder(self):
         self.assertEqual(self.service().create_search_query_from_track('Song','Artist','',source_mode='shazam_tieup'),'Song')
     def test_rekordbox_template_unchanged(self):

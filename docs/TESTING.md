@@ -1,24 +1,26 @@
 # テスト手順・検証結果
 
-Release: `2026-10-21-stable-v1`  
-Base: `2026-10-20-shazam-tieup-priority-v1`
+Release: `2026-10-22-stable-v2`
+
+Base: `2026-10-21-stable-v1`
 
 ## Results for this source revision
 
 | Suite | Result | Scope |
 |---|---:|---|
-| Existing Python suite before changes | 955 passed | Baseline verification |
-| Python full regression after changes | 991 passed | Includes 27 comment/status tests + 9 manifest checks |
+| Previous stable-v1 Python suite | 991 passed | Carried forward unchanged |
+| Python full regression after changes | 1006 passed | Added 15 tie-up three-stage search tests |
 | Node JavaScript mock checks | 60 passed | 29 Shazam + 5 recovery + 8 race + 18 same-video re-PRELOAD |
 | Offline Chromium | 169 passed | 40 artist + 60 header + 22 plain artist + 9 readiness + 38 audio-start |
 | Separate `tests/browser_checks.py` | Blocked | `ERR_BLOCKED_BY_ADMINISTRATOR` at localhost navigation; excluded from passed totals |
 | Actual Qt render / Windows EXE / real services | Not run | PySide6 unavailable; no Windows execution environment |
 
-The new comment/status suite was run before the display change: 27 tests ran,
-9 failed with the old implementation. All 27 pass after the display change.
-Tests exercise the actual model and MainWindow methods with Qt interfaces mocked.
-Their results do not assert screen repaint timing or microphone/audio recognition
-accuracy. The 89 historical log-derived Uta-Net fixture inputs remain synthetic
+The stable-v1 comment/status tests remain in the full suite. The 15 new tests
+exercise the actual query generator, sequential worker on simulated HTTP result
+sets, query cancellation and API errors, and the MainWindow search entry point.
+They verify the reported `Dolphin☆jet` query ordering but cannot prove that
+YouTube currently returns videos for any of those queries. The Qt interfaces
+are mocked, so they do not prove physical screen repaint or audio accuracy. The 89 historical log-derived Uta-Net fixture inputs remain synthetic
 HTTP tests, NOT 89 new live requests or a measured hit rate.
 
 The release verification was performed on Linux, Python 3.13.5, Node.js 22.16.0
@@ -69,7 +71,13 @@ navigation is permitted. A blocked navigation is not a successful test.
 
 ## Windows acceptance checklist
 
-- Start the new executable and check `UI: Source build: 2026-10-21-stable-v1`.
+- Start the new executable and check `UI: Source build: 2026-10-22-stable-v2`.
+- Enable tie-up enrichment with a suitable test song; where first/second queries
+  return no usable results, confirm the logs show `query 1/3`, `2/3`, `3/3` in
+  the order enriched → normal Shazam → artist-free Shazam. Where the first query
+  succeeds, confirm there are no follow-up requests.
+- Confirm only the current candidate's new search results may auto-PLAY after
+  two votes and player readiness, even if the old initial search had a PRELOAD.
 - On the first vote, verify that the comment column displays the Japanese
   tentative label, with no added label in title or artist.
 - When a tie-up arrives before confirmation, verify label + comment together.

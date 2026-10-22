@@ -903,17 +903,18 @@ class YouTubeService(QObject):
         self, track_title: str, artist: str, comment: str = "",
         source_mode: str = "rekordbox", *, allow_inline_artist: bool = False,
     ) -> List[str]:
-        """Build at most three queries without changing stored track metadata.
+        """Build at most three distinct queries without changing stored metadata.
 
-        1. The configured template, unchanged.
-        2. The same template without the artist field.
-        3. Also omit explicit guest credits, such as "(loves. Singer)".
+        For Shazam tie-up search: use the enriched template first, then the
+        independently configured normal Shazam query, then its artist-free
+        fallback. Each step runs only when the previous query returns no usable
+        videos, and all belong to the *new* tie-up search (not the cancelled
+        initial search's results or PRELOAD). A tie-up's failure to find videos
+        does not authorize an old initial cue to play.
 
-        Fixed template words and comments are retained. Artist-only or
-        comment-only templates are never broadened to unrelated title searches.
-        For free-text searches only, a guest-credit closing parenthesis can
-        delimit a pasted title from a following artist. Do not guess by simply
-        deleting the last whitespace-separated word of a song title.
+        Other searches retain the existing template -> no artist -> no guest
+        credit fallback. Do not guess which words of a free-form title are an
+        artist, or broaden artist/comment-only templates to unrelated titles.
         """
         template = self.get_search_template(source_mode)
         track_data = {
@@ -926,6 +927,21 @@ class YouTubeService(QObject):
         if not template or "%tracktitle%" not in template:
             return queries
         if not self.sanitize_search_query(track_title):
+            return queries
+
+        if str(source_mode or "").strip().lower() == "shazam_tieup":
+            # The normal Shazam template is user-configurable and independent of
+            # the enriched template. Never reuse an old search's results or cue:
+            # these queries run sequentially in the enriched search worker.
+            initial_queries = self.create_search_queries_from_track(
+                track_title, artist, "", source_mode="shazam",
+                allow_inline_artist=allow_inline_artist,
+            )
+            for query in initial_queries:
+                if query and query not in queries:
+                    queries.append(query)
+                if len(queries) >= _MAX_SEARCH_QUERIES:
+                    break
             return queries
 
         title = unicodedata.normalize("NFKC", str(track_title)).strip()

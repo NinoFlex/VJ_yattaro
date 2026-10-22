@@ -579,5 +579,166 @@ class SearchFallbackWiringTests(unittest.TestCase):
         self.assertIs(result, worker)
 
 
+
+class TieupThreeStageFallbackTests(unittest.TestCase):
+    """Live code for query planning/worker, mocked HTTP and Qt interfaces."""
+    def service(self, values=None):
+        return SearchTemplateTests()._service(values or {})
+
+    def queries(self, title='Dolphin☆jet', artist='彩音',
+                comment='ケンコー全裸系水泳部 ウミショー オープニング', values=None):
+        return self.service(values).create_search_queries_from_track(
+            title, artist, comment, source_mode='shazam_tieup'
+        )
+
+    def thread(self, queries):
+        worker = YouTubeSearchThread(['test-key'], 0, queries[0], fallback_queries=queries[1:])
+        worker.search_completed = Mock()
+        worker.search_error = Mock()
+        return worker
+
+    def test_dolphin_star_jet_exact_runtime_fallback_order(self):
+        self.assertEqual(self.queries(), [
+            'Dolphin jet ケンコー全裸系水泳部 ウミショー オープニング',
+            'Dolphin jet 彩音',
+            'Dolphin jet',
+        ])
+
+    def test_shazam_templates_keep_independent_custom_order(self):
+        self.assertEqual(self.queries('Song', 'Artist', 'Anime', {
+            'youtube_search_template_shazam_tieup': '%comment% %tracktitle%',
+            'youtube_search_template_shazam': 'Original %artist% %tracktitle%',
+        }), ['Anime Song', 'Original Artist Song', 'Original Song'])
+
+    def test_tieup_template_with_artist_still_uses_original_next(self):
+        self.assertEqual(self.queries('Song', 'Artist', 'Anime', {
+            'youtube_search_template_shazam_tieup': '%tracktitle% %comment% %artist%',
+        }), ['Song Anime Artist', 'Song Artist', 'Song'])
+
+    def test_duplicate_queries_do_not_consume_extra_request(self):
+        self.assertEqual(self.queries('Song', 'Artist', 'Anime', {
+            'youtube_search_template_shazam_tieup': '%tracktitle% %artist%',
+        }), ['Song Artist', 'Song'])
+
+    def test_empty_comment_has_no_literal_placeholder_or_duplicate(self):
+        self.assertEqual(self.queries('Song', 'Artist', ''), ['Song', 'Song Artist'])
+
+    def test_no_artist_and_no_valid_title_cannot_create_empty_search(self):
+        self.assertEqual(self.queries('Song', '', 'Anime'), ['Song Anime', 'Song'])
+        self.assertEqual(self.queries('', 'Artist', 'Anime'), ['Anime'])
+        self.assertEqual(self.queries('! ()', 'Artist', 'Anime'), ['Anime'])
+
+    def test_normal_shazam_search_and_rekordbox_stay_unchanged(self):
+        service = self.service()
+        self.assertEqual(service.create_search_queries_from_track(
+            'Song', 'Artist', 'Anime', source_mode='shazam'), ['Song Artist', 'Song'])
+        self.assertEqual(service.create_search_queries_from_track(
+            'Song', 'Artist', 'Anime', source_mode='rekordbox'), ['Song Anime'])
+
+    def test_original_shazam_guest_credit_fallback_preserved(self):
+        title = 'Song (feat. Singer)'
+        self.assertEqual(self.queries(title, 'Artist', 'Anime'), [
+            'Song feat. Singer Anime', 'Song feat. Singer Artist', 'Song feat. Singer'
+        ])
+        self.assertEqual(self.service().create_search_queries_from_track(
+            title, 'Artist', source_mode='shazam'), [
+            'Song feat. Singer Artist', 'Song feat. Singer', 'Song'
+        ])
+
+    def test_enriched_hit_stops_without_initial_search(self):
+        queries = self.queries()
+        worker = self.thread(queries)
+        result = [{'video_id': 'enriched-result'}]
+        with patch.object(worker, '_search_with_key_rotation', return_value=result) as search:
+            worker.run()
+        self.assertEqual(search.call_args_list, [call(queries[0])])
+        worker.search_completed.emit.assert_called_once_with(result)
+
+    def test_fallback_to_initial_keywords_after_zero_enriched(self):
+        queries = self.queries()
+        worker = self.thread(queries)
+        result = [{'video_id': 'initial-keywords-result'}]
+        with patch.object(worker, '_search_with_key_rotation', side_effect=[[], result]) as search:
+            worker.run()
+        self.assertEqual(search.call_args_list, [call(queries[0]), call(queries[1])])
+        worker.search_completed.emit.assert_called_once_with(result)
+
+    def test_fallback_to_title_after_two_zero_results(self):
+        queries = self.queries()
+        worker = self.thread(queries)
+        result = [{'video_id': 'title-only-result'}]
+        with patch.object(worker, '_search_with_key_rotation', side_effect=[[], [], result]) as search:
+            worker.run()
+        self.assertEqual(search.call_args_list, [call(q) for q in queries])
+        worker.search_completed.emit.assert_called_once_with(result)
+
+    def test_three_empty_results_do_not_create_a_fourth_request(self):
+        queries = self.queries()
+        worker = self.thread(queries)
+        with patch.object(worker, '_search_with_key_rotation', return_value=[]) as search:
+            worker.run()
+        self.assertEqual(search.call_args_list, [call(q) for q in queries])
+        worker.search_completed.emit.assert_called_once_with([])
+
+    def test_transport_error_does_not_weaken_the_query(self):
+        queries = self.queries()
+        worker = self.thread(queries)
+        with patch.object(worker, '_search_with_key_rotation', side_effect=TimeoutError('fail')) as search:
+            worker.run()
+        self.assertEqual(search.call_args_list, [call(queries[0])])
+        worker.search_completed.emit.assert_not_called()
+        worker.search_error.emit.assert_called_once_with('fail')
+
+    def test_cancelled_enriched_request_does_not_run_old_fallbacks(self):
+        queries = self.queries()
+        worker = self.thread(queries)
+        def cancel_after_first(query):
+            worker.abort()
+            return []
+        with patch.object(worker, '_search_with_key_rotation', side_effect=cancel_after_first) as search:
+            worker.run()
+        self.assertEqual(search.call_args_list, [call(queries[0])])
+        worker.search_completed.emit.assert_not_called()
+        worker.search_error.emit.assert_not_called()
+
+    def test_ui_metadata_refresh_wires_all_queries_to_single_new_worker(self):
+        import types
+        from app.models.search_request import SearchRequest
+        service = self.service()
+        service.is_configured = Mock(return_value=True)
+        search_thread = Mock()
+        service.search_videos = Mock(return_value=search_thread)
+        fake_youtube = types.ModuleType('app.services.youtube_service')
+        fake_youtube.YouTubeService = lambda: service
+        fake_logger = types.ModuleType('app.utils.logger')
+        fake_logger.info, fake_logger.error = Mock(), Mock()
+        win = types.SimpleNamespace(
+            source_mode='shazam', youtube_search_thread=None,
+            config_service=service.config_service,
+            _set_searching_state=Mock(), _set_youtube_search_error=Mock(),
+            _refresh_connection_statuses=Mock(),
+            _cancel_autoplay_recovery=Mock(),
+            on_youtube_search_completed=Mock(), on_youtube_search_error=Mock(),
+            _on_search_finished=Mock(),
+        )
+        method = SearchFallbackWiringTests._main_search_method()
+        with patch.dict(sys.modules, {
+            'app.services.youtube_service': fake_youtube,
+            'app.utils.logger': fake_logger,
+        }):
+            method(win, 'Dolphin☆jet', '彩音',
+                   'ケンコー全裸系水泳部 ウミショー オープニング',
+                   from_list=True, allow_auto_play=False, source_mode='shazam',
+                   _metadata_refresh=True)
+        service.search_videos.assert_called_once_with(
+            'Dolphin jet ケンコー全裸系水泳部 ウミショー オープニング',
+            win.on_youtube_search_completed,
+            fallback_queries=['Dolphin jet 彩音', 'Dolphin jet'],
+        )
+        self.assertEqual(win._current_track_info['comment'],
+                         'ケンコー全裸系水泳部 ウミショー オープニング')
+        self.assertFalse(win._active_search_allow_auto_play)
+        search_thread.start.assert_called_once()
+
 if __name__ == '__main__':
     unittest.main()
